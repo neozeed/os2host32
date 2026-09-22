@@ -1,0 +1,5 @@
+LIBRARY KBDCALLS
+EXPORTS
+    KbdCharIn       @4 NONAME
+    KbdStringIn     @9 NONAME
+    KbdFlushBuffer  @13 NONAME

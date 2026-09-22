@@ -1,0 +1,11 @@
+M29O - batch-language torture/hardening
+
+* preserve quoted and empty batch positional arguments
+* preserve the exact original %* argument tail across SHIFT
+* add CmdBatchEndCurrent() for direct CMD/BAT chaining semantics
+* distinguish CALL child.cmd from direct child.cmd replacement
+* automatically unwind SETLOCAL scopes opened by CALL :label subroutines
+* add nested CALL/GOTO/SHIFT/IF/FOR/ERRORLEVEL torture scripts
+* add manual Ctrl+C-inside-batch regression
+* add portable C89 m29o-batch-host-test / make m29o-batch-check
+* update CMD banner/VER string to M29O

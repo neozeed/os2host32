@@ -1,0 +1,10 @@
+M31A R12
+========
+
+* Add guarded 256 KB runtime stack headroom for small PM executables.
+* Preserve historical object size/pages/fixups; extend only mapping + initial ESP.
+* Refuse stack promotion if initial ESP is not the object end or another object overlaps.
+* Leave already-large PM stacks (including Sarien) unchanged.
+* Move WinDrawText guest text copy from a 512-byte C local to the Win32 process heap.
+* Add tools/check_m31a_wmchar_stack.py and wire it into m31a-wmchar-check.
+* Keep R11 relocation/metrics/key tracing for validation.

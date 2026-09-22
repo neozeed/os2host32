@@ -1,0 +1,15 @@
+Milestone 29G2 - C/386 Beta 2 startup compatibility
+
+* Removed the direct backend dependency on DosGetInfoBlocks.  The prerelease
+  OS2386.LIB used with Microsoft C/386 6.00.081 does not provide that later
+  32-bit OS/2 API.
+* CmdO2Init now seeds the CMD-owned environment from Microsoft C 6's environ[]
+  startup table, copying it into the existing double-NUL environment store.
+* CmdO2QueryProgramPath now uses Microsoft C's _pgmptr startup global, which
+  supplies the full executing-program pathname.
+* No OS2HOST32 far16 bridge code changed.  M29F remains the bridge baseline.
+* The M29G1 PEAOP2 compatibility fix is retained.
+
+This deliberately consumes state already reconstructed by OS2HOST32's C/386
+startup contract instead of inventing a DosGetInfoBlocks import that this SDK
+does not contain.

@@ -1,0 +1,8 @@
+NAME	jigsaw WINDOWAPI
+ 
+DESCRIPTION 'Jigsaw Retained Graphics Sample'
+ 
+STUB    'OS2STUB.EXE'
+ 
+HEAPSIZE  4096
+STACKSIZE 8192

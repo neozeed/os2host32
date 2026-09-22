@@ -1,0 +1,9 @@
+EXPORTS
+    OS2HostModuleLoad
+    OS2HostModuleQueryHandle
+    OS2HostModuleQueryName
+    OS2HostModuleQueryProc
+    OS2HostModuleFree
+    OS2HostModuleTerminateAll
+    OS2HostQueryMainStack
+    OS2HostQueryMainCommand

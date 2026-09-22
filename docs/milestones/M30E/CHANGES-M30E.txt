@@ -1,0 +1,13 @@
+Milestone 30E
+-------------
+
+* Identified DOSCALLS ordinal 354 as DosSetExceptionHandler.
+* Added the two-dword OS/2 EXCEPTIONREGISTRATIONRECORD view.
+* Added a single-thread guest exception registration chain for the current
+  M30 EMX execution model.
+* DosSetExceptionHandler links the supplied record at the chain head, fills
+  prev_structure, mirrors the head in tib_pexchain, and returns NO_ERROR.
+* Added ordinal 355 DosUnsetExceptionHandler as the matching teardown path.
+* Added opt-in `M30E EXCEPT:` tracing under OS2_TRACE_EMX_SELF.
+* Does not yet translate or dispatch Win32 exceptions to guest OS/2 handlers.
+* Keeps M30C a.out relocation and M30D TIB stack behavior unchanged.

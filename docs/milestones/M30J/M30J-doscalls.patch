@@ -1,0 +1,149 @@
+--- /mnt/data/m30i/m30i/doscalls.c	2026-09-17 19:20:27.998599770 +0000
++++ /mnt/data/m30j/m30j/doscalls.c	2026-09-17 19:30:19.145398731 +0000
+@@ -125,6 +125,7 @@
+ #define O2_ERROR_INVALID_ACCESS    12UL
+ #define O2_ERROR_NOT_ENOUGH_MEMORY  8UL
+ #define O2_ERROR_INVALID_PARAMETER 87UL
++#define O2_ERROR_INVALID_CATEGORY 117UL
+ #define O2_ERROR_WAIT_NO_CHILDREN 128UL
+ #define O2_ERROR_CHILD_NOT_COMPLETE 129UL
+ #define O2_ERROR_BUFFER_OVERFLOW 111UL
+@@ -874,6 +875,128 @@
+     return O2_NO_ERROR;
+ }
+ 
++/* 284 - DosDevIOCtl.
++ *
++ * OS/2 exposes device-specific control operations through one nine-argument
++ * gateway.  EMX probes this API while classifying inherited descriptors --
++ * in particular it uses category 01h ASYNC calls to find out whether an
++ * HFILE is a serial device.  A probe which does not apply to the underlying
++ * device is a normal error return on OS/2; it must not be treated as a
++ * missing-import fatal error by the host.
++ *
++ * M30J therefore supplies the real 32-bit ABI and deliberately implements a
++ * conservative capability boundary.  Unsupported device functions return
++ * ERROR_INVALID_CATEGORY/ERROR_INVALID_FUNCTION while leaving caller buffers
++ * untouched.  This is sufficient for EMX's normal console/disk HFILE probes
++ * and gives us precise category/function traces before we add any device-
++ * specific emulation.
++ *
++ * Category 01h, function 68h (ASYNC_GETINQUECOUNT) gets a small useful
++ * implementation for genuine Win32 communications handles.  OS/2 returns a
++ * pair of USHORTs: current receive-queue count and queue capacity.  For a
++ * normal console, pipe, or disk handle the category is rejected, exactly the
++ * path EMX expects when testing whether an HFILE is serial.
++ */
++O2APIRET __cdecl DosDevIOCtl(O2HFILE hDevice,
++                             O2ULONG category,
++                             O2ULONG function,
++                             void *pParmList,
++                             O2ULONG cbParmLengthMax,
++                             O2ULONG *pcbParmLengthInOut,
++                             void *pDataArea,
++                             O2ULONG cbDataLengthMax,
++                             O2ULONG *pcbDataLengthInOut)
++{
++    HANDLE h;
++    DCB dcb;
++    COMMPROP prop;
++    COMSTAT stat;
++    DWORD errors;
++
++    (void)pParmList;
++    (void)cbParmLengthMax;
++    (void)pcbParmLengthInOut;
++
++    if (category > 0xffUL || function > 0xffUL)
++        return O2_ERROR_INVALID_PARAMETER;
++
++    /* Some OS/2 IOCTLs use -1 as a pseudo-handle.  No such operation is
++     * implemented by M30J yet, but do not accidentally feed it to Win32. */
++    if (hDevice == 0xffffffffUL) {
++        if (io_trace_enabled()) {
++            fprintf(stderr,
++                    "M30J DEVIOCTL: hfile=-1 category=%02lX function=%02lX -> unsupported pseudo-handle\n",
++                    (unsigned long)category, (unsigned long)function);
++            fflush(stderr);
++        }
++        return O2_ERROR_INVALID_FUNCTION;
++    }
++
++    h = os2_handle(hDevice);
++    if (h == NULL || h == INVALID_HANDLE_VALUE)
++        return O2_ERROR_INVALID_HANDLE;
++
++    if (io_trace_enabled()) {
++        fprintf(stderr,
++                "M30J DEVIOCTL: hfile=%lu handle=%p native=%s category=%02lX function=%02lX parmMax=%lu parmLen=%s dataMax=%lu dataLen=%s\n",
++                (unsigned long)hDevice, (void *)h, win_handle_type_name(h),
++                (unsigned long)category, (unsigned long)function,
++                (unsigned long)cbParmLengthMax,
++                pcbParmLengthInOut != NULL ? "ptr" : "null",
++                (unsigned long)cbDataLengthMax,
++                pcbDataLengthInOut != NULL ? "ptr" : "null");
++        fflush(stderr);
++    }
++
++    /* IOCTL_ASYNC / ASYNC_GETINQUECOUNT.  GetCommState is a cheap and
++     * reliable discriminator between a Win32 console character handle and a
++     * communications handle. */
++    if (category == 0x01UL && function == 0x68UL) {
++        memset(&dcb, 0, sizeof(dcb));
++        dcb.DCBlength = sizeof(dcb);
++        if (!GetCommState(h, &dcb))
++            return O2_ERROR_INVALID_CATEGORY;
++
++        if (pDataArea == NULL || cbDataLengthMax < 4UL ||
++            pcbDataLengthInOut == NULL)
++            return O2_ERROR_INVALID_PARAMETER;
++
++        errors = 0;
++        memset(&stat, 0, sizeof(stat));
++        if (!ClearCommError(h, &errors, &stat))
++            return (O2APIRET)GetLastError();
++
++        memset(&prop, 0, sizeof(prop));
++        if (!GetCommProperties(h, &prop))
++            prop.dwCurrentRxQueue = 0UL;
++
++        ((unsigned short *)pDataArea)[0] =
++            (unsigned short)(stat.cbInQue > 0xffffUL ? 0xffffUL : stat.cbInQue);
++        ((unsigned short *)pDataArea)[1] =
++            (unsigned short)(prop.dwCurrentRxQueue > 0xffffUL ?
++                             0xffffUL : prop.dwCurrentRxQueue);
++        *pcbDataLengthInOut = 4UL;
++
++        if (io_trace_enabled()) {
++            fprintf(stderr,
++                    "M30J DEVIOCTL: ASYNC_GETINQUECOUNT count=%u capacity=%u -> rc=0\n",
++                    (unsigned int)((unsigned short *)pDataArea)[0],
++                    (unsigned int)((unsigned short *)pDataArea)[1]);
++            fflush(stderr);
++        }
++        return O2_NO_ERROR;
++    }
++
++    /* The remaining EMX call sites cover optional ASYNC and extension-device
++     * operations.  Returning an ordinary OS/2 capability error is preferable
++     * to fabricating successful device state; callers can take their normal
++     * fallback paths and the trace tells us which operation is actually
++     * required next. */
++    if (category == 0x01UL)
++        return O2_ERROR_INVALID_FUNCTION;
++    return O2_ERROR_INVALID_CATEGORY;
++}
++
+ O2APIRET __cdecl DosBeep(O2ULONG frequency, O2ULONG duration)
+ {
+     WAVEHDR hdr;
+--- /mnt/data/m30i/m30i/doscalls.def	2026-09-17 19:20:27.998765871 +0000
++++ /mnt/data/m30j/m30j/doscalls.def	2026-09-17 19:30:19.145574366 +0000
+@@ -31,6 +31,7 @@
+     DosRead            @281 NONAME
+     DosWrite           @282 NONAME
+     DosExecPgm         @283 NONAME
++    DosDevIOCtl        @284 NONAME
+     DosBeep            @286 NONAME
+     DosExitList        @296 NONAME
+     DosAllocMem        @299 NONAME

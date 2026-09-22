@@ -1,0 +1,61 @@
+CMD32 COPY QOL R1
+=================
+
+Base: M31G R19 FINAL + CMD32 STARTUP R1 + CMD32 HISTORY R1.
+
+Scope
+-----
+
+This is a CMD32-only quality-of-life patch.  It does not alter the frozen
+M31G Presentation Manager/runtime behavior.
+
+Changes
+-------
+
+* COPY now accepts an omitted destination for the ordinary one-source form.
+  For example, while C:\TEMP is current:
+
+      copy C:\TEST.TXT
+
+  is interpreted exactly as:
+
+      copy C:\TEST.TXT .
+
+  The same default applies to a one-source wildcard form.  Binary /B may be
+  present.  Concatenation (COPY A+B ...) keeps its existing requirement for
+  an explicit destination rather than guessing at historical omitted-target
+  concatenation semantics.
+
+* COPY's existing self-copy guard is strengthened from literal string
+  comparison to lexical DOS/OS2 path identity.  It compares paths against the
+  current OS/2 directory, folds slash direction/case for comparison, and
+  resolves . and .. components.  Therefore these are recognized as the same
+  destination when C:\TEMP is current:
+
+      C:\TEMP\TEST.TXT
+      .\TEST.TXT
+      TEST.TXT
+      C:\TEMP\SUB\..\TEST.TXT
+
+* A self-copy is rejected before CmdO2OpenWriteReplace is called, preserving
+  the M29P protection against truncating the source.  The error remains:
+
+      The file cannot be copied onto itself - <source>
+
+Regression
+----------
+
+Run:
+
+    make cmd32-copy-qol-check
+
+The target chains the earlier STARTUP.CMD and 30-entry history/editor checks,
+then runs a host integration test proving both implicit-destination copy and
+pre-open self-copy rejection.  The full frozen PM regression remains:
+
+    make m31g-neko-r19-check
+
+As with the preceding CMD32 QOL patches, the final Microsoft C/386 + LINK386
+OS/2 shell build must be performed on the Windows/i3 build machine with:
+
+    build-os2-shell.cmd

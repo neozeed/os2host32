@@ -1,0 +1,4 @@
+M31D R3
+- Map OS/2 CLR_WHITE/BLACK and the full 16-colour logical palette in PMWIN.
+- Honor OS/2 dialog-template parent-relative bottom-left x/y in WinDlgBox.
+- Preserve R2 ordinal/resource/multi-class functionality unchanged.

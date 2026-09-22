@@ -1,0 +1,6 @@
+M29J2
+- Normalize CMD-owned OS/2 environment blocks before passing them to Win32 CreateProcessA.
+- Preserve valid =X:=path hidden drive-current-directory entries.
+- Sort child environment entries case-insensitively without mutating CMD's private environment.
+- Add OS2_TRACE_EXEC=1 diagnostics for nested command, environment size, std HANDLE types, and CreateProcessA failure.
+- No changes to C/386 far16 bridge descriptors, shell parser, or OS2HOST32 loader.

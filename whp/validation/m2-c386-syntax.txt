@@ -1,0 +1,2 @@
+PASS: process1.c and execchild.c
+GNU89 -m32 syntax only, historical OS/2 headers, M_I386, warnings treated as errors; NOT a C/386 compile or link.

@@ -1,0 +1,9 @@
+M31G R8
+- Added PMWIN ordinal 727: WinDestroyPointer(HPOINTER).
+- Added a generic compatibility-owned HPOINTER registry.
+- WinLoadPointer now records the native icon/cursor handles it creates.
+- WinDestroyPointer destroys only compatibility-owned handles and refuses
+  system/shared handles, matching OS/2's ownership rule.
+- Handles created by CreateIconIndirect are released with DestroyIcon.
+- Added R8 static regression check and NEKO smoke-test command.
+- No application-name/resource-ID hacks.

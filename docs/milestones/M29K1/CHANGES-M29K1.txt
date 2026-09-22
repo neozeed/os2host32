@@ -1,0 +1,8 @@
+M29K1
+- Harden nested C/386 command execution against R6000 stack overflow.
+- Move ParserState and large parser expansion scratch storage off the stack.
+- Remove duplicate 8 KB InitLex expansion frame.
+- Move IF/FOR conditional scratch command buffers to heap storage.
+- Reduce run_line and execute_node_core automatic command-buffer frames.
+- Preserve M29J1 61440-byte STACKSIZE and all M29K process semantics.
+- No LE/LX loader, far16 bridge, DOSCALLS ABI, VIO, or KBD changes.

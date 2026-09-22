@@ -1,0 +1,6 @@
+PASS: gpi1.c and pmhello.c; 32-bit C89 type/syntax checks against supplied Beta2 SDK.
+gcc -m32 -std=c89 -Wall -Wextra -Werror -Wno-comment -Wno-unknown-pragmas -fsyntax-only -nostdinc -DM_I386 -D_syscall= -D_cdecl= -Dcdecl= -D_far= -D_near= -Ic386-headers/os2h -Isdk-check-include whp-r11-gpi/gpi1.c whp-r11-gpi/pmhello.c
+Legacy keywords removed; existing SDK comment/pragma warnings suppressed.
+Not a Microsoft C/386 build or link. No live WHP or Windows GUI execution here.
+
+FIX 1: corrected palette wrapper checked against same Beta2 SDK with a compile-time 128-byte assertion; PASS.

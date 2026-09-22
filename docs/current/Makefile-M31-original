@@ -1,0 +1,385 @@
+CC ?= cc
+CFLAGS ?= -O2 -Wall -Wextra -pedantic -std=c89
+MINGW ?= i686-w64-mingw32-gcc
+
+PYTHON ?= python
+OS2CMD ?= CMD-OS2.EXE
+NTCMD ?= CMD-NT1991.EXE
+
+
+all: tools compat
+
+tools: le2pe386.exe os2host32.exe cmd32os2.exe m29n2b2-setentry.exe
+
+compat: DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll NLS.dll PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll
+
+# Friendly alias for people thinking in terms of the compatibility DLL set.
+dlls: compat
+
+crosswalk:
+	$(PYTHON) tools/ntcmd_symbols.py "$(NTCMD)" analysis
+	$(PYTHON) tools/build_cmd_crosswalk.py analysis/nt_functions.tsv analysis
+	$(PYTHON) tools/compare_cmd_strings.py "$(OS2CMD)" "$(NTCMD)" analysis
+
+le2pe386.exe: le2pe386.c
+	$(MINGW) -O2 -Wall -o $@ le2pe386.c
+
+
+m29n2b2-setentry.exe: m29n2b2-setentry.c
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -o $@ m29n2b2-setentry.c
+os2host32.exe: os2host32.c os2host32.def
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -Wl,--disable-dynamicbase,--image-base,0x400000 -o $@ os2host32.c os2host32.def
+
+cmd32os2.exe: cmd32os2.c cmdparse.c cmdparse.h cmdbatch.c cmdbatch.h cmdfile.c cmdfile.h cmdos2_win32.c cmdos2_session_win32.c cmdos2_env.c cmdos2_env.h cmdos2.h
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -o $@ cmd32os2.c cmdparse.c cmdbatch.c cmdfile.c cmdos2_win32.c cmdos2_session_win32.c cmdos2_env.c
+
+parse-test-host: cmdparse.c cmdparse.h parse-test.c
+	$(CC) $(CFLAGS) -o $@ cmdparse.c parse-test.c
+
+parser-check: parse-test-host
+	./parse-test-host
+
+
+batch-test-host: cmdbatch.c cmdbatch.h batch-test.c
+	$(CC) $(CFLAGS) -o $@ cmdbatch.c batch-test.c
+
+batch-check: batch-test-host
+	./batch-test-host
+
+
+m29o-batch-host-test: cmdbatch.c cmdbatch.h m29o-batch-host-test.c
+	$(CC) $(CFLAGS) -o $@ cmdbatch.c m29o-batch-host-test.c
+
+m29o-batch-check: m29o-batch-host-test
+	./m29o-batch-host-test
+
+
+m29o1-parser-for-test: cmdparse.c cmdparse.h m29o1-parser-for-test.c
+	$(CC) $(CFLAGS) -o $@ cmdparse.c m29o1-parser-for-test.c
+
+m29o1-parser-check: m29o1-parser-for-test
+	./m29o1-parser-for-test
+
+m29p-rename-host-test: m29p-rename-host-test.c cmdfile.c cmdfile.h cmdos2.h
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ m29p-rename-host-test.c
+
+
+m29p-file-check: m29p-rename-host-test
+	./m29p-rename-host-test
+	! grep -E "char[[:space:]]+tok\[CF_COPY|char[[:space:]]+srcs\[CF_COPY|unsigned char[[:space:]]+buf\[CF_COPY_BUF" cmdfile.c
+
+cmd32-copy-qol-host-test: cmd32-copy-qol-host-test.c cmdfile.c cmdfile.h cmdos2.h
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ cmd32-copy-qol-host-test.c
+
+.PHONY: cmd32-copy-qol-check
+cmd32-copy-qol-check: cmd32-history-check cmd32-copy-qol-host-test
+	./cmd32-copy-qol-host-test
+	$(CC) $(CFLAGS) -fsyntax-only cmdfile.c
+
+# Post-M31G shell/session quality-of-life: PS + KILL over SESMGR child sessions.
+.PHONY: cmd32-pskill-check
+cmd32-pskill-check: cmd32-copy-qol-check
+	$(PYTHON) tools/check_cmd32_pskill.py
+	$(CC) $(CFLAGS) -fsyntax-only cmd32os2.c
+
+# Post-M31G shell quality-of-life: auto-session PM executables + /PMC escape.
+.PHONY: cmd32-pmauto-check
+cmd32-pmauto-check: cmd32-pskill-check
+	$(PYTHON) tools/check_cmd32_pmauto.py
+	$(CC) $(CFLAGS) -fsyntax-only cmd32os2.c
+
+# Post-M31G shell quality-of-life: interactive filesystem Tab completion.
+cmd32-tabcomp-host-test: cmd32-tabcomp-host-test.c cmd32os2.c cmdos2.h
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ cmd32-tabcomp-host-test.c
+
+.PHONY: cmd32-tabcomp-check
+cmd32-tabcomp-check: cmd32-pmauto-check cmd32-tabcomp-host-test
+	./cmd32-tabcomp-host-test
+	$(PYTHON) tools/check_cmd32_tabcomp.py
+	$(CC) $(CFLAGS) -fsyntax-only cmd32os2.c
+
+env-test-host: cmdos2_env.c cmdos2_env.h cmdos2.h env-test.c
+	$(CC) $(CFLAGS) -o $@ cmdos2_env.c env-test.c
+
+env-check: env-test-host
+	./env-test-host
+
+# Host-independent syntax gate for the CMD file layer and future LX backend.
+boundary-check:
+	$(CC) $(CFLAGS) -fsyntax-only cmdfile.c cmdos2_env.c
+
+pipeline-boundary-check:
+	! grep -E "CreateProcessA|WaitForSingleObject|GetExitCodeProcess|GetModuleFileNameA|[^A-Za-z0-9_]CreatePipe\(" cmd32os2.c
+
+console-boundary-check:
+	! grep -E "GetStdHandle|ReadConsole|WriteConsole|FillConsole|SetConsole|ScrollConsole" cmd32os2.c
+
+
+le2pe386-host: le2pe386.c
+	$(CC) $(CFLAGS) -o $@ le2pe386.c
+
+os2host32-host: os2host32.c
+	$(CC) $(CFLAGS) -o $@ os2host32.c
+
+m31a-wmchar-scan-check: os2host32.exe
+	$(PYTHON) tools/check_m31a_wmchar_imports.py ./os2host32.exe examples/m31a-wmchar/WMCHAR.EXE
+
+# Host-independent guards for the historical WMCHAR executable.
+m31a-wmchar-fixup-check:
+	$(PYTHON) tools/check_m31a_wmchar_fixups.py examples/m31a-wmchar/WMCHAR.EXE
+
+m31a-wmchar-stack-check:
+	$(PYTHON) tools/check_m31a_wmchar_stack.py examples/m31a-wmchar/WMCHAR.EXE
+
+m31a-wmchar-check: m31a-wmchar-fixup-check m31a-wmchar-stack-check m31a-wmchar-scan-check
+
+# Frozen Milestone 31A regression alias.
+m31a-final-check: m31a-wmchar-check
+
+# M31B: generic LE PM resource/menu/icon regression driven by untouched WMCHAR.
+m31b-wmchar-resource-check:
+	$(PYTHON) tools/check_m31b_wmchar_resources.py examples/m31a-wmchar/WMCHAR.EXE examples/m31a-wmchar/WMCHAR.ICO
+
+m31b-wmchar-check: m31a-final-check m31b-wmchar-resource-check
+
+# Frozen Milestone 31B regression alias.
+m31b-final-check: m31b-wmchar-check
+
+m31c-hanoi-resource-check:
+	$(PYTHON) tools/check_m31c_hanoi.py examples/m31c-hanoi/HANOI.EXE examples/m31c-hanoi/HANOI.ICO
+
+m31c-hanoi-export-check:
+	$(PYTHON) tools/check_m31c_hanoi_exports.py
+
+m31c-hanoi-check: m31b-final-check m31c-hanoi-resource-check m31c-hanoi-export-check
+
+DOSCALLS.dll: doscalls.c doscalls.def
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ doscalls.c doscalls.def -lwinmm -Wl,--out-implib,libdoscalls.a
+
+KBDCALLS.dll: kbdcalls.c kbdcalls.def
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ kbdcalls.c kbdcalls.def -Wl,--out-implib,libkbdcalls.a
+
+VIOCALLS.dll: viocalls.c viocalls.def
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ viocalls.c viocalls.def -Wl,--out-implib,libviocalls.a
+
+QUECALLS.dll: quecalls.c quecalls.def
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ quecalls.c quecalls.def -Wl,--out-implib,libquecalls.a
+
+SESMGR.dll: sesmgr.c sesmgr.def
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ sesmgr.c sesmgr.def -Wl,--out-implib,libsesmgr.a
+
+NLS.dll: nls.c nls.def
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ nls.c nls.def -Wl,--out-implib,libnls.a
+
+PMWIN.dll: pmwin.c pmwin.def pmcompat.h
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ pmwin.c pmwin.def -luser32 -lgdi32 -Wl,--out-implib,libpmwin.a
+
+PMGPI.dll: pmgpi.c pmgpi.def pmcompat.h
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ pmgpi.c pmgpi.def -lgdi32 -Wl,--out-implib,libpmgpi.a
+
+PMSHAPI.dll: pmshapi.c pmshapi.def
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ pmshapi.c pmshapi.def -Wl,--out-implib,libpmshapi.a
+
+PMWP.dll: pmwp.c pmwp.def
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ pmwp.c pmwp.def -Wl,--out-implib,libpmwp.a
+
+HELPMGR.dll: helpmgr.c helpmgr.def
+	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ helpmgr.c helpmgr.def -Wl,--out-implib,libhelpmgr.a
+
+clean:
+	rm -f le2pe386.exe os2host32.exe cmd32os2.exe le2pe386-host os2host32-host \
+	      DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll NLS.dll PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll parse-test-host batch-test-host m29o-batch-host-test m29o1-parser-for-test m29p-rename-host-test cmd32-tabcomp-host-test env-test-host \
+	      libdoscalls.a libkbdcalls.a libviocalls.a libquecalls.a libsesmgr.a libnls.a libpmwin.a libpmgpi.a libpmshapi.a libpmwp.a libhelpmgr.a sarien-pe.exe m29n2b2-setentry.exe
+
+# Frozen M31C regression gate
+m31c-final-check: m31c-hanoi-check
+
+# M31D BIO sample-driven PM/GPI expansion
+m31d-bio-resource-check:
+	$(PYTHON) tools/check_m31d_bio.py examples/m31d-bio/BIO.EXE examples/m31d-bio/BIO.ICO
+
+m31d-bio-export-check:
+	$(PYTHON) tools/check_m31d_bio_exports.py
+
+m31d-gpi-default-check:
+	$(PYTHON) tools/check_m31d_gpi_defaults.py
+
+m31d-bio-check: m31c-final-check m31d-bio-resource-check m31d-bio-export-check m31d-gpi-default-check
+
+m31d-bio-r5-check: m31d-bio-check
+	python tools/check_m31d_bio_wmsize_resources.py
+
+.PHONY: m31d-ps-state-check
+m31d-ps-state-check:
+	python tools/check_m31d_ps_state.py
+
+.PHONY: m31d-class-style-check
+m31d-class-style-check:
+	$(PYTHON) tools/check_m31d_class_styles.py
+
+.PHONY: m31d-bio-r8-check
+m31d-bio-r8-check: m31d-bio-r5-check m31d-ps-state-check m31d-class-style-check
+
+
+# Frozen M31D regression gate (BIO R8 proven on Win32).
+m31d-final-check: m31d-bio-r8-check
+
+# M31E: real PM guest-DLL regression using SDK OPENDLG + HELLO.
+m31e-opendlg-resource-check:
+	$(PYTHON) tools/check_m31e_opendlg.py examples/m31e-opendlg
+
+m31e-opendlg-export-check:
+	$(PYTHON) tools/check_m31e_opendlg_exports.py
+
+m31e-opendlg-check: m31d-final-check m31e-opendlg-resource-check m31e-opendlg-export-check
+
+m31e-opendlg-static-check: m31e-opendlg-resource-check m31e-opendlg-export-check
+
+.PHONY: m31d-final-check m31e-opendlg-resource-check m31e-opendlg-export-check m31e-opendlg-check m31e-opendlg-static-check
+
+m31e-legacy-init-check:
+	$(PYTHON) tools/check_m31e_legacy_init.py
+
+
+m31e-r4-runtime-check:
+	$(PYTHON) tools/check_m31e_r4_runtime_semantics.py
+
+.PHONY: m31e-r4-runtime-check
+
+# M31F - Microsoft/IBM OS/2 2.0 Beta 2 JIGSAW PM/GPI sample
+.PHONY: m31f-jigsaw-binary-check m31f-jigsaw-runtime-check m31f-sarien-gpi-regression-check m31f-r7-device-ps-check m31f-jigsaw-static-check m31f-jigsaw-check
+m31f-jigsaw-binary-check:
+	$(PYTHON) tools/check_m31f_jigsaw.py examples/m31f-jigsaw
+
+m31f-jigsaw-runtime-check:
+	$(PYTHON) tools/check_m31f_runtime_semantics.py
+
+m31f-sarien-gpi-regression-check:
+	$(PYTHON) tools/check_m31f_sarien_gpi_regression.py
+
+m31f-r7-device-ps-check:
+	$(PYTHON) tools/check_m31f_r7_device_ps_coords.py
+
+m31f-jigsaw-static-check: m31e-opendlg-static-check m31e-legacy-init-check m31e-r4-runtime-check m31f-jigsaw-binary-check m31f-jigsaw-runtime-check m31f-sarien-gpi-regression-check m31f-r5-trace-check m31f-r6-dialog-check m31f-r7-device-ps-check
+
+m31f-jigsaw-check: m31e-opendlg-check m31e-legacy-init-check m31e-r4-runtime-check m31f-jigsaw-binary-check m31f-jigsaw-runtime-check m31f-sarien-gpi-regression-check m31f-r7-device-ps-check
+
+.PHONY: m31f-r2-trace-check
+m31f-r2-trace-check:
+	$(PYTHON) tools/check_m31f_r2_trace.py
+
+.PHONY: m31f-r5-trace-check
+m31f-r5-trace-check:
+	$(PYTHON) tools/check_m31f_r5_trace.py
+
+.PHONY: m31f-r6-dialog-check
+m31f-r6-dialog-check:
+	$(PYTHON) tools/check_m31f_r6_dialog_notifications.py
+
+# M31G R1 - OS/2 2.0 GA NEKO (Cat and Mouse): generic LX iterated-page loader support.
+.PHONY: m31g-neko-r1-check
+m31g-neko-r1-check: m31f-jigsaw-static-check
+	$(PYTHON) tools/check_m31g_neko.py examples/m31g-neko
+
+# M31G R2 - first NEKO import boundary: PMSHAPI.129 WinRemoveSwitchEntry.
+.PHONY: m31g-neko-r2-check
+m31g-neko-r2-check: m31g-neko-r1-check
+	$(PYTHON) tools/check_m31g_r2_pmshapi.py
+
+# M31G R3 - second NEKO import boundary: PMWIN.837 WinQueryWindowPos.
+.PHONY: m31g-neko-r3-check
+m31g-neko-r3-check: m31g-neko-r2-check
+	$(PYTHON) tools/check_m31g_r3_pmwin.py
+
+# M31G R4 - third NEKO import boundary: PMWIN.778 WinLoadMenu.
+.PHONY: m31g-neko-r4-check
+m31g-neko-r4-check: m31g-neko-r3-check
+	$(PYTHON) tools/check_m31g_r4_pmwin.py
+
+# M31G R5 - first PMWP boundary: native ordinal-only PMWP.203 personality.
+.PHONY: m31g-neko-r5-check
+m31g-neko-r5-check: m31g-neko-r4-check
+	$(PYTHON) tools/check_m31g_r5_pmwp.py
+
+# M31G R6 - next NEKO import boundary: PMWIN.780 WinLoadPointer.
+.PHONY: m31g-neko-r6-check
+m31g-neko-r6-check: m31g-neko-r5-check
+	$(PYTHON) tools/check_m31g_r6_pmwin.py
+
+# M31G R7 - NEKO reaches PMWIN.909 WinCreateWindow.
+.PHONY: m31g-neko-r7-check
+m31g-neko-r7-check: m31g-neko-r6-check
+	$(PYTHON) tools/check_m31g_r7_pmwin.py
+
+# M31G R8 - NEKO reaches PMWIN.727 WinDestroyPointer.
+.PHONY: m31g-neko-r8-check
+m31g-neko-r8-check: m31g-neko-r7-check
+	$(PYTHON) tools/check_m31g_r8_pmwin.py
+
+# M31G R9 - NEKO reaches PMWIN.804 WinQueryCapture; e.exe also needs PMWIN.773 WinIsWindowEnabled.
+.PHONY: m31g-neko-r9-check
+m31g-neko-r9-check: m31g-neko-r8-check
+	$(PYTHON) tools/check_m31g_r9_pmwin.py
+
+# M31G R10 - NEKO reaches PMSHAPI.102 PrfOpenProfile; e.exe reaches PMWIN.844 WinQueryWindowUShort.
+.PHONY: m31g-neko-r10-check
+m31g-neko-r10-check: m31g-neko-r9-check
+	$(PYTHON) tools/check_m31g_r10_profile_window.py
+
+# M31G R11 - HELPMGR mixed-mode boundary: native ordinal 52 WinDestroyHelpInstance personality.
+.PHONY: m31g-neko-r11-check
+m31g-neko-r11-check: m31g-neko-r10-check
+	$(PYTHON) tools/check_m31g_r11_helpmgr.py
+
+# M31G R12 - NEKO reaches PMWIN.884 WinStartTimer; e.exe reaches DOSCALLS.219 DosSetPathInfo.
+.PHONY: m31g-neko-r12-check
+m31g-neko-r12-check: m31g-neko-r11-check
+	$(PYTHON) tools/check_m31g_r12_timer_setpath.py
+# M31G R13 - controlled hail-mary: complete the remaining known NEKO import surface.
+.PHONY: m31g-neko-r13-check
+m31g-neko-r13-check: m31g-neko-r12-check
+	$(PYTHON) tools/check_m31g_r13_import_complete.py
+
+
+# M31G R14 - first post-import NEKO runtime behavior + e.exe DOSCALLS.218.
+.PHONY: m31g-neko-r14-check
+m31g-neko-r14-check: m31g-neko-r13-check
+	$(PYTHON) tools/check_m31g_r14_runtime.py
+
+# M31G R15 - e.exe reaches PMWIN.833 WinQueryVersion; NEKO R14 rerun needs its resource DLL on OS2LIBPATH.
+.PHONY: m31g-neko-r15-check
+m31g-neko-r15-check: m31g-neko-r14-check
+	$(PYTHON) tools/check_m31g_r15_pmversion.py
+
+# M31G R16 - generic LX DLL zero/duplicate relocation-base layout (NEKO.DLL runtime boundary).
+.PHONY: m31g-neko-r16-check
+m31g-neko-r16-check: m31g-neko-r15-check
+	$(PYTHON) tools/check_m31g_r16_lx_dll_layout.py
+
+# M31G R17 - e.exe reaches NLS.5 DosQueryCtryInfo; NEKO rerun only needs correct OS2LIBPATH.
+.PHONY: m31g-neko-r17-check
+m31g-neko-r17-check: m31g-neko-r16-check
+	$(PYTHON) tools/check_m31g_r17_nls5.py
+
+# M31G R18 - NEKO runtime: correct move-only WinSetWindowPos Y conversion.
+.PHONY: m31g-neko-r18-check
+m31g-neko-r18-check: m31g-neko-r17-check
+	$(PYTHON) tools/check_m31g_r18_setwindowpos.py
+
+# M31G R19 - NEKO setup sliders + safe guest HWND_DESKTOP enumeration.
+.PHONY: m31g-neko-r19-check
+m31g-neko-r19-check: m31g-neko-r18-check
+	$(PYTHON) tools/check_m31g_r19_slider_desktop.py
+
+# Post-M31G shell quality-of-life patch: optional interactive STARTUP.CMD.
+# Kept separate from the frozen M31G R19 PM regression chain.
+.PHONY: cmd32-startup-check
+cmd32-startup-check:
+	$(PYTHON) tools/check_cmd32_startup.py
+	$(CC) $(CFLAGS) -fsyntax-only cmd32os2.c
+
+# Post-M31G shell quality-of-life patch: 30-entry interactive history/editor.
+.PHONY: cmd32-history-check
+cmd32-history-check: cmd32-startup-check
+	$(PYTHON) tools/check_cmd32_history.py
+	$(CC) $(CFLAGS) -fsyntax-only cmd32os2.c

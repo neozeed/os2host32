@@ -1,0 +1,34 @@
+Milestone 18 - direct OS/2 LX host, startup-layout correction
+
+- os2host32.exe remains part of the normal Makefile `all` target.
+- Source remains ANSI-C89-oriented for Microsoft C/C++ 8.x / Visual C++ 1.x.
+- Retains --info, --map, --fixups and --run.
+- The first real --run transfer reached original LX code and faulted at
+  0001026C while the C/386 CRT walked backward from the argument pointer.
+- Corrected the process startup layout to match OS/2/DosExecPgm semantics:
+    * one contiguous startup allocation
+    * copied ANSI environment strings followed by the extra NUL
+    * fully-qualified program-name (po) string immediately after environment
+    * OS/2 argument area (ao): argv0\0argument-tail\0\0
+    * [ESP+0Ch] points to the environment start
+    * [ESP+10h] points to the ao argument area
+- This gives the C/386 CRT valid memory before ao so its backward scan can
+  recover the preceding fully-qualified program-name string.
+- Startup diagnostics now print ENV, PGM and ARG addresses separately.
+- Access-violation diagnostics now report read/write/execute and the faulting
+  memory address in addition to the register dump.
+- The direct guest entry and LX stack remain 00010020 / 00022810 for hi.exe.
+
+
+Milestone 18 - first successful direct LX execution
+
+- CONFIRMED on Windows: original unmodified C/386 + OS/2 2.x LX hi.exe
+  maps, relocates, imports DOSCALLS, enters at its native LX entry point,
+  executes the Microsoft C/386 CRT and prints its expected output.
+- CONFIRMED argv regression: a separately compiled LX args.exe received
+  argc=4 and argv[0..3] as args.exe / one / two / three through the direct
+  loader, proving the OS/2 startup argument area is usable by the CRT.
+- No guest PE conversion is involved in either test.
+- Makefile now exposes explicit `tools`, `compat`, and `dlls` targets; plain
+  `make` builds le2pe386.exe, os2host32.exe and all four compatibility DLLs.
+- build-msvc.cmd likewise builds both host tools and the DLL set.

@@ -1,0 +1,57 @@
+M31G R5 - NEKO first PMWP boundary / native PMWP personality
+=============================================================
+
+Baseline
+--------
+M31G R4 is the parent. M31F FINAL R7 remains frozen and its complete static
+regression chain must remain green.
+
+Observed R4 boundary
+--------------------
+After PMWIN.778 WinLoadMenu resolves, the host sees NEKO's PMWP.203 import.
+Because PMWP was not yet a host personality, os2host32 tried the historical
+PMWP.DLL as a guest module and correctly rejected it as needing mixed-mode
+fixup machinery.
+
+The supplied OS/2 2.0 GA PMWP.DLL is not a sensible V1 dependency: it contains
+both 32-bit and 16-bit objects, SEL16/PTR16 fixups and large Workplace Shell
+SOM/PMDRAG/PMCTLS/etc. dependencies.
+
+Research on ordinal 203
+-----------------------
+The GA PMWP export table proves ordinal 203 is a 32-bit object-1 export.
+Disassembly proves a cdecl-style four-argument stack frame and a return value
+zero-extended into EAX.
+
+NEKO has one REL32 call site for PMWP.203 immediately after WinInitialize and
+WinCreateMsgQueue. It pushes four 32-bit arguments and treats EAX==0 as
+success. A trustworthy historical public name for this early/obsolete entry
+has not been established, so R5 deliberately does not invent one.
+
+Changes
+-------
+* Add PMWP to the host compatibility-personality list.
+* Add native pmwp.c / pmwp.def and PMWP.dll build target.
+* Export `PMWPOrdinal203 @203 NONAME` only.
+* Preserve the proven four-32-bit-argument ABI and return full-EAX zero success.
+* Trace raw arguments under OS2_PM_TRACE without dereferencing speculative
+  pointer types.
+* Add tools/check_m31g_r5_pmwp.py and make m31g-neko-r5-check.
+* Add examples/m31g-neko/m31g-neko-r5-test.cmd.
+* Extend the NEKO import audit to count PMWP's native .def coverage.
+
+Important filename note
+-----------------------
+The historical IBM PMWP.DLL must NOT remain in the tree under the name
+PMWP.dll when testing R5. Rename/archive it (for example PMWP-GA.DLL). R5's
+PMWP.dll is the native Win32 compatibility personality built from pmwp.c.
+
+Expected Win32 result
+---------------------
+Rebuild os2host32.exe and PMWP.dll (or `make compat`) and run untouched
+NEKO.EXE again. The guest-PMWP mixed-mode loader error should disappear and
+PMWP.203 should resolve from the native personality. Capture the next real
+boundary before implementing R6.
+
+No application-name-specific behavior was added. No WHP/V2 work was added.
+EMX remains frozen.

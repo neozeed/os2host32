@@ -1,0 +1,1005 @@
+--- /mnt/data/v2r2/whp_os2_v2_hi.c	2026-09-20 11:32:04.623402726 +0000
++++ /mnt/data/v2r3/whp_os2_v2_hi.c	2026-09-20 12:19:02.994413461 +0000
+@@ -4,13 +4,17 @@
+  * OS/2 V2 experimental runtime: execute untouched flat 32-bit OS/2 LE code
+  * directly under Windows Hypervisor Platform from a Win64 host.
+  *
+- * R2 extends the proven hi.exe + guest-thread path with process-local OS/2
+- * event semaphores and scheduler-integrated blocking/wakeup/timeout handling.
++ * R3 extends the proven hi.exe/thread/event-semaphore path with real guest
++ * OS/2 user DLL loading. DLL code/data are mapped into the same guest process
++ * address space as the EXE and are therefore visible to every virtual thread.
+  *
+  * What this prototype does:
+- *   - reconstructs 32-bit LE objects at their original guest addresses
++ *   - maps the main EXE at preferred guest addresses and rebases user DLLs
+  *   - applies internal OFF32 relocations
+- *   - replaces external DOSCALLS REL32 imports with synthetic guest stubs
++ *   - resolves DOSCALLS REL32 imports to shared synthetic guest stubs
++ *   - loads flat 32-bit user DLLs into a reserved guest module arena
++ *   - resolves EXE/DLL imports by ordinal and by name to guest export addresses
++ *   - recursively resolves a guest DLL's own imports
+  *   - each stub performs: MOV EAX, hypercall-id / OUT 0xF0,EAX / RET
+  *   - builds the same OS/2 C/386 startup environment/stack used by V1
+  *   - enters the real LE entry point in flat 32-bit protected mode under WHP
+@@ -58,7 +62,9 @@
+ #define GUEST_STUB_BASE     0x000F0000u
+ #define GUEST_STUB_LIMIT    0x000F8000u
+ #define GUEST_ALLOC_BASE    0x01000000u
+-#define GUEST_ALLOC_LIMIT   0x03F00000u
++#define GUEST_ALLOC_LIMIT   0x03000000u  /* leave high RAM for guest DLLs */
++#define GUEST_MODULE_BASE   0x03000000u
++#define GUEST_MODULE_LIMIT  0x03F00000u
+ #define HOSTCALL_PORT       0x00F0u
+ #define HC_DOSCALLS         0x01000000u
+ #define HC_RUNTIME          0x02000000u
+@@ -68,7 +74,9 @@
+ #define MAX_OBJECTS         32u
+ #define MAX_PAGES           65535u
+ #define MAX_IMPORTS         512u
++#define MAX_NAME_IMPORTS    512u
+ #define MAX_MODULES         32u
++#define MAX_GUEST_MODULES   16u
+ #define MAX_ALLOCS          256u
+ #define MAX_THREADS         32u
+ #define MAX_EVENT_SEMS      64u
+@@ -97,6 +105,9 @@
+ #define OBJ_EXEC            0x0004u
+ #define OBJ_BIG             0x2000u
+ 
++#define MOD_TYPE_MASK       0x00038000u
++#define MOD_TYPE_DLL        0x00008000u
++
+ #define NO_ERROR                    0u
+ #define ERROR_INVALID_FUNCTION      1u
+ #define ERROR_INVALID_HANDLE        6u
+@@ -119,7 +130,8 @@
+ 
+ struct LeObject {
+     uint32_t size;
+-    uint32_t addr;
++    uint32_t addr;          /* preferred address from LE object table */
++    uint32_t mapped_addr;   /* actual guest linear address for this process */
+     uint32_t flags;
+     uint32_t mapidx;
+     uint32_t mapsize;
+@@ -144,7 +156,14 @@
+ struct ImportOrd {
+     uint32_t module;
+     uint32_t ordinal;
+-    uint32_t stub_va;
++    uint32_t address;
++    uint32_t sites;
++};
++
++struct ImportName {
++    uint32_t module;
++    uint32_t name_offset;
++    uint32_t address;
+     uint32_t sites;
+ };
+ 
+@@ -152,6 +171,7 @@
+     uint8_t *file;
+     uint32_t file_size;
+     uint32_t le;
++    uint32_t module_flags;
+     uint32_t num_pages;
+     uint32_t num_map_pages;
+     uint32_t entry_object;
+@@ -163,18 +183,24 @@
+     uint32_t object_table_off;
+     uint32_t num_objects;
+     uint32_t object_map_off;
++    uint32_t resident_name_off;
++    uint32_t entry_table_off;
+     uint32_t fixpage_off;
+     uint32_t fixrec_off;
+     uint32_t impmod_off;
+     uint32_t num_impmods;
+     uint32_t impproc_off;
+     uint32_t data_pages_off;
++    uint32_t nonresident_name_off;
++    uint32_t nonresident_name_len;
+     struct LeObject objects[MAX_OBJECTS];
+     struct LePage *pages;
+     struct PhysOwner *owner;
+     struct ImportModule modules[MAX_MODULES];
+     struct ImportOrd imports[MAX_IMPORTS];
+     uint32_t nimports;
++    struct ImportName name_imports[MAX_NAME_IMPORTS];
++    uint32_t nname_imports;
+     uint32_t internal_records;
+     uint32_t external_sites;
+ };
+@@ -217,6 +243,20 @@
+     char name[EVENT_NAME_MAX + 1];
+ };
+ 
++struct GuestModule {
++    int used;
++    int state;              /* 1=loading, 2=ready */
++    uint32_t handle;
++    char request_name[64];
++    char path[MAX_PATH];
++    struct LeImage image;
++};
++
++struct HostStub {
++    uint32_t ordinal;
++    uint32_t address;
++};
++
+ struct Runtime {
+     WHV_PARTITION_HANDLE partition;
+     uint8_t *ram;
+@@ -225,6 +265,12 @@
+ 
+     struct GuestThread threads[MAX_THREADS];
+     struct GuestEventSem events[MAX_EVENT_SEMS];
++    struct GuestModule modules[MAX_GUEST_MODULES];
++    struct HostStub doscall_stubs[MAX_IMPORTS];
++    uint32_t module_count;
++    uint32_t module_next;
++    uint32_t stub_next;
++    uint32_t next_module_handle;
+     uint32_t next_tid;
+     int current_thread;
+     int switch_requested;
+@@ -344,6 +390,7 @@
+         fatal("only OS/2 LE images are supported");
+ 
+     h = x->le;
++    x->module_flags     = rd32(x->file + h + 0x10);
+     x->num_pages        = rd32(x->file + h + 0x14);
+     x->entry_object     = rd32(x->file + h + 0x18);
+     x->entry_offset     = rd32(x->file + h + 0x1c);
+@@ -354,12 +401,16 @@
+     x->object_table_off = h + rd32(x->file + h + 0x40);
+     x->num_objects      = rd32(x->file + h + 0x44);
+     x->object_map_off   = h + rd32(x->file + h + 0x48);
++    x->resident_name_off= h + rd32(x->file + h + 0x58);
++    x->entry_table_off  = h + rd32(x->file + h + 0x5c);
+     x->fixpage_off      = h + rd32(x->file + h + 0x68);
+     x->fixrec_off       = h + rd32(x->file + h + 0x6c);
+     x->impmod_off       = h + rd32(x->file + h + 0x70);
+     x->num_impmods      = rd32(x->file + h + 0x74);
+     x->impproc_off      = h + rd32(x->file + h + 0x78);
+     x->data_pages_off   = rd32(x->file + h + 0x80);
++    x->nonresident_name_off = rd32(x->file + h + 0x88);
++    x->nonresident_name_len = rd32(x->file + h + 0x8c);
+ 
+     if (x->num_objects == 0 || x->num_objects > MAX_OBJECTS)
+         fatal("unsupported object count");
+@@ -371,34 +422,51 @@
+         fatal("bad LE object table");
+     if (!file_range(x, x->fixpage_off, (x->num_pages + 1u) * 4u))
+         fatal("bad LE fixup page table");
+-    if (x->entry_object == 0 || x->entry_object > x->num_objects)
+-        fatal("bad LE entry object");
+-    if (x->stack_object == 0 || x->stack_object > x->num_objects)
+-        fatal("bad LE stack object");
++    if ((x->module_flags & MOD_TYPE_MASK) != MOD_TYPE_DLL) {
++        if (x->entry_object == 0 || x->entry_object > x->num_objects)
++            fatal("bad LE entry object");
++        if (x->stack_object == 0 || x->stack_object > x->num_objects)
++            fatal("bad LE stack object");
++    } else {
++        if (x->entry_object > x->num_objects)
++            fatal("bad DLL LE entry object");
++        if (x->stack_object > x->num_objects)
++            fatal("bad DLL LE stack object");
++    }
+ }
+ 
+-static void parse_objects(struct LeImage *x, uint8_t *ram)
++static void parse_objects(struct LeImage *x, struct Runtime *rt, int is_main)
+ {
+     uint32_t i, j, off, phys, src, room, actual, last_map;
++    uint32_t min_addr, max_end, span, module_base;
+     uint8_t *m;
+     uint8_t pflags;
+ 
+     last_map = 0;
++    min_addr = 0xffffffffu;
++    max_end = 0;
+     for (i = 0; i < x->num_objects; ++i) {
+         struct LeObject *o;
+         o = &x->objects[i];
+         off = x->object_table_off + i * 24u;
+         o->size     = rd32(x->file + off + 0);
+         o->addr     = rd32(x->file + off + 4);
++        o->mapped_addr = 0;
+         o->flags    = rd32(x->file + off + 8);
+         o->mapidx   = rd32(x->file + off + 12);
+         o->mapsize  = rd32(x->file + off + 16);
+         o->reserved = rd32(x->file + off + 20);
+ 
+         if ((o->flags & OBJ_BIG) == 0)
+-            fatal("first V2 attempt supports only flat 32-bit LE objects");
+-        if (o->size != 0 && (o->addr >= RAM_SIZE || o->size > RAM_SIZE - o->addr))
+-            fatal("LE object lies outside guest RAM");
++            fatal("V2 DLL milestone supports only flat 32-bit LE objects");
++        if (o->size != 0) {
++            if (o->addr > 0xffffffffu - o->size)
++                fatal("LE object preferred range overflows");
++            if (o->addr < min_addr)
++                min_addr = o->addr;
++            if (o->addr + o->size > max_end)
++                max_end = o->addr + o->size;
++        }
+         if (o->mapsize != 0) {
+             if (o->mapidx == 0)
+                 fatal("object has invalid page-map index");
+@@ -407,6 +475,34 @@
+         }
+     }
+ 
++    if (min_addr == 0xffffffffu)
++        min_addr = 0;
++
++    if (is_main) {
++        for (i = 0; i < x->num_objects; ++i) {
++            struct LeObject *o = &x->objects[i];
++            o->mapped_addr = o->addr;
++            if (o->size != 0 &&
++                (o->mapped_addr >= RAM_SIZE || o->size > RAM_SIZE - o->mapped_addr))
++                fatal("main LE object lies outside guest RAM");
++        }
++    } else {
++        span = align_up(max_end - min_addr, 0x10000u);
++        module_base = align_up(rt->module_next, 0x10000u);
++        if (span == 0)
++            span = 0x10000u;
++        if (module_base >= GUEST_MODULE_LIMIT || span > GUEST_MODULE_LIMIT - module_base)
++            fatal("guest DLL arena exhausted");
++        for (i = 0; i < x->num_objects; ++i) {
++            struct LeObject *o = &x->objects[i];
++            o->mapped_addr = module_base + (o->addr - min_addr);
++            if (o->size != 0 &&
++                (o->mapped_addr >= RAM_SIZE || o->size > RAM_SIZE - o->mapped_addr))
++                fatal("guest DLL object lies outside guest RAM");
++        }
++        rt->module_next = module_base + span;
++    }
++
+     if (last_map == 0 || last_map > MAX_PAGES)
+         fatal("unsupported logical page-map size");
+     x->num_map_pages = last_map;
+@@ -428,7 +524,7 @@
+             if (phys == 0 || phys > x->num_pages)
+                 fatal("bad LE physical page number");
+         } else if (pflags != 3) {
+-            fatal("first V2 attempt supports enumerated/zero LE pages only");
++            fatal("V2 DLL milestone supports enumerated/zero LE pages only");
+         }
+     }
+ 
+@@ -436,7 +532,7 @@
+         struct LeObject *o;
+         o = &x->objects[i];
+         if (o->size)
+-            memset(ram + o->addr, 0, o->size);
++            memset(rt->ram + o->mapped_addr, 0, o->size);
+ 
+         for (j = 0; j < o->mapsize; ++j) {
+             struct LePage *lp;
+@@ -463,7 +559,8 @@
+             if (!file_range(x, src, actual))
+                 fatal("LE page data extends past EOF");
+             if (actual)
+-                memcpy(ram + o->addr + j * x->page_size, x->file + src, actual);
++                memcpy(rt->ram + o->mapped_addr + j * x->page_size,
++                       x->file + src, actual);
+         }
+     }
+ }
+@@ -473,8 +570,10 @@
+     uint32_t i, p;
+     uint8_t n;
+ 
+-    if (x->num_impmods == 0 || x->num_impmods > MAX_MODULES)
++    if (x->num_impmods > MAX_MODULES)
+         fatal("unsupported import-module count");
++    if (x->num_impmods == 0)
++        return;
+     p = x->impmod_off;
+     for (i = 0; i < x->num_impmods; ++i) {
+         if (!file_range(x, p, 1))
+@@ -539,7 +638,7 @@
+         fatal("too many imported ordinals");
+     x->imports[x->nimports].module = module;
+     x->imports[x->nimports].ordinal = ordinal;
+-    x->imports[x->nimports].stub_va = 0;
++    x->imports[x->nimports].address = 0;
+     x->imports[x->nimports].sites = 0;
+     return x->nimports++;
+ }
+@@ -555,6 +654,58 @@
+     return 0;
+ }
+ 
++
++static uint32_t find_or_add_name_import(struct LeImage *x, uint32_t module,
++                                        uint32_t name_offset)
++{
++    uint32_t i;
++    if (module >= x->num_impmods)
++        fatal("external named fixup references invalid module");
++    for (i = 0; i < x->nname_imports; ++i) {
++        if (x->name_imports[i].module == module &&
++            x->name_imports[i].name_offset == name_offset)
++            return i;
++    }
++    if (x->nname_imports >= MAX_NAME_IMPORTS)
++        fatal("too many named imports");
++    x->name_imports[x->nname_imports].module = module;
++    x->name_imports[x->nname_imports].name_offset = name_offset;
++    x->name_imports[x->nname_imports].address = 0;
++    x->name_imports[x->nname_imports].sites = 0;
++    return x->nname_imports++;
++}
++
++static uint32_t name_import_index(struct LeImage *x, uint32_t module,
++                                  uint32_t name_offset)
++{
++    uint32_t i;
++    for (i = 0; i < x->nname_imports; ++i) {
++        if (x->name_imports[i].module == module &&
++            x->name_imports[i].name_offset == name_offset)
++            return i;
++    }
++    fatal("internal error: missing named import");
++    return 0;
++}
++
++static const char *import_name_at(struct LeImage *x, uint32_t off,
++                                  char *buf, uint32_t cap)
++{
++    uint32_t p, n;
++    if (cap == 0)
++        return "";
++    buf[0] = 0;
++    p = x->impproc_off + off;
++    if (!file_range(x, p, 1))
++        return "<bad-name-offset>";
++    n = x->file[p++];
++    if (n >= cap || !file_range(x, p, n))
++        return "<bad-name>";
++    memcpy(buf, x->file + p, n);
++    buf[n] = 0;
++    return buf;
++}
++
+ static void scan_fixups(struct LeImage *x)
+ {
+     uint32_t physical, start, endoff, p, end, q, first, target;
+@@ -577,7 +728,7 @@
+             st = type & SRC_MASK;
+             kind = flags & TGT_MASK;
+             if (st != SRC_OFF32 && st != SRC_REL32)
+-                fatal("first V2 attempt supports OFF32/REL32 fixups only");
++                fatal("V2 DLL milestone supports OFF32/REL32 fixups only");
+             if (flags & TGT_CHAIN)
+                 fatal("chained LE fixups are unsupported");
+ 
+@@ -637,9 +788,28 @@
+                 x->imports[idx].sites += count;
+                 x->external_sites += count;
+             } else if (kind == TGT_EXT_NAME) {
+-                fatal("import-by-name is unsupported in first V2 attempt");
++                if (st != SRC_REL32)
++                    fatal("external named fixup is not REL32");
++                if (first == 0 || first > x->num_impmods)
++                    fatal("external named fixup has invalid module");
++                if (flags & TGT_OFF32) {
++                    if (end - q < 4) fatal("truncated name offset");
++                    target = rd32(x->file + q); q += 4;
++                } else {
++                    if (end - q < 2) fatal("truncated name offset");
++                    target = rd16(x->file + q); q += 2;
++                }
++                if (flags & TGT_ADDITIVE) {
++                    uint32_t n;
++                    n = (flags & TGT_ADD32) ? 4u : 2u;
++                    if (end - q < n) fatal("truncated additive field");
++                    q += n;
++                }
++                idx = find_or_add_name_import(x, first - 1u, target);
++                x->name_imports[idx].sites += count;
++                x->external_sites += count;
+             } else if (kind == TGT_INT_ENTRY) {
+-                fatal("entry-table fixup is unsupported in first V2 attempt");
++                fatal("entry-table fixup is unsupported in V2 DLL milestone");
+             } else {
+                 fatal("unknown LE target kind");
+             }
+@@ -661,26 +831,36 @@
+     }
+ }
+ 
+-static void emit_import_stubs(struct LeImage *x, uint8_t *ram)
++static uint32_t doscall_stub(struct Runtime *rt, uint32_t ordinal)
+ {
+     uint32_t i, va, id;
+     uint8_t *s;
+ 
+-    va = GUEST_STUB_BASE;
+-    for (i = 0; i < x->nimports; ++i) {
+-        if (_stricmp(x->modules[x->imports[i].module].name, "DOSCALLS") != 0)
+-            fatal("first V2 attempt only supports DOSCALLS imports");
+-        if (va + 8u > GUEST_STUB_LIMIT)
+-            fatal("synthetic import veneer overflow");
+-
+-        x->imports[i].stub_va = va;
+-        id = HC_DOSCALLS | (x->imports[i].ordinal & 0x00ffffffu);
+-        s = ram + va;
+-        s[0] = 0xB8; wr32(s + 1, id);      /* mov eax,imm32 */
+-        s[5] = 0xE7; s[6] = 0xF0;          /* out 0f0h,eax */
+-        s[7] = 0xC3;                       /* ret */
+-        va += 8u;
++    for (i = 0; i < MAX_IMPORTS; ++i) {
++        if (rt->doscall_stubs[i].address != 0 &&
++            rt->doscall_stubs[i].ordinal == ordinal)
++            return rt->doscall_stubs[i].address;
++    }
++    for (i = 0; i < MAX_IMPORTS; ++i) {
++        if (rt->doscall_stubs[i].address == 0)
++            break;
+     }
++    if (i == MAX_IMPORTS)
++        fatal("too many shared DOSCALLS veneers");
++
++    va = align_up(rt->stub_next, 8u);
++    if (va + 8u > GUEST_STUB_LIMIT)
++        fatal("synthetic import veneer overflow");
++    id = HC_DOSCALLS | (ordinal & 0x00ffffffu);
++    s = rt->ram + va;
++    s[0] = 0xB8; wr32(s + 1, id);      /* mov eax,imm32 */
++    s[5] = 0xE7; s[6] = 0xF0;          /* out 0f0h,eax */
++    s[7] = 0xC3;                       /* ret */
++
++    rt->doscall_stubs[i].ordinal = ordinal;
++    rt->doscall_stubs[i].address = va;
++    rt->stub_next = va + 8u;
++    return va;
+ }
+ 
+ static void apply_fixups(struct LeImage *x, uint8_t *ram)
+@@ -731,6 +911,14 @@
+                 }
+                 if (flags & TGT_ADDITIVE)
+                     q += (flags & TGT_ADD32) ? 4u : 2u;
++            } else if (kind == TGT_EXT_NAME) {
++                if (flags & TGT_OFF32) {
++                    target = rd32(x->file + q); q += 4;
++                } else {
++                    target = rd16(x->file + q); q += 2;
++                }
++                if (flags & TGT_ADDITIVE)
++                    q += (flags & TGT_ADD32) ? 4u : 2u;
+             } else {
+                 fatal("unsupported fixup reached apply pass");
+             }
+@@ -742,15 +930,23 @@
+                     p += 2;
+                 }
+                 source_off = source_object_offset(x, physical, source, &src_obj_index);
+-                src_va = x->objects[src_obj_index].addr + source_off;
++                src_va = x->objects[src_obj_index].mapped_addr + source_off;
+ 
+                 if (kind == TGT_INTERNAL) {
+-                    /* Deliberately preserve LINK386's 32-bit biased-offset arithmetic. */
+-                    dst_va = x->objects[target - 1u].addr + target_off;
++                    /* Preserve LINK386's 32-bit biased-offset arithmetic. */
++                    dst_va = x->objects[target - 1u].mapped_addr + target_off;
+                     wr32(ram + src_va, dst_va);
+-                } else {
++                } else if (kind == TGT_EXT_ORD) {
+                     idx = import_index(x, first - 1u, target);
+-                    dst_va = x->imports[idx].stub_va;
++                    dst_va = x->imports[idx].address;
++                    if (dst_va == 0)
++                        fatal("unresolved ordinal import reached fixup pass");
++                    wr32(ram + src_va, dst_va - (src_va + 4u));
++                } else {
++                    idx = name_import_index(x, first - 1u, target);
++                    dst_va = x->name_imports[idx].address;
++                    if (dst_va == 0)
++                        fatal("unresolved named import reached fixup pass");
+                     wr32(ram + src_va, dst_va - (src_va + 4u));
+                 }
+             }
+@@ -758,6 +954,368 @@
+     }
+ }
+ 
++static int module_name_equal(const char *a, const char *b)
++{
++    char aa[64], bb[64];
++    const char *pa, *pb;
++    size_t na, nb;
++
++    pa = a;
++    pb = b;
++    while (*a) { if (*a == '\\' || *a == '/') pa = a + 1; ++a; }
++    while (*b) { if (*b == '\\' || *b == '/') pb = b + 1; ++b; }
++    na = strlen(pa); nb = strlen(pb);
++    if (na >= 4 && _stricmp(pa + na - 4, ".DLL") == 0) na -= 4;
++    if (nb >= 4 && _stricmp(pb + nb - 4, ".DLL") == 0) nb -= 4;
++    if (na >= sizeof(aa) || nb >= sizeof(bb))
++        return 0;
++    memcpy(aa, pa, na); aa[na] = 0;
++    memcpy(bb, pb, nb); bb[nb] = 0;
++    return _stricmp(aa, bb) == 0;
++}
++
++static int file_exists_regular(const char *path)
++{
++    FILE *f;
++    f = fopen(path, "rb");
++    if (!f)
++        return 0;
++    fclose(f);
++    return 1;
++}
++
++static void module_leaf_name(const char *name, char *leaf, uint32_t cap)
++{
++    const char *p;
++    size_t n;
++    int has_ext;
++    if (cap == 0)
++        return;
++    p = name;
++    while (*name) {
++        if (*name == '\\' || *name == '/')
++            p = name + 1;
++        ++name;
++    }
++    n = strlen(p);
++    has_ext = (n >= 4 && _stricmp(p + n - 4, ".DLL") == 0);
++    if (n + (has_ext ? 1u : 5u) > cap)
++        fatal("guest DLL name is too long");
++    strcpy(leaf, p);
++    if (!has_ext)
++        strcat(leaf, ".DLL");
++}
++
++static int locate_guest_module(const char *name, char *out, uint32_t cap)
++{
++    char leaf[MAX_PATH];
++    char path[MAX_PATH];
++    const char *env, *p, *q;
++    size_t n;
++
++    module_leaf_name(name, leaf, (uint32_t)sizeof(leaf));
++
++    if (strchr(name, '\\') || strchr(name, '/') || strchr(name, ':')) {
++        if (strlen(name) + 1u < sizeof(path)) {
++            strcpy(path, name);
++            if (!strrchr(path, '.'))
++                strcat(path, ".DLL");
++            if (file_exists_regular(path)) {
++                if (strlen(path) + 1u > cap) return 0;
++                strcpy(out, path);
++                return 1;
++            }
++        }
++    }
++
++    if (file_exists_regular(leaf)) {
++        if (strlen(leaf) + 1u > cap) return 0;
++        strcpy(out, leaf);
++        return 1;
++    }
++
++    env = getenv("OS2LIBPATH");
++    if (!env || !*env)
++        return 0;
++    p = env;
++    while (*p) {
++        q = strchr(p, ';');
++        n = q ? (size_t)(q - p) : strlen(p);
++        if (n == 0) {
++            strcpy(path, leaf);
++        } else if (n + 1u + strlen(leaf) + 1u <= sizeof(path)) {
++            memcpy(path, p, n);
++            path[n] = 0;
++            if (path[n - 1] != '\\' && path[n - 1] != '/')
++                strcat(path, "\\");
++            strcat(path, leaf);
++        } else {
++            path[0] = 0;
++        }
++        if (path[0] && file_exists_regular(path)) {
++            if (strlen(path) + 1u > cap) return 0;
++            strcpy(out, path);
++            return 1;
++        }
++        if (!q) break;
++        p = q + 1;
++    }
++    return 0;
++}
++
++static uint32_t name_table_find_ordinal(struct LeImage *x, uint32_t start,
++                                        uint32_t limit, const char *wanted)
++{
++    uint32_t p, n, ord;
++    char name[256];
++    if (start == 0 || start >= x->file_size)
++        return 0;
++    if (limit == 0 || limit > x->file_size)
++        limit = x->file_size;
++    p = start;
++    while (p < limit) {
++        n = x->file[p++];
++        if (n == 0)
++            break;
++        if (n >= sizeof(name) || p > limit || n > limit - p ||
++            limit - (p + n) < 2u)
++            fatal("malformed LE export name table");
++        memcpy(name, x->file + p, n);
++        name[n] = 0;
++        p += n;
++        ord = rd16(x->file + p);
++        p += 2;
++        if (_stricmp(name, wanted) == 0)
++            return ord;
++    }
++    return 0;
++}
++
++static uint32_t guest_export_by_ordinal(struct GuestModule *g, uint32_t wanted)
++{
++    struct LeImage *x;
++    uint32_t p, ordinal, i, object, off;
++    uint8_t count, type, base_type, flags;
++
++    x = &g->image;
++    if (wanted == 0 || x->entry_table_off == 0 ||
++        x->entry_table_off >= x->file_size)
++        return 0;
++    p = x->entry_table_off;
++    ordinal = 1;
++    for (;;) {
++        if (!file_range(x, p, 1))
++            fatal("truncated LE entry table");
++        count = x->file[p++];
++        if (count == 0)
++            break;
++        if (!file_range(x, p, 1))
++            fatal("truncated LE entry bundle");
++        type = x->file[p++];
++        if (type & 0x80)
++            fatal("typed LE entry bundles are unsupported in V2 DLL milestone");
++        base_type = type & 0x7f;
++        if (base_type == 0) {
++            if (wanted >= ordinal && wanted < ordinal + (uint32_t)count)
++                return 0;
++            ordinal += count;
++            continue;
++        }
++        if (base_type == 1 || base_type == 2 || base_type == 3) {
++            if (!file_range(x, p, 2))
++                fatal("truncated LE entry bundle object");
++            object = rd16(x->file + p); p += 2;
++            for (i = 0; i < (uint32_t)count; ++i, ++ordinal) {
++                if (!file_range(x, p, 1))
++                    fatal("truncated LE entry flags");
++                flags = x->file[p++];
++                if (base_type == 3) {
++                    if (!file_range(x, p, 4))
++                        fatal("truncated LE 32-bit entry");
++                    off = rd32(x->file + p); p += 4;
++                } else {
++                    if (!file_range(x, p, base_type == 2 ? 4u : 2u))
++                        fatal("truncated LE 16-bit entry");
++                    off = rd16(x->file + p); p += 2;
++                    if (base_type == 2) p += 2;
++                }
++                if (ordinal == wanted) {
++                    if ((flags & 1u) == 0)
++                        return 0;
++                    if (base_type != 3)
++                        fatal("16-bit/call-gate DLL exports are not supported in V2 DLL milestone");
++                    if (object == 0 || object > x->num_objects)
++                        fatal("DLL export references invalid object");
++                    if (off >= x->objects[object - 1u].size)
++                        fatal("DLL export offset lies outside object");
++                    return x->objects[object - 1u].mapped_addr + off;
++                }
++            }
++            continue;
++        }
++        if (base_type == 4)
++            fatal("DLL forwarder exports are deferred in V2 DLL milestone");
++        fatal("unknown LE entry bundle type");
++    }
++    return 0;
++}
++
++static uint32_t guest_export_by_name(struct GuestModule *g, const char *name)
++{
++    struct LeImage *x;
++    uint32_t ord, resident_end, nonresident_end;
++    x = &g->image;
++    resident_end = x->entry_table_off;
++    if (resident_end <= x->resident_name_off || resident_end > x->file_size)
++        resident_end = x->file_size;
++    ord = name_table_find_ordinal(x, x->resident_name_off, resident_end, name);
++    if (ord == 0 && x->nonresident_name_off != 0 && x->nonresident_name_len != 0) {
++        if (x->nonresident_name_off > x->file_size ||
++            x->nonresident_name_len > x->file_size - x->nonresident_name_off)
++            fatal("bad non-resident name table");
++        nonresident_end = x->nonresident_name_off + x->nonresident_name_len;
++        ord = name_table_find_ordinal(x, x->nonresident_name_off,
++                                      nonresident_end, name);
++    }
++    return ord ? guest_export_by_ordinal(g, ord) : 0;
++}
++
++static struct GuestModule *find_guest_module(struct Runtime *rt, const char *name)
++{
++    uint32_t i;
++    for (i = 0; i < MAX_GUEST_MODULES; ++i) {
++        if (rt->modules[i].used &&
++            module_name_equal(rt->modules[i].request_name, name))
++            return &rt->modules[i];
++    }
++    return NULL;
++}
++
++static struct GuestModule *load_guest_module(struct Runtime *rt, const char *name);
++
++static void resolve_imports(struct Runtime *rt, struct LeImage *x,
++                            const char *owner)
++{
++    uint32_t i, addr;
++    struct GuestModule *g;
++    char namebuf[256];
++
++    for (i = 0; i < x->nimports; ++i) {
++        const char *mod = x->modules[x->imports[i].module].name;
++        if (_stricmp(mod, "DOSCALLS") == 0) {
++            addr = doscall_stub(rt, x->imports[i].ordinal);
++        } else {
++            g = load_guest_module(rt, mod);
++            addr = guest_export_by_ordinal(g, x->imports[i].ordinal);
++        }
++        if (addr == 0) {
++            fprintf(stderr, "v2: %s: unresolved %s.%u\n",
++                    owner, mod, x->imports[i].ordinal);
++            fatal("guest DLL ordinal import resolution failed");
++        }
++        x->imports[i].address = addr;
++        printf("v2: resolve %-12s .%-4u -> %08X  (%u site%s) [%s]\n",
++               mod, x->imports[i].ordinal, addr, x->imports[i].sites,
++               x->imports[i].sites == 1 ? "" : "s", owner);
++    }
++
++    for (i = 0; i < x->nname_imports; ++i) {
++        const char *mod = x->modules[x->name_imports[i].module].name;
++        const char *proc = import_name_at(x, x->name_imports[i].name_offset,
++                                          namebuf, (uint32_t)sizeof(namebuf));
++        if (_stricmp(mod, "DOSCALLS") == 0) {
++            fprintf(stderr, "v2: DOSCALLS named import %s is unsupported; OS/2 DOSCALLS is ordinal-only\n",
++                    proc);
++            fatal("named DOSCALLS import");
++        }
++        g = load_guest_module(rt, mod);
++        addr = guest_export_by_name(g, proc);
++        if (addr == 0) {
++            fprintf(stderr, "v2: %s: unresolved %s.%s\n", owner, mod, proc);
++            fatal("guest DLL named import resolution failed");
++        }
++        x->name_imports[i].address = addr;
++        printf("v2: resolve %-12s .%-20s -> %08X  (%u site%s) [%s]\n",
++               mod, proc, addr, x->name_imports[i].sites,
++               x->name_imports[i].sites == 1 ? "" : "s", owner);
++    }
++}
++
++static struct GuestModule *load_guest_module(struct Runtime *rt, const char *name)
++{
++    uint32_t i;
++    struct GuestModule *g;
++    char path[MAX_PATH];
++
++    g = find_guest_module(rt, name);
++    if (g) {
++        if (g->state == 1)
++            fatal("cyclic guest DLL dependency is deferred in V2 DLL milestone");
++        return g;
++    }
++    if (rt->module_count >= MAX_GUEST_MODULES)
++        fatal("too many guest DLL modules");
++    if (!locate_guest_module(name, path, (uint32_t)sizeof(path))) {
++        fprintf(stderr, "v2: guest DLL %s not found (current directory or OS2LIBPATH)\n", name);
++        fatal("guest DLL not found");
++    }
++
++    g = NULL;
++    for (i = 0; i < MAX_GUEST_MODULES; ++i) {
++        if (!rt->modules[i].used) {
++            g = &rt->modules[i];
++            break;
++        }
++    }
++    if (!g)
++        fatal("guest DLL registry full");
++    memset(g, 0, sizeof(*g));
++    g->used = 1;
++    g->state = 1;
++    g->handle = rt->next_module_handle++;
++    strncpy(g->request_name, name, sizeof(g->request_name) - 1u);
++    strncpy(g->path, path, sizeof(g->path) - 1u);
++    ++rt->module_count;
++
++    g->image.file = load_file(path, &g->image.file_size);
++    if (!g->image.file)
++        fatal("cannot read guest DLL");
++    parse_header(&g->image);
++    if ((g->image.module_flags & MOD_TYPE_MASK) != MOD_TYPE_DLL)
++        fatal("imported guest module is not an OS/2 DLL");
++
++    printf("v2: GUESTDLL LOAD   %-12s -> %s handle=%08X\n",
++           name, path, g->handle);
++    parse_objects(&g->image, rt, 0);
++    parse_import_modules(&g->image);
++    scan_fixups(&g->image);
++    resolve_imports(rt, &g->image, g->request_name);
++    apply_fixups(&g->image, rt->ram);
++    g->state = 2;
++
++    for (i = 0; i < g->image.num_objects; ++i) {
++        printf("v2: GUESTDLL object %-2u %-12s pref=%08X guest=%08X size=%08X flags=%08X\n",
++               i + 1u, g->request_name, g->image.objects[i].addr,
++               g->image.objects[i].mapped_addr, g->image.objects[i].size,
++               g->image.objects[i].flags);
++    }
++    printf("v2: GUESTDLL READY  %-12s imports=%u+%u sites=%u\n",
++           g->request_name, g->image.nimports, g->image.nname_imports,
++           g->image.external_sites);
++    return g;
++}
++
++static void free_le_image(struct LeImage *x)
++{
++    free(x->pages);
++    free(x->owner);
++    free(x->file);
++    x->pages = NULL;
++    x->owner = NULL;
++    x->file = NULL;
++}
++
++
+ static const char *base_name(const char *p)
+ {
+     const char *last;
+@@ -1845,14 +2403,20 @@
+         0x00CF93000000FFFFULL
+     };
+ 
++    setvbuf(stdout, NULL, _IONBF, 0);
++    setvbuf(stderr, NULL, _IONBF, 0);
++
+     if (argc < 2) {
+-        fprintf(stderr, "usage: whp_os2_v2_hi.exe hi.exe [guest arguments ...]\n");
++        fprintf(stderr, "usage: whp_os2_v2_hi.exe program.exe [guest arguments ...]\n");
+         return 2;
+     }
+ 
+     memset(&rt, 0, sizeof(rt));
+     memset(&x, 0, sizeof(x));
+     rt.alloc_next = GUEST_ALLOC_BASE;
++    rt.module_next = GUEST_MODULE_BASE;
++    rt.stub_next = GUEST_STUB_BASE;
++    rt.next_module_handle = 0x00010000u;
+     rt.next_tid = 2;
+     rt.current_thread = -1;
+ 
+@@ -1875,7 +2439,7 @@
+         return 1;
+     }
+ 
+-    printf("WHP OS/2 V2 - LE threading + event semaphore experiment\n");
++    printf("WHP OS/2 V2 - LE threading + event semaphore + guest DLL experiment\n");
+     printf("v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);
+@@ -1891,21 +2455,23 @@
+         MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+     if (!rt.ram) {
+         fprintf(stderr, "v2: VirtualAlloc(%u MiB) failed: %lu\n",
+-                RAM_SIZE / (1024u * 1024u), GetLastError());
++                RAM_SIZE / (1024u * 1024u), (unsigned long)GetLastError());
+         goto cleanup;
+     }
+     memset(rt.ram, 0, RAM_SIZE);
+ 
+     parse_header(&x);
+-    parse_objects(&x, rt.ram);
++    if ((x.module_flags & MOD_TYPE_MASK) == MOD_TYPE_DLL)
++        fatal("main input must be an OS/2 executable, not a DLL");
++    parse_objects(&x, &rt, 1);
+     parse_import_modules(&x);
+     scan_fixups(&x);
+-    emit_import_stubs(&x, rt.ram);
++    resolve_imports(&rt, &x, base_name(argv[1]));
+     emit_runtime_stubs(&rt);
+     apply_fixups(&x, rt.ram);
+ 
+-    entry = x.objects[x.entry_object - 1u].addr + x.entry_offset;
+-    stack_top = x.objects[x.stack_object - 1u].addr + x.stack_offset;
++    entry = x.objects[x.entry_object - 1u].mapped_addr + x.entry_offset;
++    stack_top = x.objects[x.stack_object - 1u].mapped_addr + x.stack_offset;
+     if (!guest_range(entry, 1) || !guest_range(stack_top - 20u, 20u))
+         fatal("entry/stack lies outside guest RAM");
+ 
+@@ -1929,17 +2495,26 @@
+     printf("v2: stack           = object %u + %08X -> %08X (initial ESP %08X)\n",
+            x.stack_object, x.stack_offset, stack_top, esp);
+     for (i = 0; i < x.num_objects; ++i) {
+-        printf("v2: object %-2u      = guest %08X size=%08X flags=%08X pages=%u @%u\n",
+-               i + 1u, x.objects[i].addr, x.objects[i].size,
++        printf("v2: object %-2u      = pref %08X guest %08X size=%08X flags=%08X pages=%u @%u\n",
++               i + 1u, x.objects[i].addr, x.objects[i].mapped_addr, x.objects[i].size,
+                x.objects[i].flags, x.objects[i].mapsize, x.objects[i].mapidx);
+     }
+-    printf("v2: imports          = %u unique / %u sites\n", x.nimports, x.external_sites);
++    printf("v2: imports          = %u ordinal + %u named / %u sites\n",
++           x.nimports, x.nname_imports, x.external_sites);
+     for (i = 0; i < x.nimports; ++i) {
+-        printf("v2:   %-12s .%-4u -> stub %08X (%u site%s)\n",
++        printf("v2:   %-12s .%-4u -> %08X (%u site%s)\n",
+                x.modules[x.imports[i].module].name,
+-               x.imports[i].ordinal, x.imports[i].stub_va,
++               x.imports[i].ordinal, x.imports[i].address,
+                x.imports[i].sites, x.imports[i].sites == 1 ? "" : "s");
+     }
++    for (i = 0; i < x.nname_imports; ++i) {
++        char nbuf[256];
++        printf("v2:   %-12s .%-20s -> %08X (%u site%s)\n",
++               x.modules[x.name_imports[i].module].name,
++               import_name_at(&x, x.name_imports[i].name_offset, nbuf, sizeof(nbuf)),
++               x.name_imports[i].address, x.name_imports[i].sites,
++               x.name_imports[i].sites == 1 ? "" : "s");
++    }
+     printf("v2: internal fixups  = %u records\n", x.internal_records);
+     printf("v2: startup          = ENV=%08X PGM=%08X ARG=%08X\n", env_va, pgm_va, arg_va);
+ 
+@@ -2010,7 +2585,7 @@
+     rt.current_thread = 0;
+     rt.threads[0].tid = 1;
+     rt.threads[0].state = THREAD_RUNNING;
+-    rt.threads[0].stack_base = x.objects[x.stack_object - 1u].addr;
++    rt.threads[0].stack_base = x.objects[x.stack_object - 1u].mapped_addr;
+     rt.threads[0].stack_size = x.stack_offset;
+     hr = save_thread_context(&rt, &rt.threads[0]);
+     if (FAILED(hr)) {
+@@ -2027,7 +2602,7 @@
+     if (rc == 0)
+         printf("PASS: untouched OS/2 LE executed under WHP and exited rc=0\n");
+     else
+-        printf("V2 threading/semaphore attempt stopped/returned rc=%d\n", rc);
++        printf("V2 DLL/threading attempt stopped/returned rc=%d\n", rc);
+     goto cleanup;
+ 
+ whp_fail_create:
+@@ -2047,8 +2622,10 @@
+         WHvDeletePartition(rt.partition);
+     if (rt.ram)
+         VirtualFree(rt.ram, 0, MEM_RELEASE);
+-    free(x.pages);
+-    free(x.owner);
+-    free(x.file);
++    for (i = 0; i < MAX_GUEST_MODULES; ++i) {
++        if (rt.modules[i].used)
++            free_le_image(&rt.modules[i].image);
++    }
++    free_le_image(&x);
+     return rc;
+ }

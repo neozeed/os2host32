@@ -1,0 +1,15 @@
+rva	symbol	module	m26_status
+0x0001E5CA	_eCopy	cfile.c	live wrapper
+0x00017AF4	_copy	cpwork.c	semantic ordinary-copy subset
+0x00017D4C	_do_normal_copy	cpwork.c	semantic subset
+0x00018560	_do_combine_copy	cpwork.c	deferred
+0x0001E5E2	_eDelete	cfile.c	live wrapper
+0x0001E5FA	_DelWork	cfile.c	semantic subset live
+0x0001ECF6	_PromptUser	cfile.c	deferred
+0x0001EE02	_eRename	cfile.c	live wrapper
+0x0001EE16	_RenWork	cfile.c	ordinary rename live; wildcard transform deferred
+0x0001F42E	_RenError	cfile.c	mapped to Win32 diagnostic
+0x0001F4A6	_eMove	cfile.c	live wrapper
+0x0001F516	_MoveParse	cfile.c	common two-operand grammar live
+0x0001F91E	_MoveError	cfile.c	mapped to Win32 diagnostic
+0x0001F996	_Move	cfile.c	ordinary/wildcard-to-directory live

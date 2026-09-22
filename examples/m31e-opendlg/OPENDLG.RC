@@ -1,0 +1,20 @@
+/*
+    File Dialog Library Resource File
+    Created by Microsoft Corporation, 1989
+*/
+
+#include    "tool.h"
+
+/* Stringtable for library strings */
+STRINGTABLE
+BEGIN
+    IDS_MERGE1,     "%%"
+    IDS_IFN,	    "%% is not a valid filename."
+    IDS_FNF,	    "%% not found - Create new file?"
+    IDS_REF,	    "Replace existing %%?"
+    IDS_SCC,	    "%% has changed.  Save current changes?"
+    IDS_EOF,	    "Error opening %%."
+    IDS_ECF,	    "Error creating %%."
+END
+
+rcinclude opendlg.dlg	/* Open... and Save As... dialog boxes */

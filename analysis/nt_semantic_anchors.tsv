@@ -1,0 +1,12 @@
+role	function	rva	source_file
+core entry	_main	0x00010000	C:\nt\private\windows\cmd\cmd.c
+dispatch	_Dispatch	0x00010184	C:\nt\private\windows\cmd\cmd.c
+parser	_Parser	0x00019C3C	C:\nt\private\windows\cmd\cparse.c
+lexer	_Lex	0x00016838	C:\nt\private\windows\cmd\clex.c
+external program	_ExecPgm	0x00015B7C	C:\nt\private\windows\cmd\cext.c
+external command	_ExtCom	0x0001594C	C:\nt\private\windows\cmd\cext.c
+redirection	_SetRedir	0x00010308	C:\nt\private\windows\cmd\cmd.c
+pipe operator	_ePipe	0x000114A0	C:\nt\private\windows\cmd\cop.c
+environment setup	_SetUpEnvironment	0x0001283E	C:\nt\private\windows\cmd\cinit.c
+directory engine	_Dir	0x00020E3C	C:\nt\private\windows\cmd\dir.c
+copy engine	_copy	0x00017AF4	C:\nt\private\windows\cmd\cpwork.c

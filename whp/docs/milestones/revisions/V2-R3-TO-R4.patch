@@ -1,0 +1,306 @@
+--- a/whp_os2_v2_hi.c
++++ b/whp_os2_v2_hi.c
+@@ -4,7 +4,7 @@
+  * OS/2 V2 experimental runtime: execute untouched flat 32-bit OS/2 LE code
+  * directly under Windows Hypervisor Platform from a Win64 host.
+  *
+- * R3 extends the proven hi.exe/thread/event-semaphore path with real guest
++ * R4 adds normal/zero LX pages and --check; R3 extends the proven hi.exe/thread/event-semaphore path with real guest
+  * OS/2 user DLL loading. DLL code/data are mapped into the same guest process
+  * address space as the EXE and are therefore visible to every virtual thread.
+  *
+@@ -57,8 +57,8 @@
+ 
+ #define RAM_SIZE            0x04000000u  /* 64 MiB */
+ #define GUEST_GDT           0x00007000u
+-#define GUEST_STARTUP       0x00080000u
+-#define GUEST_STARTUP_LIMIT 0x000A0000u
++#define GUEST_STARTUP       0x00E00000u
++#define GUEST_STARTUP_LIMIT 0x00E20000u
+ #define GUEST_STUB_BASE     0x000F0000u
+ #define GUEST_STUB_LIMIT    0x000F8000u
+ #define GUEST_ALLOC_BASE    0x01000000u
+@@ -141,7 +141,9 @@
+ 
+ struct LePage {
+     uint32_t physical;
+-    uint8_t flags;
++    uint16_t flags;
++    uint32_t data_offset;
++    uint32_t data_size;
+ };
+ 
+ struct PhysOwner {
+@@ -172,6 +174,7 @@
+     uint8_t *file;
+     uint32_t file_size;
+     uint32_t le;
++    int is_lx;
+     uint32_t module_flags;
+     uint32_t num_pages;
+     uint32_t num_map_pages;
+@@ -203,6 +206,7 @@
+     struct ImportName name_imports[MAX_NAME_IMPORTS];
+     uint32_t nname_imports;
+     uint32_t internal_records;
++    uint32_t internal_sites;
+     uint32_t external_sites;
+ };
+ 
+@@ -381,8 +385,10 @@
+     x->le = rd32(x->file + 0x3c);
+     if (!file_range(x, x->le, 0xc4u))
+         fatal("LE header is outside file");
+-    if (x->file[x->le] != 'L' || x->file[x->le + 1] != 'E')
+-        fatal("input is not an LE executable");
++    if (x->file[x->le] != 'L' ||
++        (x->file[x->le + 1] != 'E' && x->file[x->le + 1] != 'X'))
++        fatal("input is not an LE/LX executable");
++    x->is_lx = x->file[x->le + 1] == 'X';
+     if (x->file[x->le + 2] != 0 || x->file[x->le + 3] != 0)
+         fatal("big-endian LE is unsupported");
+     if (rd16(x->file + x->le + 8) != 2)
+@@ -399,6 +405,8 @@
+     x->stack_offset     = rd32(x->file + h + 0x24);
+     x->page_size        = rd32(x->file + h + 0x28);
+     x->last_page_size   = rd32(x->file + h + 0x2c);
++    if (x->is_lx && x->last_page_size > 31u)
++        fatal("invalid LX page offset shift");
+     x->object_table_off = h + rd32(x->file + h + 0x40);
+     x->num_objects      = rd32(x->file + h + 0x44);
+     x->object_map_off   = h + rd32(x->file + h + 0x48);
+@@ -441,7 +449,7 @@
+     uint32_t i, j, off, phys, src, room, actual, last_map;
+     uint32_t min_addr, max_end, span, module_base;
+     uint8_t *m;
+-    uint8_t pflags;
++    uint16_t pflags;
+ 
+     last_map = 0;
+     min_addr = 0xffffffffu;
+@@ -469,11 +477,20 @@
+                 max_end = o->addr + o->size;
+         }
+         if (o->mapsize != 0) {
+-            if (o->mapidx == 0)
++            if (o->mapidx == 0 || o->mapidx > MAX_PAGES ||
++                o->mapsize > MAX_PAGES - (o->mapidx - 1u) ||
++                o->mapsize > (o->size / x->page_size + (o->size % x->page_size != 0)))
+                 fatal("object has invalid page-map index");
+             if (o->mapidx - 1u + o->mapsize > last_map)
+                 last_map = o->mapidx - 1u + o->mapsize;
+         }
++    }
++
++    if (is_main) {
++        if (x->entry_offset >= x->objects[x->entry_object - 1u].size ||
++            x->stack_offset < 20u ||
++            x->stack_offset > x->objects[x->stack_object - 1u].size)
++            fatal("entry/stack offset lies outside its object");
+     }
+ 
+     if (min_addr == 0xffffffffu)
+@@ -485,7 +502,19 @@
+             o->mapped_addr = o->addr;
+             if (o->size != 0 &&
+                 (o->mapped_addr >= RAM_SIZE || o->size > RAM_SIZE - o->mapped_addr))
+-                fatal("main LE object lies outside guest RAM");
++                fatal("main LE/LX object lies outside guest RAM");
++            if (o->size &&
++                ((o->addr < GUEST_GDT + 24u && o->addr + o->size > GUEST_GDT) ||
++                 (o->addr < GUEST_STARTUP_LIMIT && o->addr + o->size > GUEST_STARTUP) ||
++                 (o->addr < GUEST_STUB_LIMIT && o->addr + o->size > GUEST_STUB_BASE) ||
++                 o->addr + o->size > GUEST_ALLOC_BASE))
++                fatal("main object overlaps reserved V2 runtime memory");
++            for (j = 0; j < i; ++j) {
++                struct LeObject *prev = &x->objects[j];
++                if (o->size && prev->size && o->addr < prev->addr + prev->size &&
++                    prev->addr < o->addr + o->size)
++                    fatal("overlapping main objects");
++            }
+         }
+     } else {
+         span = align_up(max_end - min_addr, 0x10000u);
+@@ -506,8 +535,10 @@
+ 
+     if (last_map == 0 || last_map > MAX_PAGES)
+         fatal("unsupported logical page-map size");
++    if (x->is_lx && last_map != x->num_pages)
++        fatal("LX object map does not cover module pages");
+     x->num_map_pages = last_map;
+-    if (!file_range(x, x->object_map_off, x->num_map_pages * 4u))
++    if (!file_range(x, x->object_map_off, x->num_map_pages * (x->is_lx ? 8u : 4u)))
+         fatal("bad LE object page map");
+ 
+     x->pages = (struct LePage *)calloc((size_t)x->num_map_pages, sizeof(*x->pages));
+@@ -516,16 +547,33 @@
+         fatal("out of memory parsing LE pages");
+ 
+     for (i = 0; i < x->num_map_pages; ++i) {
+-        m = x->file + x->object_map_off + i * 4u;
+-        phys = ((uint32_t)m[0] << 16) | ((uint32_t)m[1] << 8) | (uint32_t)m[2];
+-        pflags = m[3];
++        m = x->file + x->object_map_off + i * (x->is_lx ? 8u : 4u);
++        if (x->is_lx) {
++            uint64_t offset;
++            phys = i + 1u; /* LX fixups index logical module pages. */
++            pflags = rd16(m + 6);
++            x->pages[i].data_size = rd16(m + 4);
++            if (x->pages[i].data_size > x->page_size)
++                fatal("LX page data exceeds page size");
++            if (pflags == 0 && x->pages[i].data_size != 0) {
++                offset = (uint64_t)x->data_pages_off +
++                         ((uint64_t)rd32(m) << x->last_page_size);
++                if (offset > 0xffffffffu ||
++                    !file_range(x, (uint32_t)offset, x->pages[i].data_size))
++                    fatal("LX page data extends past EOF");
++                x->pages[i].data_offset = (uint32_t)offset;
++            }
++        } else {
++            phys = ((uint32_t)m[0] << 16) | ((uint32_t)m[1] << 8) | (uint32_t)m[2];
++            pflags = m[3];
++        }
+         x->pages[i].physical = phys;
+         x->pages[i].flags = pflags;
+         if (pflags == 0) {
+             if (phys == 0 || phys > x->num_pages)
+-                fatal("bad LE physical page number");
++                fatal("bad LE/LX page number");
+         } else if (pflags != 3) {
+-            fatal("V2 DLL milestone supports enumerated/zero LE pages only");
++            fatal("V2 supports enumerated/zero LE/LX pages only");
+         }
+     }
+ 
+@@ -538,7 +586,7 @@
+         for (j = 0; j < o->mapsize; ++j) {
+             struct LePage *lp;
+             lp = &x->pages[o->mapidx - 1u + j];
+-            if (lp->flags == 3)
++            if (!x->is_lx && lp->flags == 3)
+                 continue;
+ 
+             phys = lp->physical;
+@@ -548,14 +596,19 @@
+             x->owner[phys].object = i;
+             x->owner[phys].object_page = j;
+ 
+-            src = x->data_pages_off + (phys - 1u) * x->page_size;
++            if (lp->flags == 3)
++                continue; /* LX zero pages still own fixup records. */
++            src = x->is_lx ? lp->data_offset :
++                  x->data_pages_off + (phys - 1u) * x->page_size;
+             room = x->page_size;
+             if (j * x->page_size >= o->size)
+                 room = 0;
+             else if (room > o->size - j * x->page_size)
+                 room = o->size - j * x->page_size;
+             actual = room;
+-            if (phys == x->num_pages && actual > x->last_page_size)
++            if (x->is_lx && actual > lp->data_size)
++                actual = lp->data_size;
++            if (!x->is_lx && phys == x->num_pages && actual > x->last_page_size)
+                 actual = x->last_page_size;
+             if (!file_range(x, src, actual))
+                 fatal("LE page data extends past EOF");
+@@ -762,6 +815,7 @@
+                 if (flags & TGT_ADDITIVE)
+                     fatal("additive internal fixup unsupported");
+                 ++x->internal_records;
++                x->internal_sites += count;
+             } else if (kind == TGT_EXT_ORD) {
+                 if (st != SRC_REL32)
+                     fatal("external ordinal fixup is not REL32");
+@@ -953,6 +1007,45 @@
+     }
+ }
+ 
++/* Phase-1 offline loader check: relocation targets below are diagnostic only.
++   Never enter WHP or claim PM/queue implementations from this path. */
++static int check_image(const char *path)
++{
++    struct LeImage x;
++    struct Runtime rt;
++    uint32_t i;
++    memset(&x, 0, sizeof(x));
++    memset(&rt, 0, sizeof(rt));
++    x.file = load_file(path, &x.file_size);
++    if (!x.file) { fprintf(stderr, "cannot read %s\n", path); return 1; }
++    rt.ram = (uint8_t *)calloc(1, RAM_SIZE);
++    if (!rt.ram) fatal("out of memory for loader check");
++    rt.module_next = GUEST_MODULE_BASE;
++    parse_header(&x);
++    parse_objects(&x, &rt, (x.module_flags & MOD_TYPE_MASK) != MOD_TYPE_DLL);
++    parse_import_modules(&x);
++    scan_fixups(&x);
++    printf("%s loader check: %u pages, %u objects\n", x.is_lx ? "LX" : "LE", x.num_pages, x.num_objects);
++    for (i = 0; i < x.num_objects; ++i)
++        printf("object %u: guest=%08X size=%08X pages=%u @%u\n", i + 1u,
++               x.objects[i].mapped_addr, x.objects[i].size, x.objects[i].mapsize, x.objects[i].mapidx);
++    printf("fixups: %u internal records / %u sites; %u external sites\n",
++           x.internal_records, x.internal_sites, x.external_sites);
++    for (i = 0; i < x.nimports; ++i) {
++        printf("  %s.%u (%u sites)\n", x.modules[x.imports[i].module].name,
++               x.imports[i].ordinal, x.imports[i].sites);
++        x.imports[i].address = GUEST_STUB_BASE + i * 8u;
++    }
++    for (i = 0; i < x.nname_imports; ++i)
++        x.name_imports[i].address = GUEST_STUB_BASE + (x.nimports + i) * 8u;
++    apply_fixups(&x, rt.ram);
++    printf("PASS: page mapping and fixup application; %u ordinal + %u named imports.\n",
++           x.nimports, x.nname_imports);
++    printf("CHECK ONLY: import addresses are placeholders; no guest code executed.\n");
++    free(x.owner); free(x.pages); free(x.file); free(rt.ram);
++    return 0;
++}
++
+ static int module_name_equal(const char *a, const char *b)
+ {
+     char aa[64], bb[64];
+@@ -1199,6 +1292,15 @@
+     struct GuestModule *g;
+     char namebuf[256];
+ 
++    for (i = 0; i < x->num_impmods; ++i) {
++        const char *mod = x->modules[i].name;
++        if (_stricmp(mod, "PMWIN") == 0 || _stricmp(mod, "PMGPI") == 0 ||
++            _stricmp(mod, "QUECALLS") == 0) {
++            fprintf(stderr, "v2: %s requires %s: personality not implemented in V2 R4.\n",
++                    owner, mod);
++            fatal("use --check for phase-1 loader validation; guest was not started");
++        }
++    }
+     for (i = 0; i < x->nimports; ++i) {
+         const char *mod = x->modules[x->imports[i].module].name;
+         if (_stricmp(mod, "DOSCALLS") == 0) {
+@@ -2405,8 +2507,11 @@
+     setvbuf(stdout, NULL, _IONBF, 0);
+     setvbuf(stderr, NULL, _IONBF, 0);
+ 
++    if (argc == 3 && strcmp(argv[1], "--check") == 0)
++        return check_image(argv[2]);
++
+     if (argc < 2) {
+-        fprintf(stderr, "usage: whp_os2_v2_hi.exe program.exe [guest arguments ...]\n");
++        fprintf(stderr, "usage: whp_os2_v2_hi.exe program.exe [guest arguments ...] | --check image.exe\n");
+         return 2;
+     }
+ 
+@@ -2438,7 +2543,7 @@
+         return 1;
+     }
+ 
+-    printf("WHP OS/2 V2 - LE threading + event semaphore + guest DLL experiment\n");
++    printf("WHP OS/2 V2 R4 - LE/LX loader + threads + events + guest DLLs\n");
+     printf("v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);
+@@ -2487,7 +2592,7 @@
+ 
+     memcpy(rt.ram + GUEST_GDT, gdt, sizeof(gdt));
+ 
+-    printf("v2: LE header       = %08X\n", x.le);
++    printf("v2: %s header       = %08X\n", x.is_lx ? "LX" : "LE", x.le);
+     printf("v2: physical pages  = %u\n", x.num_pages);
+     printf("v2: entry           = object %u + %08X -> %08X\n",
+            x.entry_object, x.entry_offset, entry);

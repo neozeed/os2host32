@@ -1,0 +1,20 @@
+--- a/v2_process_boot.h
++++ b/v2_process_boot.h
+@@ -27,7 +27,7 @@
+ }
+ static int child_attach(const char *token)
+ {
+- char *end;uint64_t value=strtoull(token,&end,16);HANDLE mapping,guest_err;int fd;
++ char *end;uint64_t value=strtoull(token,&end,16);HANDLE mapping,guest_err=NULL;int fd;
+  if(!*token||*end||!value)return 0;
+  mapping=(HANDLE)(uintptr_t)value;
+  child_boot=(struct ChildPacket *)MapViewOfFile(mapping,FILE_MAP_ALL_ACCESS,0,0,sizeof(*child_boot));
+@@ -44,7 +44,7 @@
+  if(_dup2(fd,2)!=0){_close(fd);return 0;}
+  if(fd!=2)_close(fd);
+  /* CRT descriptor replacement may also update the Win32 standard handle. */
+- if(!(child_boot->closed_mask&4) && !SetStdHandle(STD_ERROR_HANDLE,guest_err))return 0;
++ if(guest_err && !SetStdHandle(STD_ERROR_HANDLE,guest_err))return 0;
+  /* Apply explicit guest compatibility choices to the child host too. */
+  {
+   static const char *names[]={"WHP_OS2_FIND_LAYOUT","WHP_OS2_FIND_ZERO_COUNT","WHP_OS2_SARIEN_GEOMETRY"};

@@ -1,0 +1,129 @@
+--- m30d/doscalls.c	2026-09-17 17:52:19.999079254 +0000
++++ m30e/doscalls.c	2026-09-17 17:59:57.474805664 +0000
+@@ -279,6 +279,23 @@
+ static struct O2TibCompat o2_info_tib;
+ static struct O2Tib2Compat o2_info_tib2;
+ static struct O2PibCompat o2_info_pib;
++
++/*
++ * M30E: minimal OS/2 32-bit exception-registration chain.  Real OS/2 keeps
++ * the head in the current thread's TIB and DosSetExceptionHandler links the
++ * caller-supplied two-dword record at the front.  M30 is intentionally
++ * single-threaded for EMX, so one process-local chain is sufficient for the
++ * current guest.  0xffffffff is the historical end-of-chain marker.
++ *
++ * We do not deliver Win32 faults through this chain yet; this milestone only
++ * supplies the registration semantics EMX requires during normal startup.
++ */
++struct O2ExceptionRegistrationRecord {
++    struct O2ExceptionRegistrationRecord *prev_structure;
++    void *exception_handler;
++};
++static struct O2ExceptionRegistrationRecord *o2_exception_head =
++    (struct O2ExceptionRegistrationRecord *)(ULONG_PTR)0xffffffffUL;
+ static char o2_info_env[O2_INFO_ENV_MAX];
+ static char o2_info_cmd[O2_INFO_CMD_MAX];
+ static char o2_scan_env[O2_INFO_ENV_MAX];
+@@ -1608,6 +1625,7 @@
+     memset(&o2_info_tib, 0, sizeof(o2_info_tib));
+     memset(&o2_info_tib2, 0, sizeof(o2_info_tib2));
+     memset(&o2_info_pib, 0, sizeof(o2_info_pib));
++    o2_info_tib.pexchain = o2_exception_head;
+ 
+     /* M30D: OS/2 TIB offsets +4/+8 describe the current thread's stack
+      * bounds.  EMX checks these during _emx_init and rejects a span of
+@@ -3373,6 +3391,75 @@
+     return g_o2_module_bridge.free_module(moduleHandle);
+ }
+ 
++/* 354 - DosSetExceptionHandler.
++ *
++ * OS/2's EXCEPTIONREGISTRATIONRECORD is two 32-bit words:
++ *   +0 previous registration record
++ *   +4 exception-handler entry point
++ *
++ * Linking the record is enough for ordinary EMX startup.  Actual host-fault
++ * translation into the OS/2 exception dispatcher is deliberately deferred.
++ */
++O2APIRET __cdecl DosSetExceptionHandler(struct O2ExceptionRegistrationRecord *rec)
++{
++    if (!rec)
++        return O2_ERROR_INVALID_PARAMETER;
++
++    rec->prev_structure = o2_exception_head;
++    o2_exception_head = rec;
++    o2_info_tib.pexchain = rec;
++
++    if (emx_self_trace_enabled()) {
++        fprintf(stderr,
++                "M30E EXCEPT: DosSetExceptionHandler rec=%08lX prev=%08lX handler=%08lX\n",
++                (unsigned long)(ULONG_PTR)rec,
++                (unsigned long)(ULONG_PTR)rec->prev_structure,
++                (unsigned long)(ULONG_PTR)rec->exception_handler);
++    }
++    return O2_NO_ERROR;
++}
++
++/* 355 - matching chain teardown.  The supplied EMX DLL does not currently
++ * import this ordinal statically, but keeping the inverse operation correct
++ * prevents a future dynamically-resolved or later-runtime teardown from
++ * leaving a stale registration record behind.
++ */
++O2APIRET __cdecl DosUnsetExceptionHandler(struct O2ExceptionRegistrationRecord *rec)
++{
++    struct O2ExceptionRegistrationRecord *p;
++    struct O2ExceptionRegistrationRecord *next;
++    unsigned guard;
++
++    if (!rec)
++        return O2_ERROR_INVALID_PARAMETER;
++
++    if (o2_exception_head == rec) {
++        o2_exception_head = rec->prev_structure;
++    } else {
++        p = o2_exception_head;
++        guard = 0U;
++        while (p != NULL &&
++               p != (struct O2ExceptionRegistrationRecord *)(ULONG_PTR)0xffffffffUL &&
++               guard++ < 64U) {
++            next = p->prev_structure;
++            if (next == rec) {
++                p->prev_structure = rec->prev_structure;
++                break;
++            }
++            p = next;
++        }
++    }
++    o2_info_tib.pexchain = o2_exception_head;
++
++    if (emx_self_trace_enabled()) {
++        fprintf(stderr,
++                "M30E EXCEPT: DosUnsetExceptionHandler rec=%08lX newhead=%08lX\n",
++                (unsigned long)(ULONG_PTR)rec,
++                (unsigned long)(ULONG_PTR)o2_exception_head);
++    }
++    return O2_NO_ERROR;
++}
++
+ O2APIRET __cdecl DosQuerySysInfo(O2ULONG first, O2ULONG last,
+                                   void *buffer, O2ULONG cb)
+ {
+@@ -3405,6 +3492,8 @@
+     (void)instance;
+ 
+     if (reason == DLL_PROCESS_ATTACH) {
++        o2_exception_head =
++            (struct O2ExceptionRegistrationRecord *)(ULONG_PTR)0xffffffffUL;
+         for (i = 0; i < O2_MAX_HANDLES; ++i)
+             o2_handles[i] = NULL;
+         for (i = 0; i < 3UL; ++i)
+--- m30d/doscalls.def	2026-09-17 13:40:16.000000000 +0000
++++ m30e/doscalls.def	2026-09-17 17:59:57.474994782 +0000
+@@ -57,5 +57,7 @@
+     DosRequestMutexSem @334 NONAME
+     DosReleaseMutexSem @335 NONAME
+     DosQuerySysInfo    @348 NONAME
++    DosSetExceptionHandler @354 NONAME
++    DosUnsetExceptionHandler @355 NONAME
+     DosFlatToSel       @425 NONAME
+     DosSelToFlat       @426 NONAME

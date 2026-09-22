@@ -1,0 +1,24 @@
+V2 R3 changes
+=============
+
+* Added process-local guest OS/2 DLL registry.
+* Added reserved 0x03000000 guest module arena and DLL object rebasing.
+* Added LE module-type, entry-table, resident-name and non-resident-name parsing.
+* Added user-DLL export lookup by 32-bit ordinal and by name.
+* Added external REL32 import-by-name support.
+* Added recursive guest DLL import resolution.
+* DOSCALLS veneers are now process-global/reused by ordinal rather than emitted
+  independently per image.
+* Preserved the R2 virtual-thread/event-semaphore scheduler unchanged.
+* Added CRT-free V2DLL.DLL, simple dlltest.exe and threaded dllthread.exe.
+* Corrected all recovered C/386 build scripts to use C1_386 rather than C1L_386.
+* Made stdout/stderr unbuffered to keep host trace and guest DosWrite ordering sane.
+
+Offline validation before packaging:
+* Win64 source passes clang syntax checking against the WHP/Win32 stubs.
+* New C/386 fixture sources pass strict C89 syntax checking.
+* R3 LE DLL parser was exercised against the real V1 OPENDLG.DLL:
+  - recognized DLL module flags 00008004
+  - parsed four objects and rebased them into the 03000000 arena
+  - parsed 31 ordinal imports / 90 external sites
+  - resolved OPENDLG ordinal 21 and name ALERTBOX to the same rebased guest VA

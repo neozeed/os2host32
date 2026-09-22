@@ -1,0 +1,974 @@
+--- os2host32.c.m29p1.bak	2026-09-17 12:30:56.053878957 +0000
++++ os2host32.c	2026-09-17 12:38:50.997969402 +0000
+@@ -72,11 +72,13 @@
+ #define IMPORT_KIND_NONE  0
+ #define IMPORT_KIND_HOST  1
+ #define IMPORT_KIND_GUEST 2
++#define IMPORT_KIND_TRAP  3
+ #define MAX_GUEST_MODULES 64
+ 
+ #define O2_NO_ERROR             0UL
+ #define O2_ERROR_INVALID_HANDLE 6UL
+ #define O2_ERROR_INVALID_PARAMETER 87UL
++#define O2_ERROR_BUFFER_OVERFLOW 111UL
+ #define O2_ERROR_MOD_NOT_FOUND 126UL
+ #define O2_ERROR_PROC_NOT_FOUND 127UL
+ #define O2_ERROR_INIT_ROUTINE_FAILED 295UL
+@@ -185,6 +187,27 @@
+     ((U32)(sizeof(c386_far16_apis) / sizeof(c386_far16_apis[0])))
+ #define C386_FAR16_DESC_NONE 0xffffffffUL
+ 
++/*
++ * M30: EMX 0.9x uses one generic 32->16 dispatcher rather than the one-thunk
++ * per API shape emitted by Microsoft C/386.  These are the far16 targets
++ * reached by the generic EMX_THUNK1 wrapper in the specimen used to bring up
++ * the bridge.  arg_width[] is again in low-to-high packed-frame order, which
++ * is the right-to-left order required when widening onto a Win32 cdecl stack.
++ */
++static const struct C386Far16ApiDesc emx_far16_apis[] = {
++    { "DOSCALLS", 14UL, "DosSetSigHandler", 5, { 2, 2, 4, 4, 4, 0, 0, 0 } },
++    { "DOSCALLS", 15UL, "DosFlagProcess",   4, { 2, 2, 2, 2, 0, 0, 0, 0 } },
++    { "KBDCALLS",  4UL, "KbdCharIn",       3, { 2, 2, 4, 0, 0, 0, 0, 0 } },
++    { "KBDCALLS",  9UL, "KbdStringIn",     4, { 2, 2, 4, 4, 0, 0, 0, 0 } },
++    { "KBDCALLS", 10UL, "KbdGetStatus",    2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "KBDCALLS", 11UL, "KbdSetStatus",    2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "KBDCALLS", 13UL, "KbdFlushBuffer",  1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
++    { "KBDCALLS", 22UL, "KbdPeek",         2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "VIOCALLS", 21UL, "VioGetMode",      2, { 2, 4, 0, 0, 0, 0, 0, 0 } }
++};
++#define EMX_FAR16_API_COUNT \
++    ((U32)(sizeof(emx_far16_apis) / sizeof(emx_far16_apis[0])))
++
+ static U32 c386_far16_desc_index(const char *module, U32 ordinal)
+ {
+     U32 i;
+@@ -278,6 +301,11 @@
+     U32 c386_bridge_count;
+     int c386_bridges_complete;
+     struct C386Far16Bridge c386_bridges[C386_FAR16_MAX_BRIDGES];
++    int emx_bridge_complete;
++#ifdef _WIN32
++    U8 *emx_thunk_stub;
++    U8 *emx_import_traps[MAX_IMPORTS];
++#endif
+ };
+ 
+ struct GuestModule {
+@@ -299,6 +327,8 @@
+ static U32 g_next_guest_init_order = 1UL;
+ static U32 g_last_guest_load_error = O2_NO_ERROR;
+ static int g_guest_process_exit = 0;
++/* M30: synthetic module handle 1 represents the main guest executable. */
++static char g_main_guest_program[260];
+ #endif
+ 
+ static U16 rd16(const U8 *p)
+@@ -819,6 +849,7 @@
+ #endif
+ 
+ static void detect_c386_far16_bridges(struct LxImage *x);
++static void detect_emx_generic_bridge(struct LxImage *x);
+ 
+ /*
+  * Inventory LX fixups broadly enough for mixed 16/32-bit OS/2 2.x images.
+@@ -992,6 +1023,7 @@
+         x->direct32_fixups = 0;
+ 
+     detect_c386_far16_bridges(x);
++    detect_emx_generic_bridge(x);
+ }
+ 
+ /*
+@@ -1344,6 +1376,56 @@
+     x->c386_bridges_complete = 1;
+ }
+ 
++/*
++ * M30A intentionally recognizes the exact EMX mixed-mode profile we have in
++ * hand.  EMX is very different from the C/386 migration thunks: object 1 is a
++ * tiny shared 16-bit mode/stack shim and object 2 contains a single generic
++ * EMX_THUNK1 dispatcher used by several wrappers.  Be conservative here: a
++ * different EMX build must be inventoried before it is admitted.
++ */
++static void detect_emx_generic_bridge(struct LxImage *x)
++{
++    static const char *const mods[6] = {
++        "DOSCALLS", "NLS", "QUECALLS", "SESMGR", "KBDCALLS", "VIOCALLS"
++    };
++    U32 i;
++
++    x->emx_bridge_complete = 0;
++    if (x->format != FORMAT_LX || x->file_size != 81982UL ||
++        x->module_flags != 0x40008006UL || x->module_pages != 18UL ||
++        x->entry_object != 2UL || x->entry_eip != 0x139cUL ||
++        x->object_count != 4UL || x->import_module_count != 6UL ||
++        x->import_count != 108UL)
++        return;
++    if (x->objects[0].base != 0x00010000UL || x->objects[0].size != 0x93UL ||
++        x->objects[0].flags != 0x00001005UL ||
++        x->objects[1].base != 0x00020000UL || x->objects[1].size != 0x10eb0UL ||
++        x->objects[1].flags != 0x00002005UL ||
++        x->objects[2].base != 0x00040000UL || x->objects[2].size != 0x47d8UL ||
++        x->objects[2].flags != 0x00003003UL ||
++        x->objects[3].base != 0x00050000UL || x->objects[3].size != 0x2008UL ||
++        x->objects[3].flags != 0x00002023UL)
++        return;
++    for (i = 0; i < 6UL; ++i) {
++        if (strcmp(x->modules[i].name, mods[i]) != 0)
++            return;
++    }
++    if (x->source_records[SRC_SEL16] != 3UL ||
++        x->source_sites[SRC_SEL16] != 6UL ||
++        x->source_records[SRC_PTR1616] != 10UL ||
++        x->source_sites[SRC_PTR1616] != 10UL ||
++        x->source_records[SRC_PTR1632] != 2UL ||
++        x->source_sites[SRC_PTR1632] != 2UL ||
++        x->source_records[SRC_OFF32] != 832UL ||
++        x->source_sites[SRC_OFF32] != 2060UL ||
++        x->source_records[SRC_REL32] != 208UL ||
++        x->source_sites[SRC_REL32] != 381UL ||
++        x->alias_records != 13UL || x->alias_sites != 16UL)
++        return;
++
++    x->emx_bridge_complete = 1;
++}
++
+ #ifdef _WIN32
+ static DWORD object_protection(U32 flags)
+ {
+@@ -1836,6 +1918,7 @@
+ static void resolve_imports(struct LxImage *x);
+ static void apply_fixups(struct LxImage *x);
+ static void install_c386_far16_bridges(struct LxImage *x);
++static void install_emx_generic_bridge(struct LxImage *x);
+ 
+ static int ascii_upper(int c)
+ {
+@@ -2317,7 +2400,8 @@
+     }
+     scan_fixups(&g->image);
+     if (!g->image.direct32_fixups &&
+-        !(g->image.c386_bridges_complete && g->image.c386_bridge_count != 0)) {
++        !(g->image.c386_bridges_complete && g->image.c386_bridge_count != 0) &&
++        !g->image.emx_bridge_complete) {
+         fprintf(stderr,
+                 "os2host32: guest DLL %s needs unsupported fixup/mixed-mode machinery\n",
+                 path);
+@@ -2328,6 +2412,8 @@
+     apply_fixups(&g->image);
+     if (g->image.c386_bridges_complete && g->image.c386_bridge_count != 0)
+         install_c386_far16_bridges(&g->image);
++    if (g->image.emx_bridge_complete)
++        install_emx_generic_bridge(&g->image);
+     protect_objects(&g->image);
+ 
+     if (!initialize_guest_module(g)) {
+@@ -2373,6 +2459,16 @@
+             x->c386_bridges[i].native_stub = 0;
+         }
+     }
++    if (x->emx_thunk_stub) {
++        VirtualFree(x->emx_thunk_stub, 0, MEM_RELEASE);
++        x->emx_thunk_stub = 0;
++    }
++    for (i = 0; i < x->import_count; ++i) {
++        if (x->emx_import_traps[i]) {
++            VirtualFree(x->emx_import_traps[i], 0, MEM_RELEASE);
++            x->emx_import_traps[i] = 0;
++        }
++    }
+     if (x->mapping_arena) {
+         VirtualFree(x->mapping_arena, 0, MEM_RELEASE);
+         x->mapping_arena = 0;
+@@ -2484,6 +2580,40 @@
+     return O2_NO_ERROR;
+ }
+ 
++__declspec(dllexport) U32 __cdecl OS2HostModuleQueryName(U32 hmod,
++                                                         U32 cb,
++                                                         char *buffer)
++{
++    struct GuestModule *g;
++    const char *src;
++    U32 need;
++
++    if (!buffer || cb == 0)
++        return O2_ERROR_INVALID_PARAMETER;
++
++    if (hmod == 1UL) {
++        src = g_main_guest_program;
++    } else {
++        g = find_guest_module_handle(hmod);
++        if (!g || g->state == 3)
++            return O2_ERROR_INVALID_HANDLE;
++        src = g->path;
++    }
++    if (!src || !*src)
++        return O2_ERROR_INVALID_HANDLE;
++
++    need = (U32)strlen(src) + 1UL;
++    if (need > cb) {
++        buffer[0] = 0;
++        return O2_ERROR_BUFFER_OVERFLOW;
++    }
++    memcpy(buffer, src, (size_t)need);
++    if (!g_quiet || trace_modules())
++        printf("GUESTMOD QUERYNAME: handle=%08lX -> %s\n",
++               (unsigned long)hmod, buffer);
++    return O2_NO_ERROR;
++}
++
+ __declspec(dllexport) U32 __cdecl OS2HostModuleQueryProc(U32 hmod,
+                                                          U32 ordinal,
+                                                          const char *name,
+@@ -2561,6 +2691,13 @@
+ 
+     if (x->modules[m].kind != IMPORT_KIND_NONE)
+         return;
++    if (x->emx_bridge_complete && module_name_equal(x->modules[m].name, "NLS")) {
++        x->modules[m].kind = IMPORT_KIND_TRAP;
++        if (!g_quiet)
++            printf("deferred %-12s imports to M30 trap-on-use stubs\n",
++                   x->modules[m].name);
++        return;
++    }
+     if (is_personality_module(x->modules[m].name)) {
+         if (strlen(x->modules[m].name) + 5 >= sizeof(dllname))
+             fail("LE/LX import module name is too long");
+@@ -2596,6 +2733,8 @@
+         fp = GetProcAddress(x->modules[m].handle, (LPCSTR)(unsigned long)ordinal);
+         return fp ? (U32)(unsigned long)fp : 0;
+     }
++    if (x->modules[m].kind == IMPORT_KIND_TRAP)
++        return 0;
+     addr = guest_export_by_ordinal(x->modules[m].guest, ordinal);
+     if ((!g_quiet || trace_modules()) && addr != 0)
+         printf("GUESTMOD EXPORT: %s.%lu -> %08lX\n",
+@@ -2621,6 +2760,52 @@
+     return addr;
+ }
+ 
++static void __cdecl emx_unresolved_import(const char *module, U32 ordinal)
++{
++    fprintf(stderr,
++            "os2host32: M30 EMX reached unresolved import %s.%lu\n",
++            module, (unsigned long)ordinal);
++    fprintf(stderr,
++            "os2host32: this import was deferred at load time so EMX could expose the next API actually used\n");
++    ExitProcess(1);
++}
++
++static U32 make_emx_import_trap(struct LxImage *x, U32 import_index_value)
++{
++    U8 *stub;
++    U32 p;
++    U32 module;
++    U32 ordinal;
++
++    if (import_index_value >= x->import_count)
++        fail("bad M30 EMX import trap index");
++    if (x->emx_import_traps[import_index_value])
++        return (U32)(unsigned long)x->emx_import_traps[import_index_value];
++    module = x->imports[import_index_value].module;
++    ordinal = x->imports[import_index_value].ordinal;
++    stub = (U8 *)VirtualAlloc(NULL, 32, MEM_RESERVE | MEM_COMMIT,
++                              PAGE_EXECUTE_READWRITE);
++    if (!stub)
++        fail("cannot allocate M30 EMX import trap");
++    p = 0;
++    stub[p++] = 0x68; wr32(stub + p, ordinal); p += 4;
++    stub[p++] = 0x68;
++    wr32(stub + p, (U32)(unsigned long)x->modules[module].name); p += 4;
++    stub[p++] = 0xb8;
++    wr32(stub + p, (U32)(unsigned long)emx_unresolved_import); p += 4;
++    stub[p++] = 0xff; stub[p++] = 0xd0;
++    stub[p++] = 0xcc;
++    FlushInstructionCache(GetCurrentProcess(), stub, (SIZE_T)p);
++    x->emx_import_traps[import_index_value] = stub;
++    if (!g_quiet)
++        printf("deferred %-12s.%lu -> M30 trap %08lX (%lu site%s)\n",
++               x->modules[module].name, (unsigned long)ordinal,
++               (unsigned long)(U32)(unsigned long)stub,
++               (unsigned long)x->imports[import_index_value].sites,
++               x->imports[import_index_value].sites == 1 ? "" : "s");
++    return (U32)(unsigned long)stub;
++}
++
+ static void resolve_imports(struct LxImage *x)
+ {
+     U32 i, m, addr;
+@@ -2629,6 +2814,8 @@
+     for (i = 0; i < x->import_count; ++i) {
+         m = x->imports[i].module;
+         addr = resolve_module_ordinal(x, m, x->imports[i].ordinal);
++        if (addr == 0 && x->emx_bridge_complete)
++            addr = make_emx_import_trap(x, i);
+         if (addr == 0) {
+             fprintf(stderr, "os2host32: %s ordinal %lu is not exported\n",
+                     x->modules[m].name,
+@@ -2841,6 +3028,170 @@
+         install_one_c386_far16_bridge(x, &x->c386_bridges[i]);
+ }
+ 
++static void __cdecl emx_unknown_thunk(U32 block, U32 target)
++{
++    fprintf(stderr,
++            "os2host32: M30 EMX_THUNK1 received an unrecognized target %08lX (block=%08lX)\n",
++            (unsigned long)target, (unsigned long)block);
++    ExitProcess(1);
++}
++
++static void install_emx_generic_bridge(struct LxImage *x)
++{
++    struct LxObject *o;
++    U8 *code;
++    U8 *stub;
++    U32 p, i, ai, idx, host, frame_off, pushed_bytes;
++    U32 dispatch_patch[EMX_FAR16_API_COUNT];
++    U32 case_off[EMX_FAR16_API_COUNT];
++    U32 helper_va, stub_va, rel;
++    U8 width;
++    const struct C386Far16ApiDesc *desc;
++
++    if (!x->emx_bridge_complete)
++        return;
++    if (x->object_count < 2UL || !x->objects[1].mapped)
++        fail("M30 EMX code object is not mapped");
++    o = &x->objects[1];
++    if (o->size <= 0x10cdfUL)
++        fail("M30 EMX code object is too small");
++    code = o->mapped;
++
++    /* Fail closed if this is not the helper body fingerprinted by M30A. */
++    if (code[0x10c58] != 0x8b || code[0x10c59] != 0x44 ||
++        code[0x10c5a] != 0x24 || code[0x10c5b] != 0x04 ||
++        code[0x10c5c] != 0xe9 ||
++        code[0x10c64] != 0x8b || code[0x10c65] != 0x44 ||
++        code[0x10c66] != 0x24 || code[0x10c67] != 0x04 ||
++        code[0x10c68] != 0xe9 ||
++        code[0x10c70] != 0x55 || code[0x10c71] != 0x8b ||
++        code[0x10c72] != 0xec)
++        fail("M30 EMX helper fingerprint changed");
++
++    /* Flat Win32 pointers are the token: no selector conversion is needed. */
++    code[0x10c5c] = 0xc3;  /* EMX_32TO16: mov eax,[esp+4] ; ret */
++    code[0x10c68] = 0xc3;  /* EMX_16TO32: mov eax,[esp+4] ; ret */
++
++    /*
++     * OS/2 keeps PTIB2 at FS:[0x0c], whose first dword is the thread ID.
++     * Win32 owns FS for its TEB.  This M30 bridge is intentionally single-
++     * threaded, so give EMX the historical main-thread ID 1 at the four
++     * places that dereference the OS/2 TIB.  Merely saving the FS selector
++     * for the bypassed 16-bit shim is harmless and is left untouched.
++     */
++    if (code[0x00ed] != 0x64 || code[0x00ee] != 0x8b ||
++        code[0x014c] != 0x64 || code[0x0170] != 0x64 ||
++        code[0x0180] != 0x64)
++        fail("M30 EMX FS/TIB fingerprint changed");
++    code[0x00ed] = 0xbe; wr32(code + 0x00ee, 1UL);
++    code[0x00f2] = 0x90; code[0x00f3] = 0x90;
++    code[0x00f4] = 0x90; code[0x00f5] = 0x90;
++    code[0x014c] = 0xb8; wr32(code + 0x014d, 1UL);
++    code[0x0151] = 0x90; code[0x0152] = 0x90; code[0x0153] = 0x90;
++    code[0x0170] = 0xb8; wr32(code + 0x0171, 1UL);
++    code[0x0175] = 0x90; code[0x0176] = 0x90; code[0x0177] = 0x90;
++    code[0x0180] = 0xb8; wr32(code + 0x0181, 1UL);
++    code[0x0185] = 0xc3; code[0x0186] = 0x90; code[0x0187] = 0x90;
++    code[0x0188] = 0x90;
++
++    stub = (U8 *)VirtualAlloc(NULL, 2048, MEM_RESERVE | MEM_COMMIT,
++                              PAGE_EXECUTE_READWRITE);
++    if (!stub)
++        fail("cannot allocate M30 EMX generic thunk bridge");
++    p = 0;
++
++    /* Dispatch on the native target pointer written into each wrapper's
++     * original PTR16:16 fixup slot by apply_fixups(). */
++    for (i = 0; i < EMX_FAR16_API_COUNT; ++i) {
++        desc = &emx_far16_apis[i];
++        for (idx = 0; idx < x->import_count; ++idx) {
++            if (x->imports[idx].ordinal == desc->ordinal &&
++                strcmp(x->modules[x->imports[idx].module].name,
++                       desc->module) == 0)
++                break;
++        }
++        if (idx == x->import_count)
++            fail("M30 EMX far16 target import is absent");
++        host = x->imports[idx].address;
++        stub[p++] = 0x81; stub[p++] = 0x7c; stub[p++] = 0x24; stub[p++] = 0x08;
++        wr32(stub + p, host); p += 4;       /* cmp dword [esp+8],host */
++        stub[p++] = 0x0f; stub[p++] = 0x84; /* je rel32 */
++        dispatch_patch[i] = p;
++        wr32(stub + p, 0); p += 4;
++    }
++
++    /* Unexpected target: report it instead of entering 16-bit code. */
++    stub[p++] = 0xff; stub[p++] = 0x74; stub[p++] = 0x24; stub[p++] = 0x08;
++    stub[p++] = 0xff; stub[p++] = 0x74; stub[p++] = 0x24; stub[p++] = 0x08;
++    stub[p++] = 0xb8;
++    wr32(stub + p, (U32)(unsigned long)emx_unknown_thunk); p += 4;
++    stub[p++] = 0xff; stub[p++] = 0xd0;
++    stub[p++] = 0xcc;
++
++    for (i = 0; i < EMX_FAR16_API_COUNT; ++i) {
++        desc = &emx_far16_apis[i];
++        case_off[i] = p;
++        stub[p++] = 0x8b; stub[p++] = 0x54; stub[p++] = 0x24; stub[p++] = 0x04;
++        frame_off = 4UL;                    /* skip packed byte count */
++        pushed_bytes = 0UL;
++        for (ai = 0; ai < (U32)desc->arg_count; ++ai) {
++            width = desc->arg_width[ai];
++            if (frame_off > 127UL)
++                fail("M30 EMX packed frame is too large");
++            if (width == 2) {
++                stub[p++] = 0x0f; stub[p++] = 0xb7; stub[p++] = 0x42;
++                stub[p++] = (U8)frame_off;
++            } else if (width == 4) {
++                stub[p++] = 0x8b; stub[p++] = 0x42; stub[p++] = (U8)frame_off;
++            } else {
++                fail("M30 EMX descriptor has unsupported argument width");
++            }
++            stub[p++] = 0x50;
++            frame_off += (U32)width;
++            pushed_bytes += 4UL;
++        }
++        for (idx = 0; idx < x->import_count; ++idx) {
++            if (x->imports[idx].ordinal == desc->ordinal &&
++                strcmp(x->modules[x->imports[idx].module].name,
++                       desc->module) == 0)
++                break;
++        }
++        if (idx == x->import_count)
++            fail("M30 EMX far16 target vanished");
++        host = x->imports[idx].address;
++        stub[p++] = 0xb8; wr32(stub + p, host); p += 4;
++        stub[p++] = 0xff; stub[p++] = 0xd0;
++        if (pushed_bytes != 0) {
++            stub[p++] = 0x83; stub[p++] = 0xc4; stub[p++] = (U8)pushed_bytes;
++        }
++        stub[p++] = 0xc3;
++    }
++
++    for (i = 0; i < EMX_FAR16_API_COUNT; ++i) {
++        rel = case_off[i] - (dispatch_patch[i] + 4UL);
++        wr32(stub + dispatch_patch[i], rel);
++    }
++
++    helper_va = (U32)(unsigned long)(code + 0x10c70UL);
++    stub_va = (U32)(unsigned long)stub;
++    rel = stub_va - (helper_va + 5UL);
++    code[0x10c70] = 0xe9;
++    wr32(code + 0x10c71, rel);
++
++    x->emx_thunk_stub = stub;
++    FlushInstructionCache(GetCurrentProcess(), stub, (SIZE_T)p);
++    FlushInstructionCache(GetCurrentProcess(), code + 0x00ed, 0xa0);
++    FlushInstructionCache(GetCurrentProcess(), code + 0x10c58, 0x20);
++
++    if (!g_quiet) {
++        printf("M30 EMX bridge   : EMX_32TO16/16TO32 are flat-pointer identities\n");
++        printf("M30 EMX bridge   : OS/2 FS/TIB main-thread references virtualized as TID 1\n");
++        printf("M30 EMX bridge   : EMX_THUNK1 %08lX -> native dispatcher %08lX (%lu far16 APIs)\n",
++               (unsigned long)helper_va, (unsigned long)stub_va,
++               (unsigned long)EMX_FAR16_API_COUNT);
++    }
++}
++
+ static void apply_fixups(struct LxImage *x)
+ {
+     U32 page, start, endoff, p, end, q, first, target, target_off;
+@@ -2957,6 +3308,15 @@
+                     dst_va = x->name_imports[idx].address;
+                     wr32(src_obj->mapped + source_off,
+                          dst_va - (src_va + 4UL));
++                } else if (x->emx_bridge_complete &&
++                           kind == TGT_EXT_ORD && st == SRC_PTR1616 &&
++                           (type & SRC_ALIAS) != 0 &&
++                           (src_obj->flags & OBJ_BIG_DEFAULT) != 0) {
++                    /* EMX wrappers push this four-byte slot as their second
++                     * EMX_THUNK1 argument.  Replace sel:off with the native
++                     * target token consumed by our dispatcher. */
++                    idx = import_index(x, first - 1, target);
++                    wr32(src_obj->mapped + source_off, x->imports[idx].address);
+                 } else if (x->c386_bridges_complete &&
+                            x->c386_bridge_count != 0) {
+                     /*
+@@ -2965,6 +3325,9 @@
+                      * remains metadata and none of these selectors/far pointers
+                      * are materialized as real Win32 segment state.
+                      */
++                } else if (x->emx_bridge_complete) {
++                    /* The exact M30A profile proves the remaining SEL16 and
++                     * PTR16:* records belong to EMX's now-bypassed 16-bit shim. */
+                 } else {
+                     fail("non-flat LX fixup has no native execution bridge");
+                 }
+@@ -3045,6 +3408,9 @@
+             }
+         }
+         printf("Direct host path: supported via native far16 bridges\n");
++    } else if (x->emx_bridge_complete) {
++        printf("M30 EMX bridge   : recognized exact generic 32/16 thunk profile\n");
++        printf("Direct host path: supported via native EMX generic bridge\n");
+     } else {
+         printf("Direct host path: needs additional execution machinery\n");
+     }
+@@ -3102,6 +3468,12 @@
+     if (strcmp(mode, "--run-quiet") == 0)
+         g_quiet = 1;
+ 
++#ifdef _WIN32
++    /* Guest DLL initialization may query PIB.pib_hmte before run_guest(). */
++    if (strlen(name) >= sizeof(g_main_guest_program))
++        fail("guest program path is too long");
++    strcpy(g_main_guest_program, name);
++#endif
+     load_file(&x, name);
+     parse_image(&x);
+     if (!g_quiet)
+@@ -3135,7 +3507,9 @@
+     if (strcmp(mode, "--fixups") == 0) {
+         scan_fixups(&x);
+         print_fixup_summary(&x);
+-        if (!x.direct32_fixups && !(x.c386_bridges_complete && x.c386_bridge_count != 0)) {
++        if (!x.direct32_fixups &&
++            !(x.c386_bridges_complete && x.c386_bridge_count != 0) &&
++            !x.emx_bridge_complete) {
+             fprintf(stderr,
+                     "os2host32: image is not in the current executable subset; use --scan for inventory\n");
+             free(x.file);
+@@ -3147,10 +3521,13 @@
+         apply_fixups(&x);
+         if (x.c386_bridges_complete && x.c386_bridge_count != 0)
+             install_c386_far16_bridges(&x);
++        if (x.emx_bridge_complete)
++            install_emx_generic_bridge(&x);
+         protect_objects(&x);
+         printf("%s fixups/imports applied successfully%s; guest was NOT executed.\n",
+                x.format == FORMAT_LE ? "LE" : "LX",
+-               (x.c386_bridges_complete && x.c386_bridge_count != 0) ? " with C/386 far16 bridges" : "");
++               (x.c386_bridges_complete && x.c386_bridge_count != 0) ? " with C/386 far16 bridges" :
++               (x.emx_bridge_complete ? " with M30 EMX generic bridge" : ""));
+         printf("Ready to transfer to %08lX with LX stack %08lX.\n",
+                (unsigned long)((U32)(unsigned long)x.objects[x.entry_object - 1].mapped +
+                                x.entry_eip),
+@@ -3168,7 +3545,9 @@
+         scan_fixups(&x);
+         if (!g_quiet)
+             print_fixup_summary(&x);
+-        if (!x.direct32_fixups && !(x.c386_bridges_complete && x.c386_bridge_count != 0)) {
++        if (!x.direct32_fixups &&
++            !(x.c386_bridges_complete && x.c386_bridge_count != 0) &&
++            !x.emx_bridge_complete) {
+             fprintf(stderr,
+                     "os2host32: mixed LE/LX image has no recognized native bridge; guest was NOT executed\n");
+             free(x.file);
+@@ -3180,6 +3559,8 @@
+         apply_fixups(&x);
+         if (x.c386_bridges_complete && x.c386_bridge_count != 0)
+             install_c386_far16_bridges(&x);
++        if (x.emx_bridge_complete)
++            install_emx_generic_bridge(&x);
+         protect_objects(&x);
+         run_guest(&x, name, arg0_override, argc, argv, first_arg);
+         return 1;
+--- doscalls.c.m29p1.bak	2026-09-17 12:32:56.961696507 +0000
++++ doscalls.c	2026-09-17 12:41:26.354197036 +0000
+@@ -67,6 +67,27 @@
+ }
+ #endif
+ 
++/*
++ * M30 EMX uses the inverse selector helper as well.  The native EMX bridge
++ * never materializes a real Win32 selector: both directions carry the flat
++ * address as a token in EAX, so DosSelToFlat is the same register-ABI no-op.
++ */
++#if defined(__GNUC__) && defined(__i386__)
++void __attribute__((naked)) __cdecl DosSelToFlat(void)
++{
++    __asm__ __volatile__("ret");
++}
++#elif defined(_MSC_VER) && defined(_M_IX86)
++__declspec(naked) void __cdecl DosSelToFlat(void)
++{
++    __asm ret
++}
++#else
++void __cdecl DosSelToFlat(void)
++{
++}
++#endif
++
+ /* DosExecPgm execution modes used by the direct-LX process gate. */
+ #define O2_EXEC_SYNC         0UL
+ #define O2_EXEC_ASYNC        1UL
+@@ -112,6 +133,39 @@
+ #define O2_ERROR_INIT_ROUTINE_FAILED 295UL
+ #define O2_ERROR_INVALID_FREQUENCY 395UL
+ 
++/*
++ * M30 first-pass signal surface used through EMX's generic far16 wrapper.
++ * Dhrystone only needs EMX to install its runtime handlers; Win32 console
++ * control handling remains owned by the personality layer.  Preserve the
++ * previous-handler outputs conservatively and accept the registration.
++ */
++unsigned short __cdecl DosSetSigHandler(void *routine, void *prev_address,
++                                         unsigned short *prev_action,
++                                         unsigned short action,
++                                         unsigned short sig_number)
++{
++    (void)routine;
++    (void)action;
++    (void)sig_number;
++    if (prev_address != NULL)
++        *(O2ULONG *)prev_address = 0UL;
++    if (prev_action != NULL)
++        *prev_action = 0U;
++    return (unsigned short)O2_NO_ERROR;
++}
++
++unsigned short __cdecl DosFlagProcess(unsigned short process_id,
++                                      unsigned short action_code,
++                                      unsigned short flag_number,
++                                      unsigned short flag_argument)
++{
++    (void)process_id;
++    (void)action_code;
++    (void)flag_number;
++    (void)flag_argument;
++    return (unsigned short)O2_NO_ERROR;
++}
++
+ /* OS/2 page flags used by this runtime. */
+ #define O2_PAG_READ       0x00000001UL
+ #define O2_PAG_WRITE      0x00000002UL
+@@ -119,6 +173,8 @@
+ #define O2_PAG_GUARD      0x00000008UL
+ #define O2_PAG_COMMIT     0x00000010UL
+ #define O2_PAG_DECOMMIT   0x00000020UL
++#define O2_PAG_FREE       0x00004000UL
++#define O2_PAG_BASE       0x00010000UL
+ 
+ /* OS/2 file attributes. */
+ #define O2_FILE_READONLY   0x0001UL
+@@ -1120,6 +1176,8 @@
+     memset(&o2_info_tib, 0, sizeof(o2_info_tib));
+     memset(&o2_info_pib, 0, sizeof(o2_info_pib));
+     o2_info_pib.pid = (O2ULONG)GetCurrentProcessId();
++    /* M30: OS2HOST32 reserves HMODULE/HMTE 1 for the main guest image. */
++    o2_info_pib.hmte = 1UL;
+     o2_info_pib.pchcmd = o2_info_cmd;
+     o2_info_pib.pchenv = o2_info_env;
+     o2_info_pib.ultype = 0UL; /* fullscreen/console-compatible default */
+@@ -1192,6 +1250,24 @@
+     return O2_NO_ERROR;
+ }
+ 
++/* 296 - process exit-list registration.
++ *
++ * M30 only needs the contract used by EMX startup.  Keep the registration
++ * deliberately non-executing for the first bridge: invoking guest cleanup
++ * callbacks from inside the Win32 termination path would expand the supported
++ * surface before the program itself has proved useful.  ADD/REMOVE/EXIT are
++ * nevertheless accepted with their documented low-byte function codes. */
++O2APIRET __cdecl DosExitList(O2ULONG orderCode, void (__cdecl *routine)(O2ULONG))
++{
++    O2ULONG fn;
++    fn = orderCode & 0xffUL;
++    if (fn < 1UL || fn > 3UL)
++        return O2_ERROR_INVALID_FUNCTION;
++    if ((fn == 1UL || fn == 2UL) && routine == NULL)
++        return O2_ERROR_INVALID_PARAMETER;
++    return O2_NO_ERROR;
++}
++
+ /* 234 */
+ void __cdecl DosExit(O2ULONG action, O2ULONG result)
+ {
+@@ -2561,6 +2637,60 @@
+     return O2_NO_ERROR;
+ }
+ 
++/* 306 - query attributes for a contiguous virtual-memory range. */
++O2APIRET __cdecl DosQueryMem(void *base, O2ULONG *pcb, O2ULONG *pflags)
++{
++    MEMORY_BASIC_INFORMATION mbi;
++    unsigned char *start;
++    unsigned char *region_end;
++    O2ULONG available;
++    O2ULONG flags;
++    DWORD prot;
++
++    if (!base || !pcb || !pflags || *pcb == 0)
++        return O2_ERROR_INVALID_PARAMETER;
++    if (VirtualQuery(base, &mbi, sizeof(mbi)) == 0)
++        return (O2APIRET)GetLastError();
++
++    start = (unsigned char *)base;
++    region_end = (unsigned char *)mbi.BaseAddress + mbi.RegionSize;
++    if (region_end <= start)
++        return O2_ERROR_INVALID_PARAMETER;
++    if ((SIZE_T)(region_end - start) > 0xffffffffUL)
++        available = 0xffffffffUL;
++    else
++        available = (O2ULONG)(region_end - start);
++    if (*pcb < available)
++        available = *pcb;
++
++    flags = 0;
++    if (mbi.State == MEM_FREE) {
++        flags |= O2_PAG_FREE;
++    } else {
++        if (mbi.State == MEM_COMMIT)
++            flags |= O2_PAG_COMMIT;
++        prot = mbi.Protect & 0xffUL;
++        if (prot == PAGE_READONLY || prot == PAGE_READWRITE ||
++            prot == PAGE_WRITECOPY || prot == PAGE_EXECUTE_READ ||
++            prot == PAGE_EXECUTE_READWRITE || prot == PAGE_EXECUTE_WRITECOPY)
++            flags |= O2_PAG_READ;
++        if (prot == PAGE_READWRITE || prot == PAGE_WRITECOPY ||
++            prot == PAGE_EXECUTE_READWRITE || prot == PAGE_EXECUTE_WRITECOPY)
++            flags |= O2_PAG_WRITE;
++        if (prot == PAGE_EXECUTE || prot == PAGE_EXECUTE_READ ||
++            prot == PAGE_EXECUTE_READWRITE || prot == PAGE_EXECUTE_WRITECOPY)
++            flags |= O2_PAG_EXECUTE;
++        if (mbi.Protect & PAGE_GUARD)
++            flags |= O2_PAG_GUARD;
++        if (start == (unsigned char *)mbi.AllocationBase)
++            flags |= O2_PAG_BASE;
++    }
++
++    *pcb = available;
++    *pflags = flags;
++    return O2_NO_ERROR;
++}
++
+ /* 348 */
+ 
+ /* M29N2b.1: runtime module APIs are implemented by the module manager that
+@@ -2569,6 +2699,7 @@
+  * image rather than maintaining a second, divergent module table here. */
+ typedef O2APIRET (__cdecl *O2HOSTMODLOAD)(const char *, O2ULONG *, char *, O2ULONG);
+ typedef O2APIRET (__cdecl *O2HOSTMODQUERYHANDLE)(const char *, O2ULONG *);
++typedef O2APIRET (__cdecl *O2HOSTMODQUERYNAME)(O2ULONG, O2ULONG, char *);
+ typedef O2APIRET (__cdecl *O2HOSTMODQUERYPROC)(O2ULONG, O2ULONG, const char *, O2ULONG *);
+ typedef O2APIRET (__cdecl *O2HOSTMODFREE)(O2ULONG);
+ typedef void (__cdecl *O2HOSTMODTERMINATEALL)(void);
+@@ -2577,6 +2708,7 @@
+     int tried;
+     O2HOSTMODLOAD load;
+     O2HOSTMODQUERYHANDLE query_handle;
++    O2HOSTMODQUERYNAME query_name;
+     O2HOSTMODQUERYPROC query_proc;
+     O2HOSTMODFREE free_module;
+     O2HOSTMODTERMINATEALL terminate_all;
+@@ -2590,6 +2722,7 @@
+     if (g_o2_module_bridge.tried)
+         return g_o2_module_bridge.load != 0 &&
+                g_o2_module_bridge.query_handle != 0 &&
++               g_o2_module_bridge.query_name != 0 &&
+                g_o2_module_bridge.query_proc != 0 &&
+                g_o2_module_bridge.free_module != 0 &&
+                g_o2_module_bridge.terminate_all != 0;
+@@ -2599,11 +2732,13 @@
+         return 0;
+     g_o2_module_bridge.load = (O2HOSTMODLOAD)GetProcAddress(exe, "OS2HostModuleLoad");
+     g_o2_module_bridge.query_handle = (O2HOSTMODQUERYHANDLE)GetProcAddress(exe, "OS2HostModuleQueryHandle");
++    g_o2_module_bridge.query_name = (O2HOSTMODQUERYNAME)GetProcAddress(exe, "OS2HostModuleQueryName");
+     g_o2_module_bridge.query_proc = (O2HOSTMODQUERYPROC)GetProcAddress(exe, "OS2HostModuleQueryProc");
+     g_o2_module_bridge.free_module = (O2HOSTMODFREE)GetProcAddress(exe, "OS2HostModuleFree");
+     g_o2_module_bridge.terminate_all = (O2HOSTMODTERMINATEALL)GetProcAddress(exe, "OS2HostModuleTerminateAll");
+     return g_o2_module_bridge.load != 0 &&
+            g_o2_module_bridge.query_handle != 0 &&
++           g_o2_module_bridge.query_name != 0 &&
+            g_o2_module_bridge.query_proc != 0 &&
+            g_o2_module_bridge.free_module != 0 &&
+            g_o2_module_bridge.terminate_all != 0;
+@@ -2640,6 +2775,19 @@
+     return g_o2_module_bridge.query_handle(moduleName, moduleHandle);
+ }
+ 
++/* 320 - DosQueryModuleName.  HMODULE 1 is the synthetic main guest image
++ * advertised through PIB.pib_hmte; ordinary guest DLL handles are resolved by
++ * the same OS2HOST32 module graph used for imports and DosLoadModule. */
++O2APIRET __cdecl DosQueryModuleName(O2ULONG moduleHandle, O2ULONG cb,
++                                    char *buffer)
++{
++    if (!buffer || cb == 0)
++        return O2_ERROR_INVALID_PARAMETER;
++    if (!o2_resolve_module_bridge())
++        return O2_ERROR_INVALID_FUNCTION;
++    return g_o2_module_bridge.query_name(moduleHandle, cb, buffer);
++}
++
+ /* 321 - DosQueryProcAddr (the 32-bit successor of DosGetProcAddr). */
+ O2APIRET __cdecl DosQueryProcAddr(O2ULONG moduleHandle, O2ULONG ordinal,
+                                   const char *procName, void **procAddress)
+--- doscalls.def.m29p1.bak	2026-09-17 12:32:56.962954839 +0000
++++ doscalls.def	2026-09-17 12:41:26.354347958 +0000
+@@ -1,5 +1,7 @@
+ LIBRARY DOSCALLS
+ EXPORTS
++    DosSetSigHandler    @14 NONAME
++    DosFlagProcess      @15 NONAME
+     DosSetDefaultDisk   @220 NONAME
+     DosCreatePipe       @239 NONAME
+     Dos16Beep          @50 NONAME
+@@ -30,13 +32,16 @@
+     DosWrite           @282 NONAME
+     DosExecPgm         @283 NONAME
+     DosBeep            @286 NONAME
++    DosExitList        @296 NONAME
+     DosAllocMem        @299 NONAME
+     DosFreeMem         @304 NONAME
+     DosSetMem          @305 NONAME
++    DosQueryMem        @306 NONAME
+     DosCreateThread    @311 NONAME
+     DosGetInfoBlocks   @312 NONAME
+     DosLoadModule      @318 NONAME
+     DosQueryModuleHandle @319 NONAME
++    DosQueryModuleName  @320 NONAME
+     DosQueryProcAddr   @321 NONAME
+     DosFreeModule      @322 NONAME
+     DosCreateMutexSem  @331 NONAME
+@@ -44,3 +49,4 @@
+     DosReleaseMutexSem @335 NONAME
+     DosQuerySysInfo    @348 NONAME
+     DosFlatToSel       @425 NONAME
++    DosSelToFlat       @426 NONAME
+--- kbdcalls.c.m29p1.bak	2026-09-17 12:32:22.881861056 +0000
++++ kbdcalls.c	2026-09-17 12:32:23.391284685 +0000
+@@ -18,6 +18,7 @@
+ #define O2_ERROR_INVALID_FUNCTION 1U
+ #define O2_ERROR_INVALID_HANDLE 6U
+ #define O2_ERROR_INVALID_PARAMETER 87U
++#define O2_ERROR_KBD_INVALID_LENGTH 376U
+ #define O2_IO_WAIT 0U
+ #define O2_IO_NOWAIT 1U
+ 
+@@ -50,6 +51,20 @@
+ #pragma pack()
+ typedef char O2StringInBuf_must_be_4_bytes[(sizeof(struct O2StringInBuf) == 4) ? 1 : -1];
+ 
++#pragma pack(2)
++struct O2KbdInfo {
++    unsigned short cb;
++    unsigned short fsMask;
++    unsigned short chTurnAround;
++    unsigned short fsInterim;
++    unsigned short fsState;
++};
++#pragma pack()
++typedef char O2KbdInfo_must_be_10_bytes[(sizeof(struct O2KbdInfo) == 10) ? 1 : -1];
++
++/* Conservative OS/2 console defaults: echo + ASCII mode, CR turnaround. */
++static struct O2KbdInfo o2_kbd_status = { 10U, 0x0009U, 13U, 0U, 0U };
++
+ /* M29K3: keep CMD alive across Win32 CTRL_C_EVENT/CTRL_BREAK_EVENT and
+  * surface the event through the historical keyboard personality instead.
+  *
+@@ -351,6 +366,84 @@
+     return O2_NO_ERROR;
+ }
+ 
++unsigned short __cdecl KbdGetStatus(struct O2KbdInfo *info,
++                                     unsigned short hkbd)
++{
++    (void)hkbd;
++    if (info == NULL)
++        return O2_ERROR_INVALID_PARAMETER;
++    if (info->cb != 10U)
++        return O2_ERROR_KBD_INVALID_LENGTH;
++    info->fsMask = o2_kbd_status.fsMask;
++    info->chTurnAround = o2_kbd_status.chTurnAround;
++    info->fsInterim = o2_kbd_status.fsInterim;
++    info->fsState = o2_kbd_status.fsState;
++    return O2_NO_ERROR;
++}
++
++unsigned short __cdecl KbdSetStatus(const struct O2KbdInfo *info,
++                                     unsigned short hkbd)
++{
++    (void)hkbd;
++    if (info == NULL)
++        return O2_ERROR_INVALID_PARAMETER;
++    if (info->cb != 10U)
++        return O2_ERROR_KBD_INVALID_LENGTH;
++    o2_kbd_status = *info;
++    return O2_NO_ERROR;
++}
++
++unsigned short __cdecl KbdPeek(struct O2KbdKeyInfo *info,
++                                unsigned short hkbd)
++{
++    HANDLE h;
++    DWORD type;
++    DWORD got;
++    INPUT_RECORD rec;
++    unsigned char c;
++    (void)hkbd;
++
++    if (info == NULL)
++        return O2_ERROR_INVALID_PARAMETER;
++    info->chChar = 0;
++    info->chScan = 0;
++    info->fbStatus = 0;
++    info->bNlsShift = 0;
++    info->fsState = 0;
++    info->time = GetTickCount();
++
++    h = GetStdHandle(STD_INPUT_HANDLE);
++    if (h == NULL || h == INVALID_HANDLE_VALUE)
++        return O2_ERROR_INVALID_HANDLE;
++    type = GetFileType(h);
++    if (type == FILE_TYPE_CHAR) {
++        got = 0;
++        if (!PeekConsoleInputA(h, &rec, 1, &got))
++            return host_error();
++        if (got != 0 && rec.EventType == KEY_EVENT &&
++            rec.Event.KeyEvent.bKeyDown) {
++            info->chChar = (unsigned char)rec.Event.KeyEvent.uChar.AsciiChar;
++            info->chScan = (unsigned char)rec.Event.KeyEvent.wVirtualScanCode;
++            info->fbStatus = 0x40U;
++            info->fsState = control_state(rec.Event.KeyEvent.dwControlKeyState);
++        }
++        return O2_NO_ERROR;
++    }
++    if (type == FILE_TYPE_PIPE) {
++        DWORD avail;
++        avail = 0;
++        c = 0;
++        got = 0;
++        if (!PeekNamedPipe(h, &c, 1, &got, &avail, NULL))
++            return host_error();
++        if (got != 0) {
++            info->chChar = c;
++            info->fbStatus = 0x40U;
++        }
++    }
++    return O2_NO_ERROR;
++}
++
+ unsigned short __cdecl KbdFlushBuffer(unsigned short hkbd)
+ {
+     HANDLE h;
+--- kbdcalls.def.m29p1.bak	2026-09-17 12:32:22.883069214 +0000
++++ kbdcalls.def	2026-09-17 12:32:23.391414315 +0000
+@@ -2,4 +2,7 @@
+ EXPORTS
+     KbdCharIn       @4 NONAME
+     KbdStringIn     @9 NONAME
++    KbdGetStatus    @10 NONAME
++    KbdSetStatus    @11 NONAME
+     KbdFlushBuffer  @13 NONAME
++    KbdPeek         @22 NONAME
+--- /dev/null	2026-09-17 12:19:31.513470058 +0000
++++ os2host32.def	2026-09-17 12:42:15.240815258 +0000
+@@ -0,0 +1,7 @@
++EXPORTS
++    OS2HostModuleLoad
++    OS2HostModuleQueryHandle
++    OS2HostModuleQueryName
++    OS2HostModuleQueryProc
++    OS2HostModuleFree
++    OS2HostModuleTerminateAll

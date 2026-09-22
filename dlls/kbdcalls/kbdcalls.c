@@ -1,0 +1,461 @@
+/*
+ * KBDCALLS.dll - host implementation of the OS/2 keyboard surface used by
+ * reconstructed CMD and by OS2HOST32's intercepted C/386 migration thunks.
+ *
+ * M29A provided KbdCharIn/FlushBuffer.  M29C proved a far16 output structure
+ * through KbdCharIn.  M29D adds KbdStringIn, including two independent far16
+ * pointers: a character buffer and an input/output STRINGINBUF.
+ */
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+#ifndef __cdecl
+#define __cdecl
+#endif
+
+#define O2_NO_ERROR 0U
+#define O2_ERROR_INVALID_FUNCTION 1U
+#define O2_ERROR_INVALID_HANDLE 6U
+#define O2_ERROR_INVALID_PARAMETER 87U
+#define O2_ERROR_KBD_INVALID_LENGTH 376U
+#define O2_IO_WAIT 0U
+#define O2_IO_NOWAIT 1U
+
+/*
+ * Win32 exposes a single SHIFT_PRESSED bit.  Unlike Ctrl/Alt, the console
+ * input API does not provide separate left/right Shift state bits.  Keep a
+ * numeric fallback for older MinGW/Win32 SDK headers.
+ */
+#ifndef SHIFT_PRESSED
+#define SHIFT_PRESSED 0x0010U
+#endif
+
+#pragma pack(2)
+struct O2KbdKeyInfo {
+    unsigned char chChar;
+    unsigned char chScan;
+    unsigned char fbStatus;
+    unsigned char bNlsShift;
+    unsigned short fsState;
+    unsigned long time;
+};
+#pragma pack()
+typedef char O2KbdKeyInfo_must_be_10_bytes[(sizeof(struct O2KbdKeyInfo) == 10) ? 1 : -1];
+
+#pragma pack(2)
+struct O2StringInBuf {
+    unsigned short cb;
+    unsigned short cchIn;
+};
+#pragma pack()
+typedef char O2StringInBuf_must_be_4_bytes[(sizeof(struct O2StringInBuf) == 4) ? 1 : -1];
+
+#pragma pack(2)
+struct O2KbdInfo {
+    unsigned short cb;
+    unsigned short fsMask;
+    unsigned short chTurnAround;
+    unsigned short fsInterim;
+    unsigned short fsState;
+};
+#pragma pack()
+typedef char O2KbdInfo_must_be_10_bytes[(sizeof(struct O2KbdInfo) == 10) ? 1 : -1];
+
+/* Conservative OS/2 console defaults: echo + ASCII mode, CR turnaround. */
+static struct O2KbdInfo o2_kbd_status = { 10U, 0x0009U, 13U, 0U, 0U };
+
+/* M29K3: keep CMD alive across Win32 CTRL_C_EVENT/CTRL_BREAK_EVENT and
+ * surface the event through the historical keyboard personality instead.
+ *
+ * SetConsoleCtrlHandler invokes us on a separate system thread.  For a real
+ * console we enqueue a synthetic Ctrl+C key-down record, which wakes a
+ * blocked ReadConsoleInputA naturally.  If no KBD read is active, the event
+ * is swallowed only in this process; foreground children still receive the
+ * real console-control event independently. */
+static volatile LONG ctrl_handler_installed;
+static volatile LONG ctrl_input_waiting;
+
+static BOOL WINAPI o2_console_ctrl_handler(DWORD type)
+{
+    HANDLE h;
+    DWORD htype;
+    DWORD wrote;
+    INPUT_RECORD rec;
+
+    if (type != CTRL_C_EVENT && type != CTRL_BREAK_EVENT)
+        return FALSE;
+
+    if (InterlockedCompareExchange(&ctrl_input_waiting, 0, 0) != 0) {
+        h = GetStdHandle(STD_INPUT_HANDLE);
+        if (h != NULL && h != INVALID_HANDLE_VALUE) {
+            htype = GetFileType(h);
+            if (htype == FILE_TYPE_CHAR) {
+                ZeroMemory(&rec, sizeof(rec));
+                rec.EventType = KEY_EVENT;
+                rec.Event.KeyEvent.bKeyDown = TRUE;
+                rec.Event.KeyEvent.wRepeatCount = 1;
+                rec.Event.KeyEvent.wVirtualKeyCode = (WORD)'C';
+                rec.Event.KeyEvent.wVirtualScanCode = 0x2eU;
+                rec.Event.KeyEvent.uChar.AsciiChar = 3;
+                rec.Event.KeyEvent.dwControlKeyState = LEFT_CTRL_PRESSED;
+                wrote = 0;
+                if (WriteConsoleInputA(h, &rec, 1, &wrote) && wrote == 1)
+                    return TRUE;
+            }
+        }
+    }
+
+    /* No KBD read is active (for example, the shell is waiting for a
+     * foreground child).  Swallow the event in this process so the parent
+     * survives.  A foreground child in the same console receives the real
+     * control event independently and may terminate or handle it itself. */
+    return TRUE;
+}
+
+static void ensure_console_ctrl_handler(void)
+{
+    if (InterlockedCompareExchange(&ctrl_handler_installed, 1, 0) == 0) {
+        if (!SetConsoleCtrlHandler(o2_console_ctrl_handler, TRUE))
+            InterlockedExchange(&ctrl_handler_installed, 0);
+    }
+}
+
+static unsigned short host_error(void)
+{
+    DWORD e;
+    e = GetLastError();
+    if (e == ERROR_INVALID_HANDLE)
+        return O2_ERROR_INVALID_HANDLE;
+    if (e == ERROR_INVALID_PARAMETER)
+        return O2_ERROR_INVALID_PARAMETER;
+    return O2_ERROR_INVALID_FUNCTION;
+}
+
+static unsigned short control_state(DWORD state)
+{
+    unsigned short fs;
+    fs = 0;
+    if ((state & SHIFT_PRESSED) != 0)
+        fs |= 0x0003U;
+    if ((state & LEFT_CTRL_PRESSED) != 0)
+        fs |= 0x0004U;
+    if ((state & RIGHT_CTRL_PRESSED) != 0)
+        fs |= 0x0008U;
+    if ((state & LEFT_ALT_PRESSED) != 0)
+        fs |= 0x0010U;
+    if ((state & RIGHT_ALT_PRESSED) != 0)
+        fs |= 0x0020U;
+    if ((state & CAPSLOCK_ON) != 0)
+        fs |= 0x0040U;
+    if ((state & NUMLOCK_ON) != 0)
+        fs |= 0x0080U;
+    if ((state & SCROLLLOCK_ON) != 0)
+        fs |= 0x0100U;
+    return fs;
+}
+
+unsigned short __cdecl KbdCharIn(struct O2KbdKeyInfo *info,
+                                  unsigned short wait,
+                                  unsigned short hkbd)
+{
+    HANDLE h;
+    DWORD type;
+    DWORD got;
+    INPUT_RECORD rec;
+    unsigned char c;
+    (void)hkbd;
+
+    if (info == NULL)
+        return O2_ERROR_INVALID_PARAMETER;
+    info->chChar = 0;
+    info->chScan = 0;
+    info->fbStatus = 0;
+    info->bNlsShift = 0;
+    info->fsState = 0;
+    info->time = GetTickCount();
+
+    ensure_console_ctrl_handler();
+
+    h = GetStdHandle(STD_INPUT_HANDLE);
+    if (h == NULL || h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+    type = GetFileType(h);
+
+    if (type == FILE_TYPE_CHAR) {
+        for (;;) {
+            if (wait == O2_IO_NOWAIT) {
+                DWORD pending;
+                pending = 0;
+                if (!GetNumberOfConsoleInputEvents(h, &pending))
+                    return host_error();
+                if (pending == 0)
+                    return O2_NO_ERROR;
+            }
+            got = 0;
+            InterlockedExchange(&ctrl_input_waiting, 1);
+            if (!ReadConsoleInputA(h, &rec, 1, &got)) {
+                InterlockedExchange(&ctrl_input_waiting, 0);
+                return host_error();
+            }
+            InterlockedExchange(&ctrl_input_waiting, 0);
+            if (got == 0)
+                return O2_NO_ERROR;
+            if (rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown)
+                continue;
+            info->chChar = (unsigned char)rec.Event.KeyEvent.uChar.AsciiChar;
+            info->chScan = (unsigned char)rec.Event.KeyEvent.wVirtualScanCode;
+            info->fbStatus = 0x40U;
+            info->fsState = control_state(rec.Event.KeyEvent.dwControlKeyState);
+            info->time = GetTickCount();
+            return O2_NO_ERROR;
+        }
+    }
+
+    if (wait == O2_IO_NOWAIT) {
+        DWORD avail;
+        avail = 0;
+        if (type == FILE_TYPE_PIPE) {
+            if (!PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL))
+                return host_error();
+            if (avail == 0)
+                return O2_NO_ERROR;
+        }
+    }
+    got = 0;
+    c = 0;
+    if (!ReadFile(h, &c, 1, &got, NULL))
+        return host_error();
+    if (got != 0) {
+        info->chChar = c;
+        info->fbStatus = 0x40U;
+    }
+    return O2_NO_ERROR;
+}
+
+/*
+ * Read an OS/2-style ASCII input line.  This intentionally implements the
+ * conservative subset needed by the C/386 bridge: WAIT mode, printable
+ * characters, Enter and Backspace.  STRINGINBUF.cchIn excludes the carriage
+ * return and the character buffer is not NUL terminated by the API itself.
+ *
+ * The console path uses input records so it composes with KbdCharIn and keeps
+ * scan/state handling out of the byte stream.  A redirected handle falls back
+ * to ReadFile and treats CR/LF as line terminators.
+ */
+unsigned short __cdecl KbdStringIn(char *buffer,
+                                    struct O2StringInBuf *length,
+                                    unsigned short wait,
+                                    unsigned short hkbd)
+{
+    HANDLE hin;
+    HANDLE hout;
+    DWORD type;
+    DWORD out_type;
+    DWORD got;
+    DWORD wrote;
+    INPUT_RECORD rec;
+    unsigned short cap;
+    unsigned short used;
+    unsigned char c;
+    (void)hkbd;
+
+    if (buffer == NULL || length == NULL)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    cap = length->cb;
+    if (cap > 255U)
+        cap = 255U;
+    length->cchIn = 0;
+    if (cap == 0U)
+        return O2_NO_ERROR;
+
+    hin = GetStdHandle(STD_INPUT_HANDLE);
+    if (hin == NULL || hin == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+    type = GetFileType(hin);
+    used = 0;
+    ensure_console_ctrl_handler();
+
+    if (type == FILE_TYPE_CHAR) {
+        hout = GetStdHandle(STD_OUTPUT_HANDLE);
+        out_type = (hout == NULL || hout == INVALID_HANDLE_VALUE) ? 0 : GetFileType(hout);
+
+        for (;;) {
+            if (wait == O2_IO_NOWAIT) {
+                DWORD pending;
+                pending = 0;
+                if (!GetNumberOfConsoleInputEvents(hin, &pending))
+                    return host_error();
+                if (pending == 0) {
+                    length->cchIn = used;
+                    return O2_NO_ERROR;
+                }
+            }
+
+            got = 0;
+            InterlockedExchange(&ctrl_input_waiting, 1);
+            if (!ReadConsoleInputA(hin, &rec, 1, &got)) {
+                InterlockedExchange(&ctrl_input_waiting, 0);
+                return host_error();
+            }
+            InterlockedExchange(&ctrl_input_waiting, 0);
+            if (got == 0) {
+                length->cchIn = used;
+                return O2_NO_ERROR;
+            }
+            if (rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown)
+                continue;
+
+            c = (unsigned char)rec.Event.KeyEvent.uChar.AsciiChar;
+            if (c == 0)
+                continue;
+
+            if (c == '\r' || c == '\n') {
+                if (out_type == FILE_TYPE_CHAR) {
+                    static const char crlf[2] = {'\r', '\n'};
+                    wrote = 0;
+                    (void)WriteConsoleA(hout, crlf, 2, &wrote, NULL);
+                }
+                length->cchIn = used;
+                return O2_NO_ERROR;
+            }
+
+            if (c == '\b') {
+                if (used != 0U) {
+                    --used;
+                    if (out_type == FILE_TYPE_CHAR) {
+                        static const char erase[3] = {'\b', ' ', '\b'};
+                        wrote = 0;
+                        (void)WriteConsoleA(hout, erase, 3, &wrote, NULL);
+                    }
+                }
+                continue;
+            }
+
+            if (used < cap) {
+                buffer[used++] = (char)c;
+                if (out_type == FILE_TYPE_CHAR) {
+                    wrote = 0;
+                    (void)WriteConsoleA(hout, &c, 1, &wrote, NULL);
+                }
+            }
+        }
+    }
+
+    /* Redirected/file/pipe input: consume a byte stream up to CR/LF/cap. */
+    while (used < cap) {
+        if (wait == O2_IO_NOWAIT && type == FILE_TYPE_PIPE) {
+            DWORD avail;
+            avail = 0;
+            if (!PeekNamedPipe(hin, NULL, 0, NULL, &avail, NULL))
+                return host_error();
+            if (avail == 0)
+                break;
+        }
+        got = 0;
+        c = 0;
+        if (!ReadFile(hin, &c, 1, &got, NULL))
+            return host_error();
+        if (got == 0 || c == '\r' || c == '\n')
+            break;
+        buffer[used++] = (char)c;
+    }
+
+    length->cchIn = used;
+    return O2_NO_ERROR;
+}
+
+unsigned short __cdecl KbdGetStatus(struct O2KbdInfo *info,
+                                     unsigned short hkbd)
+{
+    (void)hkbd;
+    if (info == NULL)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (info->cb != 10U)
+        return O2_ERROR_KBD_INVALID_LENGTH;
+    info->fsMask = o2_kbd_status.fsMask;
+    info->chTurnAround = o2_kbd_status.chTurnAround;
+    info->fsInterim = o2_kbd_status.fsInterim;
+    info->fsState = o2_kbd_status.fsState;
+    return O2_NO_ERROR;
+}
+
+unsigned short __cdecl KbdSetStatus(const struct O2KbdInfo *info,
+                                     unsigned short hkbd)
+{
+    (void)hkbd;
+    if (info == NULL)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (info->cb != 10U)
+        return O2_ERROR_KBD_INVALID_LENGTH;
+    o2_kbd_status = *info;
+    return O2_NO_ERROR;
+}
+
+unsigned short __cdecl KbdPeek(struct O2KbdKeyInfo *info,
+                                unsigned short hkbd)
+{
+    HANDLE h;
+    DWORD type;
+    DWORD got;
+    INPUT_RECORD rec;
+    unsigned char c;
+    (void)hkbd;
+
+    if (info == NULL)
+        return O2_ERROR_INVALID_PARAMETER;
+    info->chChar = 0;
+    info->chScan = 0;
+    info->fbStatus = 0;
+    info->bNlsShift = 0;
+    info->fsState = 0;
+    info->time = GetTickCount();
+
+    h = GetStdHandle(STD_INPUT_HANDLE);
+    if (h == NULL || h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+    type = GetFileType(h);
+    if (type == FILE_TYPE_CHAR) {
+        got = 0;
+        if (!PeekConsoleInputA(h, &rec, 1, &got))
+            return host_error();
+        if (got != 0 && rec.EventType == KEY_EVENT &&
+            rec.Event.KeyEvent.bKeyDown) {
+            info->chChar = (unsigned char)rec.Event.KeyEvent.uChar.AsciiChar;
+            info->chScan = (unsigned char)rec.Event.KeyEvent.wVirtualScanCode;
+            info->fbStatus = 0x40U;
+            info->fsState = control_state(rec.Event.KeyEvent.dwControlKeyState);
+        }
+        return O2_NO_ERROR;
+    }
+    if (type == FILE_TYPE_PIPE) {
+        DWORD avail;
+        avail = 0;
+        c = 0;
+        got = 0;
+        if (!PeekNamedPipe(h, &c, 1, &got, &avail, NULL))
+            return host_error();
+        if (got != 0) {
+            info->chChar = c;
+            info->fbStatus = 0x40U;
+        }
+    }
+    return O2_NO_ERROR;
+}
+
+unsigned short __cdecl KbdFlushBuffer(unsigned short hkbd)
+{
+    HANDLE h;
+    DWORD type;
+    (void)hkbd;
+    h = GetStdHandle(STD_INPUT_HANDLE);
+    if (h == NULL || h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+    type = GetFileType(h);
+    if (type == FILE_TYPE_CHAR) {
+        if (!FlushConsoleInputBuffer(h))
+            return host_error();
+    }
+    return O2_NO_ERROR;
+}

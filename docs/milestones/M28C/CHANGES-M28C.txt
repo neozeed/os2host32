@@ -1,0 +1,18 @@
+Milestone 28C
+-------------
+* Added 32-bit DOSCALLS.239 DosCreatePipe and DOSCALLS.260 DosDupHandle.
+* Added host-neutral CmdO2CreatePipe/CmdO2DupHandle primitives.
+* Moved CMD file redirection (<, >, >>) out of cmd32os2.c's direct
+  _open/_dup/_dup2/SetStdHandle code and behind cmdos2.h.
+* Native bootstrap redirection now opens/seeks/duplicates/closes through
+  DOSCALLS as well; only synchronization of the native host CRT descriptors
+  remains Win32-specific inside cmdos2_win32.c.
+* Direct C/386/LX backend implements standard-handle save/redirect/restore
+  using the real OS/2 DosDupHandle API from os2.h/OS2386.LIB.
+* Added handle-child.exe direct-LX probe.  The parent creates an OS/2 pipe,
+  duplicates its write end onto HFILE 1, launches a genuine LX child, and
+  reads the child's DosWrite output from the pipe.
+* Direct-LX smoke also verifies stdout-to-file redirection through the same
+  standard-handle boundary.
+* Native CreatePipe worker-process implementation for full CMD pipelines is
+  deliberately retained for the next process/pipeline milestone.

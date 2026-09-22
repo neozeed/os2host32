@@ -1,0 +1,15 @@
+Milestone 24 - cbatch.c semantic lift
+
+* Added portable C89 cmdbatch.c/cmdbatch.h.
+* Added .CMD/.BAT execution to CMD32OS2.
+* Added %0..%9 and %* batch substitution.
+* Added SHIFT.
+* Added labels, GOTO and GOTO :EOF.
+* Added CALL batch-file and CALL :label paths.
+* Added IF ERRORLEVEL/EXIST/NOT/string-comparison families.
+* Added FOR %i / batch %%i IN (...) DO execution.
+* Added SETLOCAL/ENDLOCAL environment snapshots and batch-return unwind.
+* Fixed clex SubVar handling so FOR %i pairs are not consumed as %NAME%.
+* ParseFor now preserves the FOR set parentheses for the cbatch layer.
+* Added strict-C89 batch-test-host and make batch-check.
+* Added exact Dec-1991 cbatch.c disassembly/symbol analysis.

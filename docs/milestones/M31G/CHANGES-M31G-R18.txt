@@ -1,0 +1,23 @@
+M31G R18 - WinSetWindowPos move-only coordinate semantics
+
+Runtime evidence after the R16 resource-DLL loader fix proves NEKO now loads
+NEKO.DLL, publishes all 36 resources, creates/subclasses its 32x32 WC_STATIC
+cat, receives 200 ms WM_TIMER messages, and displays a correctly decoded cat.
+The cat then spends almost all of its time below the visible desktop.
+
+The trace exposed an exact 32-pixel coordinate error: the first queried cat
+position changed from requested OS/2 y=20 to y=-12, exactly one cat height.
+
+Cause: WinSetWindowPos initialized outer_w/outer_h from cx/cy even when SWP_SIZE
+was absent. OS/2 ignores cx/cy on move-only calls. NEKO passes an ignored cy
+while moving the cat, but the bottom-left -> top-left conversion still needs the
+window's real current height. Treating cy=0 as the height placed the native
+window 32 pixels too low, and NEKO's movement loop then propagated the bad
+position.
+
+R18 starts WinSetWindowPos from GetWindowRect's current native width/height and
+only replaces those values when SWP_SIZE is present. This makes move-only
+coordinate conversion round-trip correctly and is generic PM behavior.
+
+No NEKO executable/resource IDs are special-cased. All earlier R14 subclass,
+R16 LX resource-DLL mapping, R17 NLS.5, and frozen M31F regressions are retained.

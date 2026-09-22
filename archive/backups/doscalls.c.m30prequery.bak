@@ -1,0 +1,2819 @@
+/*
+ * doscalls.c - Win32 personality DLL for translated Microsoft C/386 OS/2 LE programs.
+ *
+ * le2pe386 keeps the original DOSCALLS ordinal imports.  This DLL supplies a
+ * gradually growing subset of the 32-bit OS/2 Control Program API on Win32.
+ *
+ * Milestone 4 added the file-manager calls used by the Info TaskForce '87
+ * parser specimen and maps OS/2's small integer HFILE values to native Win32
+ * HANDLEs.  Milestone 7 added DosGetDateTime (ordinal 230), used by phoon.
+ * Milestone 8 adds DosCreateDir (270) and DosQueryFileInfo (279), used by
+ * the NULL/headless Doom specimen.  Milestone 13 added a synchronous DosBeep
+ * implemented with WinMM waveOut.  Milestone 14 corrects the 32-bit C/386
+ * export ordinal to DOSCALLS.286 (DOS16BEEP remains ordinal 50 in real OS/2).
+ * Milestone 17 keeps the waveOut device open, waits on a completion event
+ * instead of Sleep(1) polling, reuses the sample buffer, and preserves phase
+ * between adjacent notes.  This removes the large per-note gaps heard on
+ * short Sarien beeper notes (the issue was audio-device churn, not CPU speed).
+ *
+ * This source intentionally stays close to ANSI C89 for old Microsoft C/C++
+ * compiler experiments.
+ */
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <mmsystem.h>
+#include <stddef.h>
+#include <string.h>
+#include <stdio.h>
+
+#ifndef __cdecl
+#define __cdecl
+#endif
+
+typedef DWORD O2APIRET;
+typedef DWORD O2ULONG;
+typedef LONG  O2LONG;
+typedef DWORD O2HFILE;
+
+/*
+ * M29B C/386 far16 bridge helper.
+ *
+ * Microsoft C/386 6.00.081 passes the flat pointer in EAX and expects
+ * DosFlatToSel to return a packed 16:16 value in EAX.  OS2HOST32 never loads
+ * this value into a segment register: the generated 32->16 helper is patched
+ * to a native Win32 bridge before execution.  Therefore the original flat
+ * pointer itself is a sufficient virtual far-pointer token.
+ *
+ * Keep EAX untouched and return immediately.
+ */
+#if defined(__GNUC__) && defined(__i386__)
+void __attribute__((naked)) __cdecl DosFlatToSel(void)
+{
+    __asm__ __volatile__("ret");
+}
+#elif defined(_MSC_VER) && defined(_M_IX86)
+__declspec(naked) void __cdecl DosFlatToSel(void)
+{
+    __asm ret
+}
+#else
+/*
+ * This DLL is intended for 32-bit x86.  The fallback is only here to keep
+ * source parsers happy on other hosts; it does not implement the register ABI.
+ */
+void __cdecl DosFlatToSel(void)
+{
+}
+#endif
+
+/*
+ * M30 EMX uses the inverse selector helper as well.  The native EMX bridge
+ * never materializes a real Win32 selector: both directions carry the flat
+ * address as a token in EAX, so DosSelToFlat is the same register-ABI no-op.
+ */
+#if defined(__GNUC__) && defined(__i386__)
+void __attribute__((naked)) __cdecl DosSelToFlat(void)
+{
+    __asm__ __volatile__("ret");
+}
+#elif defined(_MSC_VER) && defined(_M_IX86)
+__declspec(naked) void __cdecl DosSelToFlat(void)
+{
+    __asm ret
+}
+#else
+void __cdecl DosSelToFlat(void)
+{
+}
+#endif
+
+/* DosExecPgm execution modes used by the direct-LX process gate. */
+#define O2_EXEC_SYNC         0UL
+#define O2_EXEC_ASYNC        1UL
+#define O2_EXEC_ASYNCRESULT  2UL
+#define O2_EXEC_BACKGROUND   4UL
+
+#define O2_DCWA_PROCESS 0UL
+#define O2_DCWW_WAIT    0UL
+#define O2_DCWW_NOWAIT  1UL
+
+/* OS/2 RESULTCODES termination reasons. */
+#define O2_TC_EXIT         0UL
+#define O2_TC_HARDERROR    1UL
+#define O2_TC_TRAP         2UL
+#define O2_TC_KILLPROCESS  3UL
+#define O2_TC_EXCEPTION    4UL
+
+/* Win32 uses this NT status when an unhandled console Ctrl+C terminates a
+ * process.  Translate it at the personality boundary instead of leaking the
+ * host-specific 0xC000013A value into an OS/2 RESULTCODES structure. */
+#define O2_WIN_STATUS_CONTROL_C_EXIT 0xC000013AUL
+
+struct O2ResultCodes {
+    O2ULONG codeTerminate;
+    O2ULONG codeResult;
+};
+
+#define O2_EXEC_CMDLINE_MAX 4096U
+
+#define O2_NO_ERROR                 0UL
+#define O2_ERROR_INVALID_FUNCTION    1UL
+#define O2_ERROR_TOO_MANY_OPEN_FILES 4UL
+#define O2_ERROR_INVALID_HANDLE     6UL
+#define O2_ERROR_INVALID_ACCESS    12UL
+#define O2_ERROR_INVALID_PARAMETER 87UL
+#define O2_ERROR_WAIT_NO_CHILDREN 128UL
+#define O2_ERROR_CHILD_NOT_COMPLETE 129UL
+#define O2_ERROR_BUFFER_OVERFLOW 111UL
+#define O2_ERROR_INVALID_TARGET_HANDLE 114UL
+#define O2_ERROR_ENVVAR_NOT_FOUND 203UL
+#define O2_ERROR_MOD_NOT_FOUND    126UL
+#define O2_ERROR_PROC_NOT_FOUND   127UL
+#define O2_ERROR_INIT_ROUTINE_FAILED 295UL
+#define O2_ERROR_INVALID_FREQUENCY 395UL
+
+/*
+ * M30 first-pass signal surface used through EMX's generic far16 wrapper.
+ * Dhrystone only needs EMX to install its runtime handlers; Win32 console
+ * control handling remains owned by the personality layer.  Preserve the
+ * previous-handler outputs conservatively and accept the registration.
+ */
+unsigned short __cdecl DosSetSigHandler(void *routine, void *prev_address,
+                                         unsigned short *prev_action,
+                                         unsigned short action,
+                                         unsigned short sig_number)
+{
+    (void)routine;
+    (void)action;
+    (void)sig_number;
+    if (prev_address != NULL)
+        *(O2ULONG *)prev_address = 0UL;
+    if (prev_action != NULL)
+        *prev_action = 0U;
+    return (unsigned short)O2_NO_ERROR;
+}
+
+unsigned short __cdecl DosFlagProcess(unsigned short process_id,
+                                      unsigned short action_code,
+                                      unsigned short flag_number,
+                                      unsigned short flag_argument)
+{
+    (void)process_id;
+    (void)action_code;
+    (void)flag_number;
+    (void)flag_argument;
+    return (unsigned short)O2_NO_ERROR;
+}
+
+/* OS/2 page flags used by this runtime. */
+#define O2_PAG_READ       0x00000001UL
+#define O2_PAG_WRITE      0x00000002UL
+#define O2_PAG_EXECUTE    0x00000004UL
+#define O2_PAG_GUARD      0x00000008UL
+#define O2_PAG_COMMIT     0x00000010UL
+#define O2_PAG_DECOMMIT   0x00000020UL
+
+/* OS/2 file attributes. */
+#define O2_FILE_READONLY   0x0001UL
+#define O2_FILE_HIDDEN     0x0002UL
+#define O2_FILE_SYSTEM     0x0004UL
+#define O2_FILE_DIRECTORY  0x0010UL
+#define O2_FILE_ARCHIVED   0x0020UL
+
+/* DosOpen action flags. */
+#define O2_OPEN_ACTION_FAIL_IF_EXISTS     0x0000UL
+#define O2_OPEN_ACTION_OPEN_IF_EXISTS     0x0001UL
+#define O2_OPEN_ACTION_REPLACE_IF_EXISTS  0x0002UL
+#define O2_OPEN_ACTION_FAIL_IF_NEW        0x0000UL
+#define O2_OPEN_ACTION_CREATE_IF_NEW      0x0010UL
+
+/* DosOpen access/share fields. */
+#define O2_OPEN_ACCESS_READONLY   0x0000UL
+#define O2_OPEN_ACCESS_WRITEONLY  0x0001UL
+#define O2_OPEN_ACCESS_READWRITE  0x0002UL
+#define O2_OPEN_SHARE_DENYREADWRITE 0x0010UL
+#define O2_OPEN_SHARE_DENYWRITE     0x0020UL
+#define O2_OPEN_SHARE_DENYREAD      0x0030UL
+#define O2_OPEN_SHARE_DENYNONE      0x0040UL
+
+#define O2_FIL_STANDARD 1UL
+#define O2_FIL_QUERYFULLNAME 5UL
+
+#define O2_MAX_HANDLES 256
+#define O2_MAX_FIND_HANDLES 64
+#define O2_MAX_CHILDREN 64
+
+#define O2_ERROR_NO_MORE_FILES      18UL
+#define O2_SEM_INDEFINITE_WAIT      0xffffffffUL
+
+typedef void (__cdecl *O2THREADFN)(O2ULONG);
+
+struct O2ThreadStart {
+    O2THREADFN fn;
+    O2ULONG arg;
+};
+
+static HANDLE o2_handles[O2_MAX_HANDLES];
+/*
+ * OS/2 HFILE 0/1/2 need their own owned HANDLEs once redirected.  A boolean
+ * ownership flag is not enough because the native CMD bootstrap also mirrors
+ * the selected handle into its CRT fd table.  Track the exact HANDLE that
+ * belongs to DOSCALLS so CRT SetStdHandle/_dup2 activity cannot make us close
+ * the wrong object on the next DosDupHandle.
+ *
+ * NULL means "use the process's original Win32 standard handle".
+ */
+static HANDLE o2_std_handles[3];
+static HANDLE o2_find_handles[O2_MAX_FIND_HANDLES];
+
+struct O2ChildProc {
+    HANDLE process;
+    DWORD pid;
+};
+static struct O2ChildProc o2_children[O2_MAX_CHILDREN];
+static CRITICAL_SECTION child_lock;
+static int child_lock_ready;
+
+/* Minimal 32-bit OS/2 TIB/PIB views for DosGetInfoBlocks.  The direct LX
+ * backend currently needs pib_pchenv; the remaining fields are populated
+ * conservatively so other simple clients can inspect them too. */
+struct O2TibCompat {
+    void *pexchain;
+    void *pstack;
+    void *pstacklimit;
+    void *ptib2;
+    O2ULONG version;
+    O2ULONG ordinal;
+};
+
+struct O2PibCompat {
+    O2ULONG pid;
+    O2ULONG ppid;
+    O2ULONG hmte;
+    char *pchcmd;
+    char *pchenv;
+    O2ULONG flstatus;
+    O2ULONG ultype;
+};
+
+#define O2_INFO_ENV_MAX 32768U
+#define O2_INFO_CMD_MAX 4096U
+static struct O2TibCompat o2_info_tib;
+static struct O2PibCompat o2_info_pib;
+static char o2_info_env[O2_INFO_ENV_MAX];
+static char o2_info_cmd[O2_INFO_CMD_MAX];
+static char o2_scan_env[O2_INFO_ENV_MAX];
+
+/* Persistent synchronous waveOut backend for DosBeep.  DosBeep itself is
+ * serialized, just as a single PC-style tone generator would be. */
+static CRITICAL_SECTION beep_lock;
+static int beep_lock_ready;
+static HANDLE beep_event;
+static HWAVEOUT beep_wave;
+static short *beep_samples;
+static DWORD beep_sample_capacity;
+static O2ULONG beep_phase;
+
+static int audio_trace_enabled(void)
+{
+    char b[4];
+    return GetEnvironmentVariableA("LE2PE_TRACE_AUDIO", b, sizeof(b)) != 0;
+}
+
+/* M28D5 diagnostic switch.  Keep tracing behind an environment variable so
+ * normal guests see no extra output.  This deliberately traces the OS/2 HFILE
+ * number and the native HANDLE selected by the personality; it lets us tell
+ * whether a C/386 stdio failure happens before DosWrite, inside DosWrite, or
+ * because HFILE 0/1 were resolved to the wrong Windows objects. */
+static int io_trace_enabled(void)
+{
+    char b[4];
+    return GetEnvironmentVariableA("OS2_TRACE_IO", b, sizeof(b)) != 0;
+}
+
+/*
+ * M29J2 process-launch tracing.  Keep it opt-in because DosExecPgm is used by
+ * normal guests as well as the reconstructed shell.
+ */
+static void o2_module_process_exit(void);
+
+static int exec_trace_enabled(void)
+{
+    char b[4];
+    return GetEnvironmentVariableA("OS2_TRACE_EXEC", b, sizeof(b)) != 0;
+}
+
+static const char *win_handle_type_name(HANDLE h)
+{
+    DWORD t;
+    if (h == NULL || h == INVALID_HANDLE_VALUE)
+        return "invalid";
+    t = GetFileType(h);
+    if (t == FILE_TYPE_DISK)
+        return "disk";
+    if (t == FILE_TYPE_CHAR)
+        return "char";
+    if (t == FILE_TYPE_PIPE)
+        return "pipe";
+    if (t == FILE_TYPE_UNKNOWN)
+        return "unknown";
+    return "other";
+}
+
+
+static HANDLE os2_handle(O2HFILE h)
+{
+    if (h <= 2UL) {
+        DWORD which;
+        if (o2_std_handles[h] != NULL &&
+            o2_std_handles[h] != INVALID_HANDLE_VALUE)
+            return o2_std_handles[h];
+        if (h == 0UL)
+            which = STD_INPUT_HANDLE;
+        else if (h == 1UL)
+            which = STD_OUTPUT_HANDLE;
+        else
+            which = STD_ERROR_HANDLE;
+        return GetStdHandle(which);
+    }
+    if (h >= O2_MAX_HANDLES)
+        return INVALID_HANDLE_VALUE;
+    if (o2_handles[h] == NULL)
+        return INVALID_HANDLE_VALUE;
+    return o2_handles[h];
+}
+
+static O2HFILE alloc_os2_handle(HANDLE h)
+{
+    O2HFILE i;
+    for (i = 3; i < O2_MAX_HANDLES; ++i) {
+        if (o2_handles[i] == NULL) {
+            o2_handles[i] = h;
+            return i;
+        }
+    }
+    return (O2HFILE)0xffffffffUL;
+}
+
+static void free_os2_handle(O2HFILE h)
+{
+    if (h >= 3 && h < O2_MAX_HANDLES)
+        o2_handles[h] = NULL;
+}
+
+
+static O2ULONG alloc_find_handle(HANDLE h)
+{
+    O2ULONG i;
+    for (i = 1; i < O2_MAX_FIND_HANDLES; ++i) {
+        if (o2_find_handles[i] == NULL) {
+            o2_find_handles[i] = h;
+            return i;
+        }
+    }
+    return 0xffffffffUL;
+}
+
+static HANDLE get_find_handle(O2ULONG hdir)
+{
+    if (hdir == 0 || hdir >= O2_MAX_FIND_HANDLES)
+        return INVALID_HANDLE_VALUE;
+    if (o2_find_handles[hdir] == NULL)
+        return INVALID_HANDLE_VALUE;
+    return o2_find_handles[hdir];
+}
+
+static void free_find_handle(O2ULONG hdir)
+{
+    if (hdir > 0 && hdir < O2_MAX_FIND_HANDLES)
+        o2_find_handles[hdir] = NULL;
+}
+
+static int store_child_process(HANDLE process, DWORD pid)
+{
+    int i;
+
+    if (!child_lock_ready || process == NULL ||
+        process == INVALID_HANDLE_VALUE || pid == 0)
+        return 0;
+
+    EnterCriticalSection(&child_lock);
+    for (i = 0; i < O2_MAX_CHILDREN; ++i) {
+        if (o2_children[i].process == NULL) {
+            o2_children[i].process = process;
+            o2_children[i].pid = pid;
+            LeaveCriticalSection(&child_lock);
+            return 1;
+        }
+    }
+    LeaveCriticalSection(&child_lock);
+    return 0;
+}
+
+static HANDLE take_child_process(DWORD wantedPid, DWORD *actualPid)
+{
+    HANDLE process;
+    int i;
+
+    process = NULL;
+    if (actualPid != NULL)
+        *actualPid = 0;
+    if (!child_lock_ready)
+        return NULL;
+
+    EnterCriticalSection(&child_lock);
+    for (i = 0; i < O2_MAX_CHILDREN; ++i) {
+        if (o2_children[i].process != NULL &&
+            (wantedPid == 0 || o2_children[i].pid == wantedPid)) {
+            process = o2_children[i].process;
+            if (actualPid != NULL)
+                *actualPid = o2_children[i].pid;
+            o2_children[i].process = NULL;
+            o2_children[i].pid = 0;
+            break;
+        }
+    }
+    LeaveCriticalSection(&child_lock);
+    return process;
+}
+
+static void put_child_process_back(HANDLE process, DWORD pid)
+{
+    if (process != NULL && process != INVALID_HANDLE_VALUE)
+        (void)store_child_process(process, pid);
+}
+
+static DWORD protect_from_flags(O2ULONG flags)
+{
+    int r;
+    int w;
+    int x;
+
+    r = (flags & O2_PAG_READ) != 0;
+    w = (flags & O2_PAG_WRITE) != 0;
+    x = (flags & O2_PAG_EXECUTE) != 0;
+
+    if (x && w)
+        return PAGE_EXECUTE_READWRITE;
+    if (x && r)
+        return PAGE_EXECUTE_READ;
+    if (x)
+        return PAGE_EXECUTE;
+    if (w)
+        return PAGE_READWRITE;
+    if (r)
+        return PAGE_READONLY;
+    return PAGE_NOACCESS;
+}
+
+static O2ULONG o2_attrs_from_win32(DWORD a)
+{
+    O2ULONG r;
+    r = 0;
+    if (a & FILE_ATTRIBUTE_READONLY)
+        r |= O2_FILE_READONLY;
+    if (a & FILE_ATTRIBUTE_HIDDEN)
+        r |= O2_FILE_HIDDEN;
+    if (a & FILE_ATTRIBUTE_SYSTEM)
+        r |= O2_FILE_SYSTEM;
+    if (a & FILE_ATTRIBUTE_DIRECTORY)
+        r |= O2_FILE_DIRECTORY;
+    if (a & FILE_ATTRIBUTE_ARCHIVE)
+        r |= O2_FILE_ARCHIVED;
+    return r;
+}
+
+static DWORD win32_attrs_from_o2(O2ULONG a)
+{
+    DWORD r;
+    r = 0;
+    if (a & O2_FILE_READONLY)
+        r |= FILE_ATTRIBUTE_READONLY;
+    if (a & O2_FILE_HIDDEN)
+        r |= FILE_ATTRIBUTE_HIDDEN;
+    if (a & O2_FILE_SYSTEM)
+        r |= FILE_ATTRIBUTE_SYSTEM;
+    if (a & O2_FILE_ARCHIVED)
+        r |= FILE_ATTRIBUTE_ARCHIVE;
+    if (r == 0)
+        r = FILE_ATTRIBUTE_NORMAL;
+    return r;
+}
+
+static WORD o2_date_from_filetime(const FILETIME *ft, WORD *ptime)
+{
+    FILETIME lft;
+    SYSTEMTIME st;
+    unsigned year;
+    WORD d;
+    WORD t;
+
+    *ptime = 0;
+    if (!FileTimeToLocalFileTime(ft, &lft))
+        return 0;
+    if (!FileTimeToSystemTime(&lft, &st))
+        return 0;
+
+    year = st.wYear;
+    if (year < 1980)
+        year = 1980;
+    if (year > 2107)
+        year = 2107;
+
+    d = (WORD)((st.wDay & 31U) |
+               ((st.wMonth & 15U) << 5) |
+               (((year - 1980U) & 127U) << 9));
+    t = (WORD)(((st.wSecond / 2U) & 31U) |
+               ((st.wMinute & 63U) << 5) |
+               ((st.wHour & 31U) << 11));
+    *ptime = t;
+    return d;
+}
+
+static void put16(unsigned char *p, WORD v)
+{
+    p[0] = (unsigned char)(v & 0xffU);
+    p[1] = (unsigned char)((v >> 8) & 0xffU);
+}
+
+static void put32(unsigned char *p, DWORD v)
+{
+    p[0] = (unsigned char)(v & 0xffUL);
+    p[1] = (unsigned char)((v >> 8) & 0xffUL);
+    p[2] = (unsigned char)((v >> 16) & 0xffUL);
+    p[3] = (unsigned char)((v >> 24) & 0xffUL);
+}
+
+/* FILESTATUS3 / FIL_STANDARD: 24 bytes in the 32-bit API. */
+static void fill_fil_standard(unsigned char *p,
+                              const WIN32_FIND_DATAA *fd)
+{
+    WORD d;
+    WORD t;
+    DWORD size;
+    DWORD alloc;
+    O2ULONG attr;
+
+    d = o2_date_from_filetime(&fd->ftCreationTime, &t);
+    put16(p + 0, d); put16(p + 2, t);
+    d = o2_date_from_filetime(&fd->ftLastAccessTime, &t);
+    put16(p + 4, d); put16(p + 6, t);
+    d = o2_date_from_filetime(&fd->ftLastWriteTime, &t);
+    put16(p + 8, d); put16(p + 10, t);
+
+    size = fd->nFileSizeLow;
+    alloc = (size + 4095UL) & ~4095UL;
+    if (alloc < size)
+        alloc = size;
+    attr = o2_attrs_from_win32(fd->dwFileAttributes);
+
+    put32(p + 12, size);
+    put32(p + 16, alloc);
+    put32(p + 20, attr);
+}
+
+
+/* FILESTATUS3 / FIL_STANDARD from an already-open Win32 handle. */
+static O2APIRET fill_fil_standard_handle(unsigned char *p, HANDLE h)
+{
+    BY_HANDLE_FILE_INFORMATION fi;
+    WORD d;
+    WORD t;
+    DWORD size;
+    DWORD alloc;
+    O2ULONG attr;
+
+    if (!GetFileInformationByHandle(h, &fi))
+        return (O2APIRET)GetLastError();
+
+    d = o2_date_from_filetime(&fi.ftCreationTime, &t);
+    put16(p + 0, d); put16(p + 2, t);
+    d = o2_date_from_filetime(&fi.ftLastAccessTime, &t);
+    put16(p + 4, d); put16(p + 6, t);
+    d = o2_date_from_filetime(&fi.ftLastWriteTime, &t);
+    put16(p + 8, d); put16(p + 10, t);
+
+    /* The C/386-era OS/2 interface is 32-bit here.  These specimens do not
+       deal with >4 GiB files, so report the low 32 bits just as that ABI can. */
+    size = fi.nFileSizeLow;
+    alloc = (size + 4095UL) & ~4095UL;
+    if (alloc < size)
+        alloc = size;
+    attr = o2_attrs_from_win32(fi.dwFileAttributes);
+
+    put32(p + 12, size);
+    put32(p + 16, alloc);
+    put32(p + 20, attr);
+    return O2_NO_ERROR;
+}
+
+static DWORD WINAPI o2_thread_start(LPVOID pv)
+{
+    struct O2ThreadStart *ts;
+    O2THREADFN fn;
+    O2ULONG arg;
+
+    ts = (struct O2ThreadStart *)pv;
+    fn = ts->fn;
+    arg = ts->arg;
+    HeapFree(GetProcessHeap(), 0, ts);
+    fn(arg);
+    return 0;
+}
+
+static void fill_findbuf3(unsigned char *p, O2ULONG cb,
+                          const WIN32_FIND_DATAA *fd)
+{
+    WORD d;
+    WORD t;
+    DWORD size;
+    DWORD alloc;
+    O2ULONG attr;
+    size_t n;
+
+    /* OS/2 2.x FILEFINDBUF3 begins with oNextEntryOffset.  M28A's
+       native-only decoder accidentally omitted this ULONG, so its private
+       producer/consumer agreed on a layout that was four bytes too short.
+       A real C/386 client using <os2.h> exposed the mismatch immediately. */
+    if (cb < 30UL)
+        return;
+    memset(p, 0, (size_t)cb);
+
+    put32(p + 0, 0UL); /* oNextEntryOffset: one entry per call for now */
+    d = o2_date_from_filetime(&fd->ftCreationTime, &t);
+    put16(p + 4, d); put16(p + 6, t);
+    d = o2_date_from_filetime(&fd->ftLastAccessTime, &t);
+    put16(p + 8, d); put16(p + 10, t);
+    d = o2_date_from_filetime(&fd->ftLastWriteTime, &t);
+    put16(p + 12, d); put16(p + 14, t);
+
+    size = fd->nFileSizeLow;
+    alloc = (size + 4095UL) & ~4095UL;
+    if (alloc < size)
+        alloc = size;
+    attr = o2_attrs_from_win32(fd->dwFileAttributes);
+    put32(p + 16, size);
+    put32(p + 20, alloc);
+    put32(p + 24, attr);
+
+    n = strlen(fd->cFileName);
+    if (n > 255U)
+        n = 255U;
+    p[28] = (unsigned char)n;
+    if (cb > 29UL) {
+        size_t room;
+        room = (size_t)(cb - 29UL);
+        if (n + 1U > room)
+            n = room > 0U ? room - 1U : 0U;
+        if (n != 0U)
+            memcpy(p + 29, fd->cFileName, n);
+        if (room != 0U)
+            p[29 + n] = 0;
+    }
+}
+
+/* 286 - synchronous 32-bit tone generation.
+ *
+ * OS/2 DosBeep accepts 37..32767 Hz and blocks for the requested number
+ * of milliseconds.  WinMM has no direct frequency/duration primitive, so
+ * synthesize a mono 16-bit PCM square wave.
+ *
+ * Milestone 17 deliberately keeps one waveOut device open for the lifetime
+ * of the process.  The older implementation opened and closed WAVE_MAPPER for
+ * every ~40 ms Sarien note, which inserted audible gaps on some systems.  A
+ * CALLBACK_EVENT completion wait also replaces the old Sleep(1) polling loop.
+ *
+ * The 16.16 phase accumulator is preserved between notes, reducing clicks and
+ * keeping this implementation integer-only / ANSI-C89 friendly.
+ */
+static O2APIRET beep_open_backend(void)
+{
+    WAVEFORMATEX fmt;
+    MMRESULT mm;
+    const O2ULONG rate = 44100UL;
+
+    if (beep_wave != NULL)
+        return O2_NO_ERROR;
+
+    if (beep_event == NULL) {
+        beep_event = CreateEventA(NULL, TRUE, FALSE, NULL);
+        if (beep_event == NULL)
+            return (O2APIRET)GetLastError();
+    }
+
+    memset(&fmt, 0, sizeof(fmt));
+    fmt.wFormatTag = WAVE_FORMAT_PCM;
+    fmt.nChannels = 1;
+    fmt.nSamplesPerSec = (DWORD)rate;
+    fmt.wBitsPerSample = 16;
+    fmt.nBlockAlign = 2;
+    fmt.nAvgBytesPerSec = (DWORD)(rate * 2UL);
+    fmt.cbSize = 0;
+
+    ResetEvent(beep_event);
+    mm = waveOutOpen(&beep_wave, WAVE_MAPPER, &fmt,
+                     (DWORD)beep_event, 0UL, CALLBACK_EVENT);
+    if (mm != MMSYSERR_NOERROR) {
+        beep_wave = NULL;
+        if (audio_trace_enabled()) {
+            fprintf(stderr, "DOSCALLS: waveOutOpen failed mm=%u\n", (unsigned)mm);
+            fflush(stderr);
+        }
+        return 1UL;
+    }
+
+    /* CALLBACK_EVENT may signal for the open transition.  The next write
+       explicitly resets it before submitting audio. */
+    ResetEvent(beep_event);
+    return O2_NO_ERROR;
+}
+
+static O2APIRET beep_reserve_samples(DWORD needed)
+{
+    short *p;
+    DWORD bytes;
+
+    if (needed <= beep_sample_capacity)
+        return O2_NO_ERROR;
+    if (needed > 0x7fffffffUL / (DWORD)sizeof(short))
+        return O2_ERROR_INVALID_PARAMETER;
+
+    bytes = needed * (DWORD)sizeof(short);
+    if (beep_samples == NULL)
+        p = (short *)HeapAlloc(GetProcessHeap(), 0, bytes);
+    else
+        p = (short *)HeapReAlloc(GetProcessHeap(), 0, beep_samples, bytes);
+    if (p == NULL)
+        return (O2APIRET)ERROR_NOT_ENOUGH_MEMORY;
+
+    beep_samples = p;
+    beep_sample_capacity = needed;
+    return O2_NO_ERROR;
+}
+
+O2APIRET __cdecl DosBeep(O2ULONG frequency, O2ULONG duration)
+{
+    WAVEHDR hdr;
+    MMRESULT mm;
+    O2ULONG sampleCount;
+    O2ULONG wholeSeconds;
+    O2ULONG remainderMs;
+    O2ULONG phase;
+    O2ULONG step;
+    O2ULONG i;
+    O2APIRET rc;
+    DWORD bytes;
+    DWORD wr;
+    const O2ULONG rate = 44100UL;
+
+    if (audio_trace_enabled()) {
+        fprintf(stderr, "DOSCALLS: DosBeep frequency=%lu duration=%lu\n",
+                (unsigned long)frequency, (unsigned long)duration);
+        fflush(stderr);
+    }
+
+    /* The historical Sarien beeper uses zero as a rest marker.  It is not a
+       legal physical speaker frequency, but treating it as silence is useful
+       and harmless for compatibility. */
+    if (frequency == 0UL) {
+        if (duration != 0UL)
+            Sleep((DWORD)duration);
+        return O2_NO_ERROR;
+    }
+    if (frequency < 37UL || frequency > 32767UL)
+        return O2_ERROR_INVALID_FREQUENCY;
+    if (duration == 0UL)
+        return O2_NO_ERROR;
+
+    EnterCriticalSection(&beep_lock);
+
+    rc = beep_open_backend();
+    if (rc != O2_NO_ERROR) {
+        LeaveCriticalSection(&beep_lock);
+        return rc;
+    }
+
+    /* Compute rate * duration / 1000 without overflowing on the
+       millisecond multiplication first. */
+    wholeSeconds = duration / 1000UL;
+    remainderMs = duration % 1000UL;
+    if (wholeSeconds > (0xffffffffUL / rate)) {
+        LeaveCriticalSection(&beep_lock);
+        return O2_ERROR_INVALID_PARAMETER;
+    }
+    sampleCount = wholeSeconds * rate;
+    if (sampleCount > 0xffffffffUL - ((remainderMs * rate) / 1000UL)) {
+        LeaveCriticalSection(&beep_lock);
+        return O2_ERROR_INVALID_PARAMETER;
+    }
+    sampleCount += (remainderMs * rate) / 1000UL;
+    if (sampleCount == 0UL)
+        sampleCount = 1UL;
+
+    rc = beep_reserve_samples((DWORD)sampleCount);
+    if (rc != O2_NO_ERROR) {
+        LeaveCriticalSection(&beep_lock);
+        return rc;
+    }
+    bytes = (DWORD)sampleCount * (DWORD)sizeof(short);
+
+    /* One complete cycle is 0x10000 phase units. */
+    step = (frequency * 65536UL) / rate;
+    if (step == 0UL)
+        step = 1UL;
+    phase = beep_phase;
+    for (i = 0UL; i < sampleCount; ++i) {
+        beep_samples[i] = (short)((phase & 0x8000UL) ? -7000 : 7000);
+        phase = (phase + step) & 0xffffUL;
+    }
+    beep_phase = phase;
+
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.lpData = (LPSTR)beep_samples;
+    hdr.dwBufferLength = bytes;
+
+    mm = waveOutPrepareHeader(beep_wave, &hdr, sizeof(hdr));
+    if (mm != MMSYSERR_NOERROR) {
+        if (audio_trace_enabled()) {
+            fprintf(stderr, "DOSCALLS: waveOutPrepareHeader failed mm=%u\n", (unsigned)mm);
+            fflush(stderr);
+        }
+        LeaveCriticalSection(&beep_lock);
+        return 1UL;
+    }
+
+    ResetEvent(beep_event);
+    mm = waveOutWrite(beep_wave, &hdr, sizeof(hdr));
+    if (mm != MMSYSERR_NOERROR) {
+        waveOutUnprepareHeader(beep_wave, &hdr, sizeof(hdr));
+        if (audio_trace_enabled()) {
+            fprintf(stderr, "DOSCALLS: waveOutWrite failed mm=%u\n", (unsigned)mm);
+            fflush(stderr);
+        }
+        LeaveCriticalSection(&beep_lock);
+        return 1UL;
+    }
+
+    /* CALLBACK_EVENT can signal on device state changes.  Keep waiting until
+       WinMM marks this exact header done; normally this loop runs once. */
+    while ((hdr.dwFlags & WHDR_DONE) == 0UL) {
+        wr = WaitForSingleObject(beep_event, INFINITE);
+        if (wr != WAIT_OBJECT_0) {
+            waveOutReset(beep_wave);
+            break;
+        }
+        ResetEvent(beep_event);
+    }
+
+    mm = waveOutUnprepareHeader(beep_wave, &hdr, sizeof(hdr));
+    if (mm != MMSYSERR_NOERROR && audio_trace_enabled()) {
+        fprintf(stderr, "DOSCALLS: waveOutUnprepareHeader failed mm=%u\n", (unsigned)mm);
+        fflush(stderr);
+    }
+
+    LeaveCriticalSection(&beep_lock);
+    return O2_NO_ERROR;
+}
+
+/* Compatibility export for the historical 16-bit DOS16BEEP ordinal 50.
+ * Translated 32-bit C/386 applications use DosBeep at ordinal 286. */
+O2APIRET __cdecl Dos16Beep(O2ULONG frequency, O2ULONG duration)
+{
+    return DosBeep(frequency, duration);
+}
+
+/* 229 */
+O2APIRET __cdecl DosSleep(O2ULONG milliseconds)
+{
+    Sleep((DWORD)milliseconds);
+    return O2_NO_ERROR;
+}
+
+/* 263 */
+O2APIRET __cdecl DosFindClose(O2ULONG hdir)
+{
+    HANDLE h;
+    h = get_find_handle(hdir);
+    if (h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+    if (!FindClose(h))
+        return (O2APIRET)GetLastError();
+    free_find_handle(hdir);
+    return O2_NO_ERROR;
+}
+
+/* 264 */
+O2APIRET __cdecl DosFindFirst(const char *filespec, O2ULONG *phdir,
+                              O2ULONG attributes, void *findbuf,
+                              O2ULONG cbBuf, O2ULONG *pCount,
+                              O2ULONG infoLevel)
+{
+    WIN32_FIND_DATAA fd;
+    HANDLE h;
+    O2ULONG oh;
+
+    (void)attributes;
+    if (!filespec || !phdir || !findbuf || !pCount)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (infoLevel != O2_FIL_STANDARD)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    h = FindFirstFileA(filespec, &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        *pCount = 0;
+        return (O2APIRET)GetLastError();
+    }
+
+    oh = alloc_find_handle(h);
+    if (oh == 0xffffffffUL) {
+        FindClose(h);
+        *pCount = 0;
+        return O2_ERROR_TOO_MANY_OPEN_FILES;
+    }
+    *phdir = oh;
+    *pCount = 1;
+    fill_findbuf3((unsigned char *)findbuf, cbBuf, &fd);
+    return O2_NO_ERROR;
+}
+
+/* 265 */
+O2APIRET __cdecl DosFindNext(O2ULONG hdir, void *findbuf,
+                             O2ULONG cbBuf, O2ULONG *pCount)
+{
+    WIN32_FIND_DATAA fd;
+    HANDLE h;
+    DWORD e;
+    if (!findbuf || !pCount)
+        return O2_ERROR_INVALID_PARAMETER;
+    h = get_find_handle(hdir);
+    if (h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+    if (!FindNextFileA(h, &fd)) {
+        e = GetLastError();
+        *pCount = 0;
+        if (e == ERROR_NO_MORE_FILES)
+            return O2_ERROR_NO_MORE_FILES;
+        return (O2APIRET)e;
+    }
+    *pCount = 1;
+    fill_findbuf3((unsigned char *)findbuf, cbBuf, &fd);
+    return O2_NO_ERROR;
+}
+
+/* 311 */
+O2APIRET __cdecl DosCreateThread(O2ULONG *ptid, O2THREADFN fn,
+                                 O2ULONG param, O2ULONG flags,
+                                 O2ULONG stackSize)
+{
+    struct O2ThreadStart *ts;
+    HANDLE h;
+    DWORD tid;
+    DWORD winflags;
+
+    if (!ptid || !fn)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    ts = (struct O2ThreadStart *)HeapAlloc(GetProcessHeap(), 0, sizeof(*ts));
+    if (!ts)
+        return (O2APIRET)ERROR_NOT_ENOUGH_MEMORY;
+    ts->fn = fn;
+    ts->arg = param;
+
+    winflags = 0;
+    /* The Sarien specimen passes zero; retain a minimal suspended-bit hook. */
+    if (flags & 1UL)
+        winflags |= CREATE_SUSPENDED;
+
+    h = CreateThread(NULL, (DWORD)stackSize, o2_thread_start, ts,
+                     winflags, &tid);
+    if (!h) {
+        HeapFree(GetProcessHeap(), 0, ts);
+        return (O2APIRET)GetLastError();
+    }
+    *ptid = (O2ULONG)tid;
+    CloseHandle(h);
+    return O2_NO_ERROR;
+}
+
+/* 331 */
+O2APIRET __cdecl DosCreateMutexSem(const char *name, O2ULONG *phmtx,
+                                   O2ULONG flags, O2ULONG initialOwner)
+{
+    HANDLE h;
+    (void)flags;
+    if (!phmtx)
+        return O2_ERROR_INVALID_PARAMETER;
+    /* OS/2 named semaphore syntax (\\sem32\...) is not a valid
+       Win32 object-manager path.  Sarien only shares this mutex in-process,
+       so an unnamed native mutex is sufficient. */
+    (void)name;
+    h = CreateMutexA(NULL, initialOwner ? TRUE : FALSE, NULL);
+    if (!h)
+        return (O2APIRET)GetLastError();
+    *phmtx = (O2ULONG)(DWORD)h;
+    return O2_NO_ERROR;
+}
+
+/* 334 */
+O2APIRET __cdecl DosRequestMutexSem(O2ULONG hmtx, O2ULONG timeout)
+{
+    DWORD rc;
+    DWORD ms;
+    ms = (timeout == O2_SEM_INDEFINITE_WAIT) ? INFINITE : (DWORD)timeout;
+    rc = WaitForSingleObject((HANDLE)(DWORD)hmtx, ms);
+    if (rc == WAIT_OBJECT_0 || rc == WAIT_ABANDONED)
+        return O2_NO_ERROR;
+    if (rc == WAIT_TIMEOUT)
+        return (O2APIRET)ERROR_SEM_TIMEOUT;
+    return (O2APIRET)GetLastError();
+}
+
+/* 335 */
+O2APIRET __cdecl DosReleaseMutexSem(O2ULONG hmtx)
+{
+    if (!ReleaseMutex((HANDLE)(DWORD)hmtx))
+        return (O2APIRET)GetLastError();
+    return O2_NO_ERROR;
+}
+
+/* 230 - DATETIME layout used by the 32-bit API:
+ *   +0 hours       UCHAR
+ *   +1 minutes     UCHAR
+ *   +2 seconds     UCHAR
+ *   +3 hundredths  UCHAR
+ *   +4 day         UCHAR
+ *   +5 month       UCHAR
+ *   +6 year        USHORT
+ *   +8 timezone    SHORT (minutes west of UTC)
+ *  +10 dayofweek   UCHAR (0 = Sunday)
+ *  +11 padding
+ */
+O2APIRET __cdecl DosGetDateTime(void *buffer)
+{
+    SYSTEMTIME st;
+    TIME_ZONE_INFORMATION tzi;
+    DWORD tzid;
+    LONG bias;
+    unsigned char *p;
+
+    if (!buffer)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    GetLocalTime(&st);
+    p = (unsigned char *)buffer;
+
+    p[0] = (unsigned char)st.wHour;
+    p[1] = (unsigned char)st.wMinute;
+    p[2] = (unsigned char)st.wSecond;
+    p[3] = (unsigned char)(st.wMilliseconds / 10U);
+    p[4] = (unsigned char)st.wDay;
+    p[5] = (unsigned char)st.wMonth;
+    put16(p + 6, (WORD)st.wYear);
+
+    /*
+     * OS/2 and Win32 use the same sign convention here: positive means
+     * minutes west of UTC.  Win32's effective bias includes the current
+     * standard/daylight adjustment.
+     */
+    tzid = GetTimeZoneInformation(&tzi);
+    if (tzid == TIME_ZONE_ID_INVALID) {
+        bias = -1;
+    } else {
+        bias = tzi.Bias;
+        if (tzid == TIME_ZONE_ID_STANDARD)
+            bias += tzi.StandardBias;
+        else if (tzid == TIME_ZONE_ID_DAYLIGHT)
+            bias += tzi.DaylightBias;
+    }
+    put16(p + 8, (WORD)(SHORT)bias);
+    p[10] = (unsigned char)st.wDayOfWeek;
+    p[11] = 0;
+
+    return O2_NO_ERROR;
+}
+
+/* 220 */
+O2APIRET __cdecl DosSetDefaultDisk(O2ULONG diskNum)
+{
+    char spec[4];
+    char full[MAX_PATH];
+    DWORD n;
+
+    if (diskNum < 1UL || diskNum > 26UL)
+        return O2_ERROR_INVALID_PARAMETER;
+    spec[0] = (char)('A' + (int)diskNum - 1);
+    spec[1] = ':';
+    spec[2] = '.';
+    spec[3] = '\0';
+    n = GetFullPathNameA(spec, (DWORD)sizeof(full), full, NULL);
+    if (n == 0 || n >= (DWORD)sizeof(full))
+        return (O2APIRET)GetLastError();
+    if (!SetCurrentDirectoryA(full))
+        return (O2APIRET)GetLastError();
+    return O2_NO_ERROR;
+}
+
+/* 227 */
+O2APIRET __cdecl DosScanEnv(const char *name, char **value)
+{
+    DWORD n;
+
+    if (!name || !*name || !value)
+        return O2_ERROR_INVALID_PARAMETER;
+    n = GetEnvironmentVariableA(name, o2_scan_env,
+                                (DWORD)sizeof(o2_scan_env));
+    if (n == 0) {
+        *value = NULL;
+        return O2_ERROR_ENVVAR_NOT_FOUND;
+    }
+    if (n >= (DWORD)sizeof(o2_scan_env)) {
+        *value = NULL;
+        return O2_ERROR_BUFFER_OVERFLOW;
+    }
+    *value = o2_scan_env;
+    return O2_NO_ERROR;
+}
+
+/* 312 */
+O2APIRET __cdecl DosGetInfoBlocks(void **pptib, void **pppib)
+{
+    LPCH env;
+    LPCH p;
+    size_t bytes;
+    const char *cmd;
+    size_t cmdlen;
+
+    if (!pptib || !pppib)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    env = GetEnvironmentStringsA();
+    if (!env)
+        return (O2APIRET)GetLastError();
+    p = env;
+    while (*p != '\0')
+        p += strlen(p) + 1U;
+    ++p;
+    bytes = (size_t)(p - env);
+    if (bytes > sizeof(o2_info_env)) {
+        FreeEnvironmentStringsA(env);
+        return O2_ERROR_BUFFER_OVERFLOW;
+    }
+    memcpy(o2_info_env, env, bytes);
+    FreeEnvironmentStringsA(env);
+
+    cmd = GetCommandLineA();
+    if (!cmd)
+        cmd = "";
+    cmdlen = strlen(cmd);
+    if (cmdlen + 1U > sizeof(o2_info_cmd))
+        cmdlen = sizeof(o2_info_cmd) - 1U;
+    memcpy(o2_info_cmd, cmd, cmdlen);
+    o2_info_cmd[cmdlen] = '\0';
+
+    memset(&o2_info_tib, 0, sizeof(o2_info_tib));
+    memset(&o2_info_pib, 0, sizeof(o2_info_pib));
+    o2_info_pib.pid = (O2ULONG)GetCurrentProcessId();
+    o2_info_pib.pchcmd = o2_info_cmd;
+    o2_info_pib.pchenv = o2_info_env;
+    o2_info_pib.ultype = 0UL; /* fullscreen/console-compatible default */
+
+    *pptib = &o2_info_tib;
+    *pppib = &o2_info_pib;
+    return O2_NO_ERROR;
+}
+
+/* 223 */
+O2APIRET __cdecl DosQueryPathInfo(const char *path, O2ULONG level,
+                                  void *buffer, O2ULONG cb)
+{
+    WIN32_FIND_DATAA fd;
+    HANDLE findh;
+
+    if (!path || !buffer)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    if (level == O2_FIL_STANDARD) {
+        if (cb < 24UL)
+            return O2_ERROR_INVALID_PARAMETER;
+        findh = FindFirstFileA(path, &fd);
+        if (findh == INVALID_HANDLE_VALUE)
+            return (O2APIRET)GetLastError();
+        FindClose(findh);
+        fill_fil_standard((unsigned char *)buffer, &fd);
+        return O2_NO_ERROR;
+    }
+
+    if (level == O2_FIL_QUERYFULLNAME) {
+        DWORD n;
+        n = GetFullPathNameA(path, (DWORD)cb, (char *)buffer, NULL);
+        if (n == 0)
+            return (O2APIRET)GetLastError();
+        if (n >= (DWORD)cb)
+            return O2_ERROR_INVALID_PARAMETER;
+        return O2_NO_ERROR;
+    }
+
+    return O2_ERROR_INVALID_PARAMETER;
+}
+
+/* 224 */
+O2APIRET __cdecl DosQueryHType(O2HFILE hFile, O2ULONG *pType, O2ULONG *pAttr)
+{
+    DWORD t;
+    HANDLE h;
+
+    if (!pType || !pAttr)
+        return O2_ERROR_INVALID_PARAMETER;
+    h = os2_handle(hFile);
+    if (h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+    t = GetFileType(h);
+    if (t == FILE_TYPE_CHAR)
+        *pType = 1;
+    else if (t == FILE_TYPE_PIPE)
+        *pType = 2;
+    else
+        *pType = 0;
+    *pAttr = 0;
+    if (io_trace_enabled()) {
+        fprintf(stderr,
+                "DOSCALLS IO: QHTYPE hfile=%lu handle=%p native=%s -> type=%lu attr=%lu\n",
+                (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+                (unsigned long)*pType, (unsigned long)*pAttr);
+        fflush(stderr);
+    }
+    return O2_NO_ERROR;
+}
+
+/* 234 */
+void __cdecl DosExit(O2ULONG action, O2ULONG result)
+{
+    (void)action;
+    o2_module_process_exit();
+    ExitProcess((UINT)result);
+}
+
+/* 226 */
+O2APIRET __cdecl DosDeleteDir(const char *path)
+{
+    if (!path)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (!RemoveDirectoryA(path))
+        return (O2APIRET)GetLastError();
+    return O2_NO_ERROR;
+}
+
+/* 255 */
+O2APIRET __cdecl DosSetCurrentDir(const char *path)
+{
+    char oldcwd[MAX_PATH];
+    char restore[3];
+    DWORD n;
+    char olddrive;
+    char targetdrive;
+
+    if (!path)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    /* OS/2 keeps a current directory for every drive.  A drive-qualified
+     * DosSetCurrentDir updates that drive's CDS entry without selecting it as
+     * the default disk.  Win32 has compatible per-drive bookkeeping, but
+     * SetCurrentDirectory also switches the process drive; switch back after
+     * updating a non-default drive. */
+    n = GetCurrentDirectoryA((DWORD)sizeof(oldcwd), oldcwd);
+    if (n == 0 || n >= (DWORD)sizeof(oldcwd))
+        return (O2APIRET)GetLastError();
+    olddrive = oldcwd[0];
+    if (olddrive >= 'a' && olddrive <= 'z')
+        olddrive = (char)(olddrive - 'a' + 'A');
+    targetdrive = path[0];
+    if (targetdrive >= 'a' && targetdrive <= 'z')
+        targetdrive = (char)(targetdrive - 'a' + 'A');
+
+    if (!SetCurrentDirectoryA(path))
+        return (O2APIRET)GetLastError();
+
+    if (path[1] == ':' && targetdrive >= 'A' && targetdrive <= 'Z' &&
+        olddrive >= 'A' && olddrive <= 'Z' && targetdrive != olddrive) {
+        restore[0] = olddrive;
+        restore[1] = ':';
+        restore[2] = '\0';
+        if (!SetCurrentDirectoryA(restore))
+            return (O2APIRET)GetLastError();
+    }
+    return O2_NO_ERROR;
+}
+
+/* 256 */
+O2APIRET __cdecl DosSetFilePtr(O2HFILE hFile, O2LONG distance,
+                              O2ULONG method, O2ULONG *newpos)
+{
+    DWORD m;
+    DWORD r;
+    HANDLE h;
+
+    if (!newpos)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (method == 0)
+        m = FILE_BEGIN;
+    else if (method == 1)
+        m = FILE_CURRENT;
+    else if (method == 2)
+        m = FILE_END;
+    else
+        return O2_ERROR_INVALID_PARAMETER;
+
+    h = os2_handle(hFile);
+    if (h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+    SetLastError(NO_ERROR);
+    r = SetFilePointer(h, (LONG)distance, NULL, m);
+    if (r == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
+        DWORD e;
+        e = GetLastError();
+        if (io_trace_enabled()) {
+            fprintf(stderr,
+                    "DOSCALLS IO: SEEK hfile=%lu handle=%p native=%s dist=%ld method=%lu -> err=%lu\n",
+                    (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+                    (long)distance, (unsigned long)method, (unsigned long)e);
+            fflush(stderr);
+        }
+        return (O2APIRET)e;
+    }
+    *newpos = (O2ULONG)r;
+    if (io_trace_enabled()) {
+        fprintf(stderr,
+                "DOSCALLS IO: SEEK hfile=%lu handle=%p native=%s dist=%ld method=%lu -> pos=%lu\n",
+                (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+                (long)distance, (unsigned long)method, (unsigned long)*newpos);
+        fflush(stderr);
+    }
+    return O2_NO_ERROR;
+}
+
+/* 257 */
+O2APIRET __cdecl DosClose(O2HFILE hFile)
+{
+    HANDLE h;
+
+    h = os2_handle(hFile);
+    if (h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+
+    if (hFile <= 2) {
+        /* Keep the host console handles alive.  The process is exiting anyway. */
+        return O2_NO_ERROR;
+    }
+
+    if (!CloseHandle(h))
+        return (O2APIRET)GetLastError();
+    free_os2_handle(hFile);
+    return O2_NO_ERROR;
+}
+
+/* 239 - 32-bit DosCreatePipe. */
+O2APIRET __cdecl DosCreatePipe(O2HFILE *pread, O2HFILE *pwrite, O2ULONG size)
+{
+    SECURITY_ATTRIBUTES sa;
+    HANDLE rh;
+    HANDLE wh;
+    O2HFILE orh;
+    O2HFILE owh;
+
+    if (!pread || !pwrite)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    rh = INVALID_HANDLE_VALUE;
+    wh = INVALID_HANDLE_VALUE;
+    if (!CreatePipe(&rh, &wh, &sa, (DWORD)size))
+        return (O2APIRET)GetLastError();
+
+    orh = alloc_os2_handle(rh);
+    if (orh == (O2HFILE)0xffffffffUL) {
+        CloseHandle(rh);
+        CloseHandle(wh);
+        return O2_ERROR_TOO_MANY_OPEN_FILES;
+    }
+    owh = alloc_os2_handle(wh);
+    if (owh == (O2HFILE)0xffffffffUL) {
+        free_os2_handle(orh);
+        CloseHandle(rh);
+        CloseHandle(wh);
+        return O2_ERROR_TOO_MANY_OPEN_FILES;
+    }
+
+    *pread = orh;
+    *pwrite = owh;
+    return O2_NO_ERROR;
+}
+
+/* 260 - 32-bit DosDupHandle.
+ *
+ * A requested target of FFFFFFFF allocates a fresh OS/2 HFILE.  Explicit
+ * targets 0/1/2 replace the process standard handle.  For the native-host
+ * personality we intentionally do not CloseHandle() the former Win32
+ * standard handle here: the host CRT may still have a descriptor referring
+ * to it.  cmdos2_win32.c synchronizes that CRT descriptor at the boundary.
+ */
+O2APIRET __cdecl DosDupHandle(O2HFILE oldFile, O2HFILE *pnewFile)
+{
+    HANDLE src;
+    HANDLE dup;
+    HANDLE proc;
+    O2HFILE target;
+
+    if (!pnewFile)
+        return O2_ERROR_INVALID_PARAMETER;
+    src = os2_handle(oldFile);
+    if (src == INVALID_HANDLE_VALUE || src == NULL)
+        return O2_ERROR_INVALID_HANDLE;
+
+    target = *pnewFile;
+    if (target == oldFile)
+        return O2_NO_ERROR;
+
+    proc = GetCurrentProcess();
+    dup = INVALID_HANDLE_VALUE;
+    if (!DuplicateHandle(proc, src, proc, &dup, 0, TRUE,
+                         DUPLICATE_SAME_ACCESS))
+        return (O2APIRET)GetLastError();
+
+    if (target == (O2HFILE)0xffffffffUL) {
+        target = alloc_os2_handle(dup);
+        if (target == (O2HFILE)0xffffffffUL) {
+            CloseHandle(dup);
+            return O2_ERROR_TOO_MANY_OPEN_FILES;
+        }
+        *pnewFile = target;
+        return O2_NO_ERROR;
+    }
+
+    if (target <= 2UL) {
+        DWORD which;
+        HANDLE oldowned;
+        if (target == 0UL)
+            which = STD_INPUT_HANDLE;
+        else if (target == 1UL)
+            which = STD_OUTPUT_HANDLE;
+        else
+            which = STD_ERROR_HANDLE;
+
+        oldowned = o2_std_handles[target];
+        if (!SetStdHandle(which, dup)) {
+            O2APIRET e;
+            e = (O2APIRET)GetLastError();
+            CloseHandle(dup);
+            return e;
+        }
+
+        /* DOSCALLS, not the CRT, owns this exact duplicate.  Keeping the
+         * HANDLE itself (rather than a boolean) makes replacement safe even
+         * if the native bootstrap has mirrored another duplicate into fd
+         * 0/1/2 in the meantime. */
+        o2_std_handles[target] = dup;
+        if (oldowned != NULL && oldowned != INVALID_HANDLE_VALUE &&
+            oldowned != dup)
+            CloseHandle(oldowned);
+
+        *pnewFile = target;
+        return O2_NO_ERROR;
+    }
+
+    if (target >= O2_MAX_HANDLES) {
+        CloseHandle(dup);
+        return O2_ERROR_INVALID_TARGET_HANDLE;
+    }
+    if (o2_handles[target] != NULL) {
+        CloseHandle(o2_handles[target]);
+        o2_handles[target] = NULL;
+    }
+    o2_handles[target] = dup;
+    *pnewFile = target;
+    return O2_NO_ERROR;
+}
+
+/* 259.  This pre-release CRT passes a second reserved DWORD (zero). */
+O2APIRET __cdecl DosDelete(const char *path, O2ULONG reserved)
+{
+    (void)reserved;
+    if (!path)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (!DeleteFileA(path))
+        return (O2APIRET)GetLastError();
+    return O2_NO_ERROR;
+}
+
+/* 270 - this pre-release runtime uses the DosMkDir2-shaped 3-argument ABI. */
+O2APIRET __cdecl DosCreateDir(const char *path, void *pEA, O2ULONG reserved)
+{
+    (void)pEA;
+    (void)reserved;
+    if (!path)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (!CreateDirectoryA(path, NULL))
+        return (O2APIRET)GetLastError();
+    return O2_NO_ERROR;
+}
+
+/* 271 */
+O2APIRET __cdecl DosMove(const char *oldPath, const char *newPath)
+{
+    if (!oldPath || !newPath)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (!MoveFileA(oldPath, newPath))
+        return (O2APIRET)GetLastError();
+    return O2_NO_ERROR;
+}
+
+/* 272 */
+O2APIRET __cdecl DosSetFileSize(O2HFILE hFile, O2ULONG size)
+{
+    HANDLE h;
+    DWORD oldpos;
+    DWORD r;
+    DWORD err;
+
+    h = os2_handle(hFile);
+    if (h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+
+    SetLastError(NO_ERROR);
+    oldpos = SetFilePointer(h, 0, NULL, FILE_CURRENT);
+    if (oldpos == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR)
+        oldpos = 0xffffffffUL;
+
+    SetLastError(NO_ERROR);
+    r = SetFilePointer(h, (LONG)size, NULL, FILE_BEGIN);
+    if (r == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR)
+        return (O2APIRET)GetLastError();
+    if (!SetEndOfFile(h)) {
+        err = GetLastError();
+        if (oldpos != 0xffffffffUL)
+            (void)SetFilePointer(h, (LONG)oldpos, NULL, FILE_BEGIN);
+        return (O2APIRET)err;
+    }
+
+    if (oldpos != 0xffffffffUL)
+        (void)SetFilePointer(h, (LONG)oldpos, NULL, FILE_BEGIN);
+    return O2_NO_ERROR;
+}
+
+/*
+ * 273 DosOpen.
+ *
+ * This C/386 runtime uses the nine-argument pre-release/DosOpen2-shaped ABI:
+ * path, phFile, pAction, cbFile, attr, openFlags, openMode, pEA, reserved.
+ */
+O2APIRET __cdecl DosOpen(const char *path, O2HFILE *phFile, O2ULONG *pAction,
+                         O2ULONG cbFile, O2ULONG attr, O2ULONG openFlags,
+                         O2ULONG openMode, void *pEA, O2ULONG reserved)
+{
+    DWORD access;
+    DWORD share;
+    DWORD creation;
+    DWORD flags;
+    DWORD exists_attr;
+    int existed;
+    O2ULONG exists_action;
+    O2ULONG new_action;
+    HANDLE h;
+    O2HFILE oh;
+
+    (void)pEA;
+    (void)reserved;
+
+    if (!path || !phFile || !pAction)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    switch (openMode & 7UL) {
+    case O2_OPEN_ACCESS_READONLY:
+        access = GENERIC_READ;
+        break;
+    case O2_OPEN_ACCESS_WRITEONLY:
+        access = GENERIC_WRITE;
+        break;
+    case O2_OPEN_ACCESS_READWRITE:
+        access = GENERIC_READ | GENERIC_WRITE;
+        break;
+    default:
+        return O2_ERROR_INVALID_ACCESS;
+    }
+
+    switch (openMode & 0x70UL) {
+    case O2_OPEN_SHARE_DENYREADWRITE:
+        share = 0;
+        break;
+    case O2_OPEN_SHARE_DENYWRITE:
+        share = FILE_SHARE_READ;
+        break;
+    case O2_OPEN_SHARE_DENYREAD:
+        share = FILE_SHARE_WRITE;
+        break;
+    case O2_OPEN_SHARE_DENYNONE:
+        share = FILE_SHARE_READ | FILE_SHARE_WRITE;
+        break;
+    default:
+        /* Compatibility/default mode: permissive is most useful here. */
+        share = FILE_SHARE_READ | FILE_SHARE_WRITE;
+        break;
+    }
+
+    exists_action = openFlags & 0x0fUL;
+    new_action = openFlags & 0xf0UL;
+
+    if (new_action == O2_OPEN_ACTION_CREATE_IF_NEW) {
+        if (exists_action == O2_OPEN_ACTION_OPEN_IF_EXISTS)
+            creation = OPEN_ALWAYS;
+        else if (exists_action == O2_OPEN_ACTION_REPLACE_IF_EXISTS)
+            creation = CREATE_ALWAYS;
+        else if (exists_action == O2_OPEN_ACTION_FAIL_IF_EXISTS)
+            creation = CREATE_NEW;
+        else
+            return O2_ERROR_INVALID_PARAMETER;
+    } else if (new_action == O2_OPEN_ACTION_FAIL_IF_NEW) {
+        if (exists_action == O2_OPEN_ACTION_OPEN_IF_EXISTS)
+            creation = OPEN_EXISTING;
+        else if (exists_action == O2_OPEN_ACTION_REPLACE_IF_EXISTS)
+            creation = TRUNCATE_EXISTING;
+        else
+            return O2_ERROR_INVALID_PARAMETER;
+    } else {
+        return O2_ERROR_INVALID_PARAMETER;
+    }
+
+    exists_attr = GetFileAttributesA(path);
+    existed = (exists_attr != 0xffffffffUL);
+
+    flags = win32_attrs_from_o2(attr);
+    h = CreateFileA(path, access, share, NULL, creation, flags, NULL);
+    if (h == INVALID_HANDLE_VALUE)
+        return (O2APIRET)GetLastError();
+
+    oh = alloc_os2_handle(h);
+    if (oh == (O2HFILE)0xffffffffUL) {
+        CloseHandle(h);
+        return O2_ERROR_TOO_MANY_OPEN_FILES;
+    }
+
+    if (!existed)
+        *pAction = 2UL;               /* FILE_CREATED */
+    else if (exists_action == O2_OPEN_ACTION_REPLACE_IF_EXISTS)
+        *pAction = 3UL;               /* FILE_TRUNCATED/REPLACED */
+    else
+        *pAction = 1UL;               /* FILE_EXISTED */
+
+    if ((!existed || exists_action == O2_OPEN_ACTION_REPLACE_IF_EXISTS) &&
+        cbFile != 0UL) {
+        DWORD r;
+        SetLastError(NO_ERROR);
+        r = SetFilePointer(h, (LONG)cbFile, NULL, FILE_BEGIN);
+        if (r == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
+            O2APIRET e;
+            e = (O2APIRET)GetLastError();
+            CloseHandle(h);
+            free_os2_handle(oh);
+            return e;
+        }
+        if (!SetEndOfFile(h)) {
+            O2APIRET e2;
+            e2 = (O2APIRET)GetLastError();
+            CloseHandle(h);
+            free_os2_handle(oh);
+            return e2;
+        }
+        (void)SetFilePointer(h, 0, NULL, FILE_BEGIN);
+    }
+
+    *phFile = oh;
+    return O2_NO_ERROR;
+}
+
+/* 274 */
+O2APIRET __cdecl DosQueryCurrentDir(O2ULONG diskNum, char *buffer,
+                                    O2ULONG *pcb)
+{
+    char cwd[MAX_PATH];
+    char spec[4];
+    const char *part;
+    DWORD n;
+    size_t need;
+
+    if (!buffer || !pcb)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    if (diskNum == 0UL) {
+        n = GetCurrentDirectoryA((DWORD)sizeof(cwd), cwd);
+    } else {
+        if (diskNum < 1UL || diskNum > 26UL)
+            return O2_ERROR_INVALID_PARAMETER;
+        spec[0] = (char)('A' + (int)diskNum - 1);
+        spec[1] = ':';
+        spec[2] = '.';
+        spec[3] = '\0';
+        n = GetFullPathNameA(spec, (DWORD)sizeof(cwd), cwd, NULL);
+    }
+    if (n == 0 || n >= (DWORD)sizeof(cwd))
+        return (O2APIRET)GetLastError();
+
+    part = cwd;
+    if (part[0] != '\0' && part[1] == ':')
+        part += 2;
+    if (*part == '\\' || *part == '/')
+        ++part;
+    need = strlen(part) + 1U;
+    if ((O2ULONG)need > *pcb) {
+        *pcb = (O2ULONG)need;
+        return (O2APIRET)ERROR_BUFFER_OVERFLOW;
+    }
+    memcpy(buffer, part, need);
+    *pcb = (O2ULONG)need;
+    return O2_NO_ERROR;
+}
+
+/* 275 */
+O2APIRET __cdecl DosQueryCurrentDisk(O2ULONG *pdisk, O2ULONG *plogical)
+{
+    char cwd[MAX_PATH];
+    DWORD n;
+    if (!pdisk || !plogical)
+        return O2_ERROR_INVALID_PARAMETER;
+    n = GetCurrentDirectoryA((DWORD)sizeof(cwd), cwd);
+    if (n == 0 || n >= (DWORD)sizeof(cwd))
+        return (O2APIRET)GetLastError();
+    if (cwd[0] >= 'a' && cwd[0] <= 'z')
+        cwd[0] = (char)(cwd[0] - 'a' + 'A');
+    if (cwd[0] < 'A' || cwd[0] > 'Z' || cwd[1] != ':')
+        return O2_ERROR_INVALID_PARAMETER;
+    *pdisk = (O2ULONG)(cwd[0] - 'A' + 1);
+    *plogical = (O2ULONG)GetLogicalDrives();
+    return O2_NO_ERROR;
+}
+
+/* 279 */
+O2APIRET __cdecl DosQueryFileInfo(O2HFILE hFile, O2ULONG level,
+                                  void *buffer, O2ULONG cb)
+{
+    HANDLE h;
+
+    if (!buffer)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (level != O2_FIL_STANDARD || cb < 24UL)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    h = os2_handle(hFile);
+    if (h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+
+    return fill_fil_standard_handle((unsigned char *)buffer, h);
+}
+
+/* Append a Windows command-line argument with quotes around it.  This is
+ * deliberately small and C89-friendly.  It is sufficient for executable
+ * paths/program names; the caller appends the OS/2 parameter tail verbatim. */
+static int append_quoted_arg(char *dst, unsigned cap, const char *arg)
+{
+    unsigned used;
+    unsigned need;
+    const char *p;
+
+    if (!dst || !arg || cap == 0U)
+        return 0;
+    used = (unsigned)strlen(dst);
+    need = 2U; /* surrounding quotes */
+    p = arg;
+    while (*p) {
+        /* A literal quote needs a backslash for the Win32 CRT parser. */
+        if (*p == '"')
+            ++need;
+        ++need;
+        ++p;
+    }
+    if (used + need + 1U > cap)
+        return 0;
+
+    dst[used++] = '"';
+    p = arg;
+    while (*p) {
+        if (*p == '"')
+            dst[used++] = '\\';
+        dst[used++] = *p++;
+    }
+    dst[used++] = '"';
+    dst[used] = '\0';
+    return 1;
+}
+
+static int append_text(char *dst, unsigned cap, const char *text)
+{
+    unsigned used;
+    unsigned n;
+
+    if (!dst || !text || cap == 0U)
+        return 0;
+    used = (unsigned)strlen(dst);
+    n = (unsigned)strlen(text);
+    if (used + n + 1U > cap)
+        return 0;
+    memcpy(dst + used, text, n + 1U);
+    return 1;
+}
+
+/* 281 */
+O2APIRET __cdecl DosRead(O2HFILE hFile, void *buffer,
+                         O2ULONG count, O2ULONG *actual)
+{
+    DWORD done;
+    DWORD e;
+    HANDLE h;
+
+    if (!actual || (!buffer && count != 0UL))
+        return O2_ERROR_INVALID_PARAMETER;
+    h = os2_handle(hFile);
+    if (h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+    done = 0;
+    if (!ReadFile(h, buffer, (DWORD)count, &done, NULL)) {
+        e = GetLastError();
+        *actual = (O2ULONG)done;
+        if (io_trace_enabled()) {
+            fprintf(stderr,
+                    "DOSCALLS IO: READ hfile=%lu handle=%p native=%s ask=%lu -> err=%lu actual=%lu\n",
+                    (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+                    (unsigned long)count, (unsigned long)e,
+                    (unsigned long)*actual);
+            fflush(stderr);
+        }
+        return (O2APIRET)e;
+    }
+    *actual = (O2ULONG)done;
+    if (io_trace_enabled()) {
+        fprintf(stderr,
+                "DOSCALLS IO: READ hfile=%lu handle=%p native=%s ask=%lu -> rc=0 actual=%lu\n",
+                (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+                (unsigned long)count, (unsigned long)*actual);
+        fflush(stderr);
+    }
+    return O2_NO_ERROR;
+}
+
+/* 282 */
+O2APIRET __cdecl DosWrite(O2HFILE hFile, const void *buffer,
+                          O2ULONG count, O2ULONG *actual)
+{
+    DWORD done;
+    DWORD e;
+    HANDLE h;
+
+    if (!actual || (!buffer && count != 0UL))
+        return O2_ERROR_INVALID_PARAMETER;
+    done = 0;
+    h = os2_handle(hFile);
+    if (h == INVALID_HANDLE_VALUE)
+        return O2_ERROR_INVALID_HANDLE;
+    if (!WriteFile(h, buffer, (DWORD)count, &done, NULL)) {
+        e = GetLastError();
+        *actual = (O2ULONG)done;
+        if (io_trace_enabled()) {
+            fprintf(stderr,
+                    "DOSCALLS IO: WRITE hfile=%lu handle=%p native=%s ask=%lu -> err=%lu actual=%lu\n",
+                    (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+                    (unsigned long)count, (unsigned long)e,
+                    (unsigned long)*actual);
+            fflush(stderr);
+        }
+        return (O2APIRET)e;
+    }
+    *actual = (O2ULONG)done;
+    if (io_trace_enabled()) {
+        fprintf(stderr,
+                "DOSCALLS IO: WRITE hfile=%lu handle=%p native=%s ask=%lu -> rc=0 actual=%lu\n",
+                (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+                (unsigned long)count, (unsigned long)*actual);
+        fflush(stderr);
+    }
+    return O2_NO_ERROR;
+}
+
+/* 283 - direct-LX process implementation.
+ *
+ * IMPORTANT: the calling thread is running on the OS/2 guest stack.  Real
+ * OS/2 programs commonly have quite small stacks (the first regression
+ * program has only about 10 KB).  Calling a heavyweight Win32 routine such
+ * as CreateProcessA directly from that stack can exhaust it.
+ *
+ * Therefore process creation/waiting is performed on a native Win32 worker
+ * thread.  The worker receives a heap-resident command line and has a normal
+ * Windows thread stack.  The guest thread only creates/waits for the worker.
+ */
+/*
+ * CreateProcessA is stricter about a caller-supplied environment than OS/2
+ * DosExecPgm.  In particular, Windows expects a double-NUL-terminated list of
+ * NAME=VALUE strings sorted case-insensitively; the hidden per-drive entries
+ * use the special =X:=path form.  The C/386 runtime gives CMD a perfectly
+ * usable OS/2 environment, but it does not promise Windows' ordering.
+ *
+ * Normalize a private copy at the personality boundary.  This preserves CMD's
+ * private SET/SETLOCAL environment without mutating the hosting Win32 process.
+ */
+static int o2_env_entry_valid(const char *s)
+{
+    const char *eq;
+
+    if (s == NULL || *s == '\0')
+        return 0;
+
+    if (s[0] == '=') {
+        /* Win32 environment blocks may contain hidden current-directory
+         * pseudo-variables whose names themselves begin with '='.  The
+         * familiar form is =C:=C:\\path, but Windows can also expose
+         * pseudo-drive names such as =::=::\\.  Treat the first '=' as
+         * part of the name and require a later '=' separator. */
+        eq = strchr(s + 1, '=');
+        return eq != NULL && eq > s + 1;
+    }
+
+    eq = strchr(s, '=');
+    return eq != NULL && eq != s;
+}
+
+static char *o2_normalize_environment(const char *env,
+                                      SIZE_T *bytesOut,
+                                      O2APIRET *errorOut)
+{
+    const char *p;
+    SIZE_T bytes;
+    SIZE_T len;
+    SIZE_T count;
+    SIZE_T i;
+    SIZE_T j;
+    char **items;
+    char *out;
+    char *dst;
+    char *tmp;
+
+    if (bytesOut != NULL)
+        *bytesOut = 0;
+    if (errorOut != NULL)
+        *errorOut = O2_NO_ERROR;
+    if (env == NULL)
+        return NULL;
+
+    p = env;
+    bytes = 0;
+    count = 0;
+    for (;;) {
+        len = strlen(p);
+        if (len == 0) {
+            ++bytes; /* extra NUL terminating the block */
+            break;
+        }
+        if (!o2_env_entry_valid(p)) {
+            if (exec_trace_enabled()) {
+                fprintf(stderr,
+                        "DOSCALLS EXEC: invalid environment entry [%s]\n", p);
+                fflush(stderr);
+            }
+            if (errorOut != NULL)
+                *errorOut = O2_ERROR_INVALID_PARAMETER;
+            return NULL;
+        }
+        if (bytes + len + 1U >= 32767U) {
+            if (errorOut != NULL)
+                *errorOut = O2_ERROR_INVALID_PARAMETER;
+            return NULL;
+        }
+        bytes += len + 1U;
+        ++count;
+        p += len + 1U;
+    }
+
+    /* Empty environment is represented by two NUL bytes. */
+    if (count == 0) {
+        out = (char *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 2U);
+        if (out == NULL) {
+            if (errorOut != NULL)
+                *errorOut = 8UL;
+            return NULL;
+        }
+        if (bytesOut != NULL)
+            *bytesOut = 2U;
+        return out;
+    }
+
+    items = (char **)HeapAlloc(GetProcessHeap(), 0,
+                               count * sizeof(items[0]));
+    if (items == NULL) {
+        if (errorOut != NULL)
+            *errorOut = 8UL;
+        return NULL;
+    }
+
+    p = env;
+    for (i = 0; i < count; ++i) {
+        items[i] = (char *)p;
+        p += strlen(p) + 1U;
+    }
+
+    /* Small, deterministic insertion sort; environment blocks have only a
+       modest number of entries and this avoids CRT qsort callback baggage. */
+    for (i = 1; i < count; ++i) {
+        tmp = items[i];
+        j = i;
+        while (j != 0 && lstrcmpiA(items[j - 1], tmp) > 0) {
+            items[j] = items[j - 1];
+            --j;
+        }
+        items[j] = tmp;
+    }
+
+    /* bytes already includes the block's final extra NUL.  The last ordinary
+       entry contributed its own terminating NUL. */
+    out = (char *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, bytes);
+    if (out == NULL) {
+        HeapFree(GetProcessHeap(), 0, items);
+        if (errorOut != NULL)
+            *errorOut = 8UL;
+        return NULL;
+    }
+
+    dst = out;
+    for (i = 0; i < count; ++i) {
+        len = strlen(items[i]) + 1U;
+        memcpy(dst, items[i], len);
+        dst += len;
+    }
+    *dst++ = '\0';
+
+    HeapFree(GetProcessHeap(), 0, items);
+    if (bytesOut != NULL)
+        *bytesOut = (SIZE_T)(dst - out);
+    return out;
+}
+
+static void o2_translate_process_exit(DWORD exitCode,
+                                      O2ULONG *terminateCode,
+                                      O2ULONG *resultCode)
+{
+    if (terminateCode == NULL || resultCode == NULL)
+        return;
+
+    *terminateCode = O2_TC_EXIT;
+    *resultCode = (O2ULONG)exitCode;
+
+    /* Ctrl+C is delivered to an OS/2 2.x 32-bit program as a signal
+     * exception.  If the host child lets the corresponding Win32 event
+     * terminate it, report an abnormal 32-bit exception termination rather
+     * than exposing Windows' STATUS_CONTROL_C_EXIT as an application result. */
+    if ((O2ULONG)exitCode == O2_WIN_STATUS_CONTROL_C_EXIT) {
+        *terminateCode = O2_TC_EXCEPTION;
+        *resultCode = 0UL;
+    }
+}
+
+struct O2ExecWorker {
+    char *command;
+    const char *env;
+    SIZE_T envBytes;
+    O2ULONG execFlag;
+    O2APIRET rc;
+    O2ULONG terminateCode;
+    O2ULONG resultCode;
+    HANDLE process;
+    DWORD pid;
+    HANDLE stdInput;
+    HANDLE stdOutput;
+    HANDLE stdError;
+};
+
+static DWORD WINAPI o2_exec_worker_thread(LPVOID arg)
+{
+    struct O2ExecWorker *w;
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    DWORD exitCode;
+    DWORD creationFlags;
+    BOOL ok;
+    HANDLE backgroundNull;
+    SECURITY_ATTRIBUTES nullSa;
+    int backgroundNullUsed;
+
+    w = (struct O2ExecWorker *)arg;
+    memset(&si, 0, sizeof(si));
+    memset(&pi, 0, sizeof(pi));
+    si.cb = sizeof(si);
+    creationFlags = 0;
+    backgroundNull = NULL;
+    backgroundNullUsed = 0;
+    si.dwFlags = STARTF_USESTDHANDLES;
+
+    /* M28D4: process inheritance follows the OS/2 HFILE table, not the
+     * temporary Win32 CRT mirror used by the native CMD bootstrap.
+     *
+     * cmdos2_win32.c may duplicate HFILE 0/1/2 again so MSVCRT fd 0/1/2
+     * can use them.  GetStdHandle() therefore describes bootstrap plumbing,
+     * whereas os2_handle(0/1/2) is the personality's authoritative state.
+     * Snapshot those exact HANDLEs before the worker thread is started and
+     * pass them here through STARTUPINFO. */
+    si.hStdInput = w->stdInput;
+    si.hStdOutput = w->stdOutput;
+    si.hStdError = w->stdError;
+
+    /* EXEC_BACKGROUND is the OS/2 detached-process mode.  Create the
+     * nested loader without a console association and do not retain a wait
+     * handle.  Redirected inheritable file/pipe handles remain available;
+     * console I/O from a detached OS/2 program is outside the documented
+     * contract anyway. */
+    if (w->execFlag == O2_EXEC_BACKGROUND) {
+        creationFlags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+
+        /* A detached Win32 console process has no console of its own.
+         * Passing inherited CONIN$/CONOUT$ handles into it creates confusing
+         * half-valid standard streams.  Preserve real redirected files/pipes,
+         * but substitute an inheritable NUL handle for console character
+         * handles.  This keeps DETACH quiet while still allowing
+         * `detach child >file` to work exactly through the OS/2 HFILE table. */
+        ZeroMemory(&nullSa, sizeof(nullSa));
+        nullSa.nLength = sizeof(nullSa);
+        nullSa.bInheritHandle = TRUE;
+        if (GetFileType(si.hStdInput) == FILE_TYPE_CHAR ||
+            GetFileType(si.hStdOutput) == FILE_TYPE_CHAR ||
+            GetFileType(si.hStdError) == FILE_TYPE_CHAR) {
+            backgroundNull = CreateFileA("NUL",
+                                         GENERIC_READ | GENERIC_WRITE,
+                                         FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                         &nullSa, OPEN_EXISTING,
+                                         FILE_ATTRIBUTE_NORMAL, NULL);
+            if (backgroundNull != INVALID_HANDLE_VALUE) {
+                if (GetFileType(si.hStdInput) == FILE_TYPE_CHAR)
+                    si.hStdInput = backgroundNull;
+                if (GetFileType(si.hStdOutput) == FILE_TYPE_CHAR)
+                    si.hStdOutput = backgroundNull;
+                if (GetFileType(si.hStdError) == FILE_TYPE_CHAR)
+                    si.hStdError = backgroundNull;
+                backgroundNullUsed = 1;
+            } else {
+                backgroundNull = NULL;
+            }
+        }
+    }
+
+    if (si.hStdInput != NULL && si.hStdInput != INVALID_HANDLE_VALUE)
+        (void)SetHandleInformation(si.hStdInput, HANDLE_FLAG_INHERIT,
+                                   HANDLE_FLAG_INHERIT);
+    if (si.hStdOutput != NULL && si.hStdOutput != INVALID_HANDLE_VALUE)
+        (void)SetHandleInformation(si.hStdOutput, HANDLE_FLAG_INHERIT,
+                                   HANDLE_FLAG_INHERIT);
+    if (si.hStdError != NULL && si.hStdError != INVALID_HANDLE_VALUE)
+        (void)SetHandleInformation(si.hStdError, HANDLE_FLAG_INHERIT,
+                                   HANDLE_FLAG_INHERIT);
+
+    if (exec_trace_enabled()) {
+        fprintf(stderr,
+                "DOSCALLS EXEC: command=[%s]\n"
+                "DOSCALLS EXEC: env=%s bytes=%lu flag=%lu create=0x%08lX stdin=%p(%s) stdout=%p(%s) stderr=%p(%s)\n",
+                w->command,
+                w->env != NULL ? "custom" : "inherit",
+                (unsigned long)w->envBytes,
+                (unsigned long)w->execFlag,
+                (unsigned long)creationFlags,
+                (void *)si.hStdInput, win_handle_type_name(si.hStdInput),
+                (void *)si.hStdOutput, win_handle_type_name(si.hStdOutput),
+                (void *)si.hStdError, win_handle_type_name(si.hStdError));
+        if (backgroundNullUsed)
+            fprintf(stderr, "DOSCALLS EXEC: detached console std handles -> NUL (redirected files/pipes preserved)\n");
+        fflush(stderr);
+    }
+
+    ok = CreateProcessA(NULL,
+                        w->command,
+                        NULL,
+                        NULL,
+                        TRUE,
+                        creationFlags,
+                        (LPVOID)w->env,
+                        NULL,
+                        &si,
+                        &pi);
+    if (backgroundNull != NULL) {
+        CloseHandle(backgroundNull);
+        backgroundNull = NULL;
+    }
+    if (!ok) {
+        w->rc = (O2APIRET)GetLastError();
+        if (exec_trace_enabled()) {
+            fprintf(stderr, "DOSCALLS EXEC: CreateProcessA failed rc=%lu\n",
+                    (unsigned long)w->rc);
+            fflush(stderr);
+        }
+        return 0;
+    }
+
+    CloseHandle(pi.hThread);
+    w->pid = pi.dwProcessId;
+
+    if (w->execFlag == O2_EXEC_SYNC) {
+        if (WaitForSingleObject(pi.hProcess, INFINITE) != WAIT_OBJECT_0) {
+            w->rc = (O2APIRET)GetLastError();
+            CloseHandle(pi.hProcess);
+            return 0;
+        }
+
+        exitCode = 0;
+        if (!GetExitCodeProcess(pi.hProcess, &exitCode)) {
+            w->rc = (O2APIRET)GetLastError();
+            CloseHandle(pi.hProcess);
+            return 0;
+        }
+        CloseHandle(pi.hProcess);
+
+        w->rc = O2_NO_ERROR;
+        o2_translate_process_exit(exitCode,
+                                  &w->terminateCode,
+                                  &w->resultCode);
+        if (exec_trace_enabled()) {
+            fprintf(stderr,
+                    "DOSCALLS EXEC: child pid=%lu exit=0x%08lX term=%lu result=%lu\n",
+                    (unsigned long)w->pid,
+                    (unsigned long)exitCode,
+                    (unsigned long)w->terminateCode,
+                    (unsigned long)w->resultCode);
+            fflush(stderr);
+        }
+        return 0;
+    }
+
+    /* OS/2 returns the child PID through codeTerminate for asynchronous
+     * DosExecPgm.  EXEC_ASYNCRESULT keeps the native process handle so a
+     * later DosWaitChild can collect the termination/result codes. */
+    w->rc = O2_NO_ERROR;
+    w->terminateCode = (O2ULONG)pi.dwProcessId;
+    w->resultCode = 0UL;
+    if (w->execFlag == O2_EXEC_ASYNCRESULT) {
+        w->process = pi.hProcess;
+    } else {
+        CloseHandle(pi.hProcess);
+        w->process = NULL;
+    }
+    return 0;
+}
+
+static int program_is_native_cmd_bootstrap(const char *program)
+{
+    const char *base;
+    const char *p;
+
+    if (program == NULL)
+        return 0;
+    base = program;
+    p = program;
+    while (*p != '\0') {
+        if (*p == '\\' || *p == '/')
+            base = p + 1;
+        ++p;
+    }
+    return lstrcmpiA(base, "cmd32os2.exe") == 0;
+}
+
+O2APIRET __cdecl DosExecPgm(char *objectName, O2LONG objectNameLen,
+                            O2ULONG execFlag, const char *args,
+                            const char *env,
+                            struct O2ResultCodes *results,
+                            const char *program)
+{
+    char host[MAX_PATH];
+    char verbose[8];
+    char *command;
+    const char *tail;
+    const char *argv0;
+    const char *runSwitch;
+    DWORD hostLen;
+    DWORD verboseLen;
+    HANDLE worker;
+    DWORD workerId;
+    struct O2ExecWorker *work;
+    O2APIRET rc;
+    O2APIRET envRc;
+    char *normalizedEnv;
+    SIZE_T normalizedEnvBytes;
+    int nativeBootstrap;
+
+    if (!results || !program || !*program)
+        return O2_ERROR_INVALID_PARAMETER;
+    results->codeTerminate = 0UL;
+    results->codeResult = 0UL;
+
+    if (execFlag != O2_EXEC_SYNC &&
+        execFlag != O2_EXEC_ASYNC &&
+        execFlag != O2_EXEC_ASYNCRESULT &&
+        execFlag != O2_EXEC_BACKGROUND)
+        return O2_ERROR_INVALID_FUNCTION;
+
+    nativeBootstrap = program_is_native_cmd_bootstrap(program);
+    host[0] = '\0';
+    runSwitch = "";
+
+    if (!nativeBootstrap) {
+        /* Normally the host is the current os2host32.exe process.  A native
+         * personality front-end can point the compatibility layer at the
+         * real LX loader explicitly. */
+        hostLen = GetEnvironmentVariableA("OS2HOST32_LOADER",
+                                          host, (DWORD)sizeof(host));
+        if (hostLen == 0) {
+            hostLen = GetModuleFileNameA(NULL, host, (DWORD)sizeof(host));
+            if (hostLen == 0 || hostLen >= (DWORD)sizeof(host))
+                return (O2APIRET)GetLastError();
+        } else if (hostLen >= (DWORD)sizeof(host)) {
+            return O2_ERROR_INVALID_PARAMETER;
+        }
+
+        verboseLen = GetEnvironmentVariableA("OS2HOST32_VERBOSE",
+                                             verbose, (DWORD)sizeof(verbose));
+        if (verboseLen != 0 && verboseLen < (DWORD)sizeof(verbose) &&
+            verbose[0] != '0')
+            runSwitch = " --run ";
+        else
+            runSwitch = " --run-quiet ";
+    }
+
+    argv0 = NULL;
+    if (args != NULL && args[0] != '\0')
+        argv0 = args;
+
+    command = (char *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+                                (SIZE_T)O2_EXEC_CMDLINE_MAX);
+    if (command == NULL)
+        return 8UL; /* ERROR_NOT_ENOUGH_MEMORY */
+
+    if (nativeBootstrap) {
+        if (!append_quoted_arg(command, O2_EXEC_CMDLINE_MAX, program)) {
+            HeapFree(GetProcessHeap(), 0, command);
+            return O2_ERROR_INVALID_PARAMETER;
+        }
+    } else {
+        if (!append_quoted_arg(command, O2_EXEC_CMDLINE_MAX, host) ||
+            !append_text(command, O2_EXEC_CMDLINE_MAX, runSwitch)) {
+            HeapFree(GetProcessHeap(), 0, command);
+            return O2_ERROR_INVALID_PARAMETER;
+        }
+        /* M29N1: preserve the first string of the OS/2 DosExecPgm argument
+         * block across the native loader hop.  PgmName is the resolved module
+         * path; argv[0] is independently the command token supplied by CMD. */
+        if (argv0 != NULL) {
+            if (!append_text(command, O2_EXEC_CMDLINE_MAX, "--argv0 ") ||
+                !append_quoted_arg(command, O2_EXEC_CMDLINE_MAX, argv0) ||
+                !append_text(command, O2_EXEC_CMDLINE_MAX, " ")) {
+                HeapFree(GetProcessHeap(), 0, command);
+                return O2_ERROR_INVALID_PARAMETER;
+            }
+        }
+        if (!append_quoted_arg(command, O2_EXEC_CMDLINE_MAX, program)) {
+            HeapFree(GetProcessHeap(), 0, command);
+            return O2_ERROR_INVALID_PARAMETER;
+        }
+    }
+
+    tail = NULL;
+    if (args != NULL) {
+        /* Skip argv[0] in the native OS/2 argument block. */
+        tail = args + strlen(args) + 1;
+        if (*tail != '\0') {
+            if (!append_text(command, O2_EXEC_CMDLINE_MAX, " ") ||
+                !append_text(command, O2_EXEC_CMDLINE_MAX, tail)) {
+                HeapFree(GetProcessHeap(), 0, command);
+                return O2_ERROR_INVALID_PARAMETER;
+            }
+        }
+    }
+
+    normalizedEnv = NULL;
+    normalizedEnvBytes = 0;
+    envRc = O2_NO_ERROR;
+    if (env != NULL) {
+        normalizedEnv = o2_normalize_environment(env,
+                                                 &normalizedEnvBytes,
+                                                 &envRc);
+        if (normalizedEnv == NULL) {
+            HeapFree(GetProcessHeap(), 0, command);
+            return envRc != O2_NO_ERROR ? envRc : O2_ERROR_INVALID_PARAMETER;
+        }
+    }
+
+    work = (struct O2ExecWorker *)HeapAlloc(GetProcessHeap(),
+                                             HEAP_ZERO_MEMORY,
+                                             sizeof(*work));
+    if (work == NULL) {
+        if (normalizedEnv != NULL)
+            HeapFree(GetProcessHeap(), 0, normalizedEnv);
+        HeapFree(GetProcessHeap(), 0, command);
+        return 8UL;
+    }
+    work->command = command;
+    work->env = normalizedEnv;
+    work->envBytes = normalizedEnvBytes;
+    work->execFlag = execFlag;
+    work->rc = O2_ERROR_INVALID_FUNCTION;
+    work->process = NULL;
+    work->pid = 0;
+
+    /* Capture the OS/2 standard HFILEs while the caller's redirection is
+     * still in force.  DosExecPgm waits for the native creation worker to
+     * finish before returning, but taking the snapshot here also removes any
+     * dependence on process-global GetStdHandle() state inside that worker. */
+    work->stdInput = os2_handle(0UL);
+    work->stdOutput = os2_handle(1UL);
+    work->stdError = os2_handle(2UL);
+
+    if (work->stdInput == NULL || work->stdInput == INVALID_HANDLE_VALUE ||
+        work->stdOutput == NULL || work->stdOutput == INVALID_HANDLE_VALUE ||
+        work->stdError == NULL || work->stdError == INVALID_HANDLE_VALUE) {
+        HeapFree(GetProcessHeap(), 0, work);
+        if (normalizedEnv != NULL)
+            HeapFree(GetProcessHeap(), 0, normalizedEnv);
+        HeapFree(GetProcessHeap(), 0, command);
+        return O2_ERROR_INVALID_HANDLE;
+    }
+
+    workerId = 0;
+    worker = CreateThread(NULL, 0, o2_exec_worker_thread,
+                          (LPVOID)work, 0, &workerId);
+    if (worker == NULL) {
+        rc = (O2APIRET)GetLastError();
+        HeapFree(GetProcessHeap(), 0, work);
+        if (normalizedEnv != NULL)
+            HeapFree(GetProcessHeap(), 0, normalizedEnv);
+        HeapFree(GetProcessHeap(), 0, command);
+        return rc;
+    }
+
+    if (WaitForSingleObject(worker, INFINITE) != WAIT_OBJECT_0) {
+        rc = (O2APIRET)GetLastError();
+        CloseHandle(worker);
+        HeapFree(GetProcessHeap(), 0, work);
+        if (normalizedEnv != NULL)
+            HeapFree(GetProcessHeap(), 0, normalizedEnv);
+        HeapFree(GetProcessHeap(), 0, command);
+        return rc;
+    }
+    CloseHandle(worker);
+
+    rc = work->rc;
+    if (rc == O2_NO_ERROR && execFlag == O2_EXEC_ASYNCRESULT) {
+        if (!store_child_process(work->process, work->pid)) {
+            if (work->process != NULL)
+                CloseHandle(work->process);
+            work->process = NULL;
+            rc = O2_ERROR_TOO_MANY_OPEN_FILES;
+        }
+    }
+
+    if (rc == O2_NO_ERROR) {
+        results->codeTerminate = work->terminateCode;
+        results->codeResult = work->resultCode;
+        if (objectName != NULL && objectNameLen > 0)
+            objectName[0] = '\0';
+    } else if (objectName != NULL && objectNameLen > 0) {
+        size_t n;
+        n = strlen(program);
+        if (n >= (size_t)objectNameLen)
+            n = (size_t)objectNameLen - 1U;
+        memcpy(objectName, program, n);
+        objectName[n] = '\0';
+    }
+
+    HeapFree(GetProcessHeap(), 0, work);
+    if (normalizedEnv != NULL)
+        HeapFree(GetProcessHeap(), 0, normalizedEnv);
+    HeapFree(GetProcessHeap(), 0, command);
+    return rc;
+}
+
+/* 280 - wait for an asynchronous child created with EXEC_ASYNCRESULT. */
+O2APIRET __cdecl DosWaitChild(O2ULONG action, O2ULONG option,
+                              struct O2ResultCodes *results,
+                              O2ULONG *ppid, O2ULONG pid)
+{
+    HANDLE process;
+    DWORD actualPid;
+    DWORD wr;
+    DWORD exitCode;
+
+    if (!results || !ppid)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (action != O2_DCWA_PROCESS)
+        return O2_ERROR_INVALID_FUNCTION;
+    if (option != O2_DCWW_WAIT && option != O2_DCWW_NOWAIT)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    results->codeTerminate = 0UL;
+    results->codeResult = 0UL;
+    *ppid = 0UL;
+
+    actualPid = 0;
+    process = take_child_process((DWORD)pid, &actualPid);
+    if (process == NULL)
+        return O2_ERROR_WAIT_NO_CHILDREN;
+
+    wr = WaitForSingleObject(process,
+                             option == O2_DCWW_WAIT ? INFINITE : 0);
+    if (wr == WAIT_TIMEOUT) {
+        put_child_process_back(process, actualPid);
+        return O2_ERROR_CHILD_NOT_COMPLETE;
+    }
+    if (wr != WAIT_OBJECT_0) {
+        O2APIRET e;
+        e = (O2APIRET)GetLastError();
+        CloseHandle(process);
+        return e;
+    }
+
+    exitCode = 0;
+    if (!GetExitCodeProcess(process, &exitCode)) {
+        O2APIRET e2;
+        e2 = (O2APIRET)GetLastError();
+        CloseHandle(process);
+        return e2;
+    }
+    CloseHandle(process);
+
+    o2_translate_process_exit(exitCode,
+                              &results->codeTerminate,
+                              &results->codeResult);
+    *ppid = (O2ULONG)actualPid;
+    if (exec_trace_enabled()) {
+        fprintf(stderr,
+                "DOSCALLS WAIT: child pid=%lu exit=0x%08lX term=%lu result=%lu\n",
+                (unsigned long)actualPid,
+                (unsigned long)exitCode,
+                (unsigned long)results->codeTerminate,
+                (unsigned long)results->codeResult);
+        fflush(stderr);
+    }
+    return O2_NO_ERROR;
+}
+
+/* 299: pre-release C/386 ABI has a fourth reserved argument. */
+O2APIRET __cdecl DosAllocMem(void **ppBase, O2ULONG size,
+                             O2ULONG flags, O2ULONG reserved)
+{
+    void *p;
+    DWORD protect;
+
+    (void)reserved;
+    if (!ppBase || size == 0)
+        return O2_ERROR_INVALID_PARAMETER;
+    protect = protect_from_flags(flags);
+    if (protect == PAGE_NOACCESS)
+        protect = PAGE_READWRITE;
+    p = VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, protect);
+    if (!p)
+        return (O2APIRET)GetLastError();
+    *ppBase = p;
+    return O2_NO_ERROR;
+}
+
+/* 304 */
+O2APIRET __cdecl DosFreeMem(void *base)
+{
+    if (!base)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (!VirtualFree(base, 0, MEM_RELEASE))
+        return (O2APIRET)GetLastError();
+    return O2_NO_ERROR;
+}
+
+/* 305 */
+O2APIRET __cdecl DosSetMem(void *base, O2ULONG size, O2ULONG flags)
+{
+    DWORD oldprotect;
+    DWORD protect;
+
+    if (!base || size == 0)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    if (flags & O2_PAG_DECOMMIT) {
+        if (!VirtualFree(base, size, MEM_DECOMMIT))
+            return (O2APIRET)GetLastError();
+        return O2_NO_ERROR;
+    }
+
+    if (flags & O2_PAG_COMMIT) {
+        protect = protect_from_flags(flags);
+        if (protect == PAGE_NOACCESS)
+            protect = PAGE_READWRITE;
+        if (!VirtualAlloc(base, size, MEM_COMMIT, protect))
+            return (O2APIRET)GetLastError();
+        return O2_NO_ERROR;
+    }
+
+    protect = protect_from_flags(flags);
+    if (!VirtualProtect(base, size, protect, &oldprotect))
+        return (O2APIRET)GetLastError();
+    return O2_NO_ERROR;
+}
+
+/* 348 */
+
+/* M29N2b.1: runtime module APIs are implemented by the module manager that
+ * lives inside OS2HOST32.EXE.  DOSCALLS is a separate PE DLL in the same
+ * process, so resolve a deliberately tiny private bridge from the process
+ * image rather than maintaining a second, divergent module table here. */
+typedef O2APIRET (__cdecl *O2HOSTMODLOAD)(const char *, O2ULONG *, char *, O2ULONG);
+typedef O2APIRET (__cdecl *O2HOSTMODQUERYHANDLE)(const char *, O2ULONG *);
+typedef O2APIRET (__cdecl *O2HOSTMODQUERYPROC)(O2ULONG, O2ULONG, const char *, O2ULONG *);
+typedef O2APIRET (__cdecl *O2HOSTMODFREE)(O2ULONG);
+typedef void (__cdecl *O2HOSTMODTERMINATEALL)(void);
+
+struct O2HostModuleBridge {
+    int tried;
+    O2HOSTMODLOAD load;
+    O2HOSTMODQUERYHANDLE query_handle;
+    O2HOSTMODQUERYPROC query_proc;
+    O2HOSTMODFREE free_module;
+    O2HOSTMODTERMINATEALL terminate_all;
+};
+
+static struct O2HostModuleBridge g_o2_module_bridge;
+
+static int o2_resolve_module_bridge(void)
+{
+    HMODULE exe;
+    if (g_o2_module_bridge.tried)
+        return g_o2_module_bridge.load != 0 &&
+               g_o2_module_bridge.query_handle != 0 &&
+               g_o2_module_bridge.query_proc != 0 &&
+               g_o2_module_bridge.free_module != 0 &&
+               g_o2_module_bridge.terminate_all != 0;
+    g_o2_module_bridge.tried = 1;
+    exe = GetModuleHandleA(NULL);
+    if (!exe)
+        return 0;
+    g_o2_module_bridge.load = (O2HOSTMODLOAD)GetProcAddress(exe, "OS2HostModuleLoad");
+    g_o2_module_bridge.query_handle = (O2HOSTMODQUERYHANDLE)GetProcAddress(exe, "OS2HostModuleQueryHandle");
+    g_o2_module_bridge.query_proc = (O2HOSTMODQUERYPROC)GetProcAddress(exe, "OS2HostModuleQueryProc");
+    g_o2_module_bridge.free_module = (O2HOSTMODFREE)GetProcAddress(exe, "OS2HostModuleFree");
+    g_o2_module_bridge.terminate_all = (O2HOSTMODTERMINATEALL)GetProcAddress(exe, "OS2HostModuleTerminateAll");
+    return g_o2_module_bridge.load != 0 &&
+           g_o2_module_bridge.query_handle != 0 &&
+           g_o2_module_bridge.query_proc != 0 &&
+           g_o2_module_bridge.free_module != 0 &&
+           g_o2_module_bridge.terminate_all != 0;
+}
+
+static void o2_module_process_exit(void)
+{
+    if (o2_resolve_module_bridge() && g_o2_module_bridge.terminate_all)
+        g_o2_module_bridge.terminate_all();
+}
+
+/* 318 - DosLoadModule. */
+O2APIRET __cdecl DosLoadModule(char *objectName, O2ULONG objectNameLen,
+                               const char *moduleName, O2ULONG *moduleHandle)
+{
+    if (!moduleName || !moduleHandle)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (objectName && objectNameLen != 0)
+        objectName[0] = 0;
+    if (!o2_resolve_module_bridge())
+        return O2_ERROR_INVALID_FUNCTION;
+    return g_o2_module_bridge.load(moduleName, moduleHandle,
+                                   objectName, objectNameLen);
+}
+
+/* 319 - DosQueryModuleHandle (the 32-bit successor of DosGetModHandle). */
+O2APIRET __cdecl DosQueryModuleHandle(const char *moduleName,
+                                      O2ULONG *moduleHandle)
+{
+    if (!moduleName || !moduleHandle)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (!o2_resolve_module_bridge())
+        return O2_ERROR_INVALID_FUNCTION;
+    return g_o2_module_bridge.query_handle(moduleName, moduleHandle);
+}
+
+/* 321 - DosQueryProcAddr (the 32-bit successor of DosGetProcAddr). */
+O2APIRET __cdecl DosQueryProcAddr(O2ULONG moduleHandle, O2ULONG ordinal,
+                                  const char *procName, void **procAddress)
+{
+    O2ULONG addr;
+    O2APIRET rc;
+    if (!procAddress || (ordinal == 0 && (!procName || !*procName)))
+        return O2_ERROR_INVALID_PARAMETER;
+    if (!o2_resolve_module_bridge())
+        return O2_ERROR_INVALID_FUNCTION;
+    addr = 0;
+    rc = g_o2_module_bridge.query_proc(moduleHandle, ordinal, procName, &addr);
+    if (rc == O2_NO_ERROR)
+        *procAddress = (void *)(ULONG_PTR)addr;
+    return rc;
+}
+
+/* 322 - DosFreeModule. */
+O2APIRET __cdecl DosFreeModule(O2ULONG moduleHandle)
+{
+    if (!o2_resolve_module_bridge())
+        return O2_ERROR_INVALID_FUNCTION;
+    return g_o2_module_bridge.free_module(moduleHandle);
+}
+
+O2APIRET __cdecl DosQuerySysInfo(O2ULONG first, O2ULONG last,
+                                  void *buffer, O2ULONG cb)
+{
+    O2ULONG *out;
+    O2ULONG i;
+    O2ULONG n;
+
+    if (!buffer || first == 0 || last < first)
+        return O2_ERROR_INVALID_PARAMETER;
+    n = last - first + 1;
+    if (cb < n * sizeof(O2ULONG))
+        return O2_ERROR_INVALID_PARAMETER;
+
+    out = (O2ULONG *)buffer;
+    for (i = first; i <= last; ++i) {
+        switch (i) {
+        case 10: *out++ = 4096; break;
+        case 11: *out++ = 20;   break;
+        case 12: *out++ = 0;    break;
+        case 13: *out++ = 0;    break;
+        default: *out++ = 0;    break;
+        }
+    }
+    return O2_NO_ERROR;
+}
+
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
+{
+    O2ULONG i;
+    (void)instance;
+
+    if (reason == DLL_PROCESS_ATTACH) {
+        for (i = 0; i < O2_MAX_HANDLES; ++i)
+            o2_handles[i] = NULL;
+        for (i = 0; i < 3UL; ++i)
+            o2_std_handles[i] = NULL;
+        for (i = 0; i < O2_MAX_CHILDREN; ++i) {
+            o2_children[i].process = NULL;
+            o2_children[i].pid = 0;
+        }
+        InitializeCriticalSection(&child_lock);
+        child_lock_ready = 1;
+        InitializeCriticalSection(&beep_lock);
+        beep_lock_ready = 1;
+        beep_event = NULL;
+        beep_wave = NULL;
+        beep_samples = NULL;
+        beep_sample_capacity = 0UL;
+        beep_phase = 0UL;
+    } else if (reason == DLL_PROCESS_DETACH) {
+        /* If reserved is non-NULL Windows is terminating the process and will
+           reclaim multimedia/kernel objects itself.  Avoid doing loader-lock
+           work in that case. */
+        if (reserved == NULL) {
+            if (beep_wave != NULL) {
+                waveOutReset(beep_wave);
+                waveOutClose(beep_wave);
+                beep_wave = NULL;
+            }
+            if (beep_event != NULL) {
+                CloseHandle(beep_event);
+                beep_event = NULL;
+            }
+            if (beep_samples != NULL) {
+                HeapFree(GetProcessHeap(), 0, beep_samples);
+                beep_samples = NULL;
+                beep_sample_capacity = 0UL;
+            }
+        }
+        if (reserved == NULL) {
+            for (i = 0; i < 3UL; ++i) {
+                if (o2_std_handles[i] != NULL &&
+                    o2_std_handles[i] != INVALID_HANDLE_VALUE) {
+                    CloseHandle(o2_std_handles[i]);
+                    o2_std_handles[i] = NULL;
+                }
+            }
+        }
+        if (reserved == NULL && child_lock_ready) {
+            for (i = 0; i < O2_MAX_CHILDREN; ++i) {
+                if (o2_children[i].process != NULL) {
+                    CloseHandle(o2_children[i].process);
+                    o2_children[i].process = NULL;
+                    o2_children[i].pid = 0;
+                }
+            }
+        }
+        if (child_lock_ready) {
+            DeleteCriticalSection(&child_lock);
+            child_lock_ready = 0;
+        }
+        if (beep_lock_ready) {
+            DeleteCriticalSection(&beep_lock);
+            beep_lock_ready = 0;
+        }
+    }
+    return TRUE;
+}

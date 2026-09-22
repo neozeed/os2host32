@@ -1,0 +1,943 @@
+--- a/NEXT-CHAT-HANDOFF.md
++++ b/NEXT-CHAT-HANDOFF.md
+@@ -1,67 +1,70 @@
+-# Next-chat handoff — WHP OS/2 V2 Milestone 1
++# WHP OS/2 V2 — M2 process R2
+ 
+-## Resume here
++Cumulative source release following M2 CMD R1. Milestone1 and R1 remain separate checkpoints.
+ 
+-We are working with Jason Stevens (neozeed) on a Win64 Windows Hypervisor Platform OS/2 personality. The immediate goal of running the existing SarienPM LX guest has been demonstrated with SQ2 gameplay, audible beeps, restore and corrected geometry. Start from whp_os2_v2-milestone1.zip, frozen from R12 fix 2 on 2026-09-20. Read README-FIRST.md and MILESTONE1.md first. Keep this milestone available; develop the next feature in a separate copy.
++## Build and try
+ 
+-The host executable is still whp_os2_v2_hi.exe for script compatibility. The milestone changes its banner and corrects the final success label from LE to LE/LX. All runtime behavior matches the last user-tested R12 fix 2. Historical README files and patches are cumulative evidence, not all current claims. No live MSVC/C386/WHP testing can be claimed from the Linux workspace.
++Extract into a fresh directory. From your x64 Visual Studio command prompt:
+ 
+-The user's guest compiler is recovered Microsoft 386 C 6.00.081 (cl386, C1_386); old OS/2 Beta2 SDK headers/libc/os2386 import library; IBM LX LINK386 2.01.005 (1993), invoked via a shim using msdos run286 C:\20ddk\bin\link\LINK386.EXE @file. The compiler predefines M_I386. Use official SDK declarations to retain _syscall/import naming, never guessed plain-C API declarations. C89 code, SDK-dependent 16-bit SHORT/USHORT fields and structure layout matter even in 32-bit code.
++    build-v2.cmd
+ 
+-## Source map and execution
++From your configured Microsoft C/386 / LINK386 environment:
+ 
+-whp_os2_v2_hi.c contains the LE/LX loader, import resolution, WHP partition setup, guest allocation, main dispatch and scheduler. v2_info.h handles process/thread info; v2_sync_types.h/v2_sync.h/v2_queue.h provide scheduling/synchronization; v2_callback.h provides continuation-based guest calls; v2_pm.h/v2_gpi.h provide graphics; v2_beep.h handles beep workers; v2_find.h and file-I/O headers implement file services. Inspect actual filenames/functions before edits.
++    build-c386-process.cmd
+ 
+-One WHP virtual processor executes flat 32-bit protected mode with paging off and 64 MiB guest RAM. Guest pointers are offsets into the RAM allocation, never native pointers. Check ranges and marshal fields explicitly. Import veneers load an encoded ID into EAX, OUT to port F0, then RET. Parameters are read at guest ESP+4 with caller cleanup. Module tags are DOS 0x01000000, runtime 0x02000000, queues 0x03000000, WHPTEST 0x04000000, PMWIN 0x05000000 and PMGPI 0x06000000.
++Back in Windows, from the release directory:
+ 
+-Layout: GDT at 0x7000; code selector 8, data selector 0x10; per-thread FS selector (3+slot)*8. Stubs 0xF0000..0xF8000; callback sentinel 0xF7FE0, thread-return stub 0xF7FF0. Startup environment/program/arguments 0xE00000..0xE20000, process/thread information 0xE20000..0xE23000. Allocation range 0x1000000..0x3000000; DLL range 0x3000000..0x3F00000. Preserve collision/bounds checks. Diagnostics go to stderr; guest console output goes to stdout.
++    run-process.cmd
++    run-cmd32.cmd -c "hi.exe"
++    run-cmd32.cmd -c "execchild.exe 37"
++    run-cmd32.cmd
+ 
+-32 thread slots retain RIP/RSP/RFLAGS, RAX/RBX/RCX/RDX/RSI/RDI/RBP, CS/SS/DS/ES/FS/GS. Scheduling is cooperative on yield, block or exit. States include RUNNABLE/RUNNING, sleep, thread/event/mutex/queue/PM waits, suspended and dead. Deadlines use host milliseconds, zero for indefinite. sync_block saves wait state and requests a switch; sync_ready installs the API return into saved RAX and readies the thread. TIDs increase while slots recycle. finish_guest_thread cancels callbacks, abandons mutexes, wakes waiters and releases runtime-owned stacks. Historical explicit-old-TID wait compatibility and wait-any dead-thread consumption are deliberate. There is no compute-loop preemption or per-thread floating-point/SIMD state save.
++Inside the interactive guest command prompt, try:
+ 
+-Queues are bounded and process-local: 16 queues, 256 elements, names up to 127 characters under \\QUEUES\\. QUECALLS ordinals 9 Read, 10 Purge, 11 Close, 12 Query, 13 Peek, 14 Write, 15 Open, 16 Create. FIFO/LIFO/priority, guest-aware waits and event notification are implemented. Queue payload pointers are opaque guest values, not host pointers to dereference.
++    execchild.exe 37
++    echo %ERRORLEVEL%
++    execchild.exe capture > child-output.txt
++    type child-output.txt
+ 
+-## Host-to-guest calls
++Expected process test: `process1 PASS (sync, arguments/environment, async wait, reap, stdout)`.
++The C/386 child and test EXEs must be built locally; only the existing CMD32 and hello binaries are supplied.
++`process1-output.tmp` is created exclusively and removed; an existing file of that name makes the test fail without overwriting it.
++`process-trace.txt` and `cmd32-trace.txt` contain host diagnostics. Guest redirected output should contain no host trace.
+ 
+-Callbacks use heap continuation chains per guest thread, depth limit 16. begin_guest_callback saves caller registers, pushes sentinel plus up to eight DWORD arguments below guest ESP, clears DF and installs guest entry state. Guest callbacks run through the normal WHP loop and may yield/block/nest. The return sentinel verifies RIP/ESP and restores the continuation. A completion function handles special PM creation outcomes; otherwise result_out writes a result and returns API rc=0, or internal null result_out returns MRESULT directly in EAX. Public WHPTEST.1 still requires a valid result pointer. Do not replace this with native recursive guest execution or cast a guest function pointer into a host callable address.
++## Implementation
+ 
+-## PM implementation
++DOSCALLS.283 DosExecPgm supports EXEC_SYNC (0) and EXEC_ASYNCRESULT (2).
++Each guest child gets an independent instance of this WHP host, address space, and virtual processor.
++The host executable is launched directly, without cmd.exe. A private inherited mapping transports the original guest argument and environment blocks, with bounded validation.
++The current directory and guest standard handles 0/1/2 are inherited at launch.
++The child host keeps its diagnostic stream separate from guest stderr and stdout.
++Guest PIB PID/PPID report the corresponding host process IDs.
+ 
+-One owner thread, one registered class, queue and frame/client pair map onto one native HWND. Synthetic handles: HAB 0x51000001, HMQ 0x52000001, FRAME 0x50000001, CLIENT 0x50000002, paint HPS 0x53000001, window DC 0x55000001. Worker HABs use 0x54000000|tid and initialization records store TIDs, avoiding slot reuse confusion.
++DosExecPgm waits cooperatively for startup acknowledgment. Synchronous execution then waits cooperatively for completion, allowing other guest threads to run.
++Async-result returns the child PID in RESULTCODES.codeTerminate and zero in codeResult.
++DOSCALLS.280 DosWaitChild supports DCWA_PROCESS, WAIT/NOWAIT, a particular PID or PID zero for any direct child.
++Completion returns termination reason and exit code, optionally the collected PID; results are collected once.
++NOWAIT returns 129 while a matching child is running; no eligible child returns 128.
++The helper checks process signaling before reading exit status, so guest exit code 259 is valid.
++Failure before guest entry is an execution error; host/runtime failure after entry is reported as abnormal termination.
++There are 32 tracked child slots, reused after collection. Closing parent tracking handles does not kill asynchronous children.
+ 
+-The native WndProc only enqueues guest messages; it never executes guest code. WM_NCCREATE stores the full Win64 Runtime pointer and delegates to DefWindowProcA (earlier returning TRUE alone lost title initialization). Paint validates native update state then queues guest paint; resize, close and character messages are translated. The 128-message queue coalesces paint/size/close. Explicit posts fail when full; native overflow is reported as a fault.
++## Scope and limitations
+ 
+-Guest QMSG is 28 bytes: hwnd at 0, USHORT message at 4 plus padding, mp1 at 8, mp2 at 12, time at 16, POINTL at 20. GetMsg supports the tested unfiltered path and blocks as WAIT_PM; the host pumps messages around VP runs and uses MsgWaitForMultipleObjectsEx when idle, honoring the nearest guest deadline. DispatchMsg/SendMsg invoke the guest four-argument window procedure through callback continuations.
++This is an initial process implementation, not full OS/2 process/session emulation.
++EXEC_ASYNC, background/trace/load modes, process-tree waits, kill/signal support, SESMGR START, cross-process shared memory, and inheritance of nonstandard guest file handles are not implemented.
++Programs must be OS/2 LE/LX images supported by this loader and runtime; this does not launch arbitrary Win32 or DOS programs.
++Pipelines are not yet certified end-to-end. Standard-handle inheritance provides the plumbing, but full CMD pipeline behavior still needs live testing.
++Paths use existing ANSI/MAX_PATH host handling. Executable search remains the caller's responsibility.
+ 
+-CreateStdWindow validates the supported flags/resources, creates hidden native window and invokes guest WM_CREATE before completion shows it. Destroy invokes WM_DESTROY before native cleanup. BeginPaint accepts zero or a matching persistent window PS and uses GetDC; EndPaint releases it. Full-client painting is used, not complete region semantics. Workers can initialize/terminate their own HAB and post; general PM ownership stays with the main thread.
++## Evidence
+ 
+-Keyboard maps Windows arrows/home/end/page/insert/delete/F keys to OS/2 virtual values, preserves keyup and modifiers, and handles printable WM_CHAR plus Escape/Enter/Backspace. It is not a full keyboard-layout/dead-key solution. Sarien paints its own menus, so gameplay menus do not validate native PM menu implementation.
++User validated R1 `echo WHP_CMD_OK` and reported the console tests working. Supplied R1 traces are preserved under validation.
++R2 Linux checks passed: production process helpers with mocked Win32 handles/processes, address/undefined sanitizers, cooperative sync wait, async startup/PID, wait/nowait, exactly-once collection, argument/environment packet transfer, exit 259, pre-entry failure and invalid pointers.
++Existing scheduler, console, PM/GPI and loader checks also passed in the native harness.
++The two new C/386 test sources passed GNU89 32-bit syntax checking against the supplied historical OS/2 SDK headers, with warnings treated as errors (SDK comment/pragma warnings suppressed).
++Windows validation is now user-confirmed: process1 passed, CMD32 launched hi.exe and execchild.exe, and interactive CMD32 launched phoon after changing directories and returned to the prompt. See validation/m2-process-windows-results.txt. The reported guest_err warnings are fixed in this revision; the warning-free MSVC rebuild remains to be confirmed.
+ 
+-## GPI and audio
++See v2_process.h, v2_process_boot.h and tests/process-check.inc for implementation and harness checks.
+ 
+-GPI has monotonically allocated 0x60000000|serial handles within a session, 16 DC/PS/bitmap slots each, max dimension 2048 and a 32 MiB raw bitmap budget. Bitmap data is bottom-up with DWORD-aligned rows, palettes stored as 00RRGGBB. Supported depths are 1/4/8/24/32, one plane, uncompressed. Header variants 12 (RGB3), 16 (RGB2) and 64 (RGB2) are marshaled manually; the 16-byte prefix is essential for Sarien. Query header writes exactly the requested supported header size. Set/Query bits validate matching dimensions/depth and guest buffers, copy raw rows/palette, and do not provide arbitrary format conversion.
+-
+-PS logical palettes support up to 256 colors; CreateLogColorTable handles the tested consecutive RGB/PURE path, and SetColor/SetPel use the PS palette. Indexed color matching may select the first duplicate. Selected bitmaps cannot be deleted or selected into two PSs; destruction deselects and stale handles fail. Persistent window PSs permit Sarien worker blits outside BeginPaint. One cooperative VP plus the guest mutex serializes the tested access.
+-
+-BitBlt supports SRCCOPY (0xCC), three/four points, ordered positive dimensions and checked source/target ranges. Source pixels are snapshotted into top-down RGB32 to handle overlap. Memory targets use nearest-neighbor sampling and palette matching; window output uses StretchDIBits with negative-height DIB, converting bottom-origin guest Y into native top-origin coordinates. Existing regression fixture verifies quadrant colors/orientation/readback/copy/cleanup.
+-
+-DosBeep validates frequency 37..32767 and duration <=60000 ms, starts a bounded native Beep worker and sleeps only the calling guest thread for the requested duration. Jobs retain no Runtime pointer. Playback is best-effort, not a hardware-completion guarantee. Muted sound was reported but audio is audible. A persistent synthesized PCM backend is future work, not part of this milestone.
+-
+-## Sarien-specific findings
+-
+-The supplied sarienlx.exe is 103445 bytes, LX header 0x90, two objects at preferred 0x10000 and 0x30000, 85 pages, entry object 1+0xF680, stack object 2+0x5FCB0. It imports DOSCALLS, PMWIN, PMGPI and QUECALLS. The older supplied sarienPM source archive is useful but predates this binary (notably audio/queue behavior); actual binary disassembly and trace take precedence.
+-
+-The helper at guest 0x16028 leaves count at EBP-4 uninitialized, uses HDIR=1, cb=0x11C and path *.*, ignores DosFindFirst EAX, and returns count!=0. Do not invert global API success conventions to accommodate it. WHP_OS2_FIND_ZERO_COUNT=1 only allows zero first-search count to request one entry. The remaining wildcard bug can misidentify other game layouts. Native SQ2 identifies CRC 0x8e29b and AGI v2.936; the failed v3 route produced 0x54fcc and tried dir. Reading different files explains that difference.
+-
+-The port sizes its frame as width320, height200+SV_CYTITLEBAR-2. WHP_OS2_SARIEN_GEOMETRY=1 derives client height, then uses actual native styles with AdjustWindowRectEx. It applies only to frame sizing, not move-only/client-handle requests. Final Windows trace confirms client320x200, outer336x239 on the user's system. Both options are SETLOCAL-scoped by run-sarien.cmd, which pushd's to the game directory. Do not pass game directory as a guessed guest argument: inspected older code uses the first argument for frame skipping.
+-
+-The port probes 33 logical colors, queries a 16-byte bitmap header, uploads 198 rows of a 320x200 bitmap and blits from a worker under a mutex. Its timer worker sleeps, so cooperative scheduling works here. Older source has a possible 33-entry loop into a 32-entry map; that is an application observation, not a runtime fix made here.
+-
+-## Verification and continuation discipline
+-
+-Production-helper regression: ASAN_OPTIONS=detect_leaks=0 python3 tests/run-sync-check.py. It extracts host helpers and compiles tests/sync-check.c with mocked registers/time/window/audio services and included PM/GPI/Sarien checks. tests/find-check.c is a separate filesystem/find harness. Leak checking was disabled because of the sandbox/ptrace environment; do not describe these as full Windows tests.
+-
+-The geometry regression covers nonzero caption/borders, the resulting 320x200 client, Y conversion, size-only/move-only handling, opt-in/default behavior and adjustment failure. No runtime edits followed its passing run other than release labels. The user subsequently confirmed Windows geometry and clean exit. C/386 syntax checks using the supplied SDK supplement actual user builds; they are not equivalent to MSVC/C386 linking.
+-
+-The original working session had no git repository and used cumulative directories/ZIPs. Freeze artifacts with hashes; keep subsequent changes isolated and reviewable. Do not launch long torture suites by default: the user explicitly stopped the expanded run because of duration. Build small targeted fixtures around new behavior, and ask for Windows evidence when it is the only way to settle actual rendering/scheduling/audio results.
+-
+-Potential next directions: audio quality, additional SDK PM examples, broader OS/2 API coverage, or an optional software 386/486 core behind an execution-backend interface. None is authorized as the next implementation merely by this list. Preserve this known working baseline and let the next user instruction select the direction.
++Next: confirm the warning-free host rebuild; process and interactive child-launch tests have passed. SESMGR/session support remains outside this release.
+--- a/README-FIRST.md
++++ b/README-FIRST.md
+@@ -1,38 +1,7 @@
+-# M2 CMD bridge R1 — development continuation
++# Start here — M2 process R2
+ 
+-Read **README-M2-CMD-R1.md** first. This directory includes new code beyond the frozen milestone below.
++Read README-M2-PROCESS-R2.md for build commands, tests, behavior, and limits.
+ 
+-# WHP OS/2 V2 — Milestone 1
++This cumulative release adds DosExecPgm / DosWaitChild to M2 CMD R1. Earlier READMEs describe historical releases.
+ 
+-Frozen 20 September 2026 from R12 fix 2 after Jason's successful Space Quest II gameplay, restore, corrected geometry and clean exit. This is the WHP branch, separate from the earlier LE-to-PE translator and os2host32 M31.
+-
+-Read **MILESTONE1.md** for results and limits, **NEXT-CHAT-HANDOFF.md** for implementation notes, and the cumulative README-V2-* files for each development phase. Those older documents preserve historical instructions and may describe issues resolved by later phases.
+-
+-## Build and run
+-
+-Use an x64 MSVC developer command prompt with the Windows SDK and Windows Hypervisor Platform available on a virtualization-enabled Windows machine. Extract the archive to a working directory such as C:\proj\whp.
+-
+-```bat
+-build-v2.cmd
+-whp_os2_v2_hi.exe hi.exe
+-whp_os2_v2_hi.exe --check C:\OS2\demos\sarien\sarienlx.exe
+-run-sarien.cmd C:\OS2\demos\sarien C:\OS2\demos\sarien\sarienlx.exe
+-```
+-
+-The output executable keeps its existing name so the launch/test scripts continue working. Its banner identifies Milestone 1. The host links WinHvPlatform.lib, User32.lib and Gdi32.lib. No compiled Win64 host is supplied here; build it locally. The package includes existing hi.exe/hi-lx.exe smoke fixtures, cumulative guest test sources, and build scripts. Sarien, game data and the historical SDK/compiler are supplied separately by the user.
+-
+-run-sarien.cmd changes to the supplied game directory and captures stderr to sarien-trace.txt beside the launcher. It sets two scoped compatibility options: WHP_OS2_FIND_ZERO_COUNT=1 and WHP_OS2_SARIEN_GEOMETRY=1. Use this launcher for the existing Sarien binary. Generic direct launches do not enable these options automatically.
+-
+-## Guest compiler
+-
+-The tested guest toolchain is Microsoft 386 C 6.00.081, old OS/2 SDK headers and libc.lib/os2386.lib, with IBM LINK386 2.01.005 through the user's run286 shim. The scripts use cl386, C1_386 and link386 from PATH; C386LIB can select a different library directory where supported. See the relevant build-c386-*.cmd before building a suite.
+-
+-Use the SDK's declarations and calling conventions. M_I386 is predefined by this compiler. Do not reintroduce hand-written plain-C Dos declarations: those previously produced unresolved _DosXXX externals. The fixtures retain C89-compatible syntax and the tested SDK structure layouts.
+-
+-## Rechecking the milestone
+-
+-Existing runners include run-find1.cmd, run-info1.cmd, run-sync.cmd, run-callback.cmd, run-pmhello.cmd, run-gpi.cmd and run-sarprep.cmd --auto. Build their fixtures with the corresponding build-c386 scripts first. run-infotort.cmd is deliberately separate: the expanded run is lengthy and was stopped after 14 completed 30-worker/1000-round runs; completion of all 50 runs is not claimed.
+-
+-For a quick visual check, launch SQ2, enter gameplay, use menus/keyboard, restore a saved game and quit. Expect the complete status bar/right edge and a clean rc=0. The exact outer frame size varies with Windows metrics; the intended client is 320x200.
+-
+-SHA256SUMS-MILESTONE1.txt covers every package file except itself. Older checksum files and patches refer to their historical revisions, not to this final tree. The milestone source differs from verified R12 fix 2 only in the release banner and the final LE/LX diagnostic label; runtime behavior is frozen.
++Updated after Windows validation: guest_err warning fix and recorded process/CMD32/phoon results. Rebuild only the host with build-v2.cmd.
+--- a/README-M2-PROCESS-R2.md
++++ b/README-M2-PROCESS-R2.md
+@@ -0,0 +1,68 @@
++# WHP OS/2 V2 — M2 process R2
++
++Cumulative source release following M2 CMD R1. Milestone1 and R1 remain separate checkpoints.
++
++## Build and try
++
++Extract into a fresh directory. From your x64 Visual Studio command prompt:
++
++    build-v2.cmd
++
++From your configured Microsoft C/386 / LINK386 environment:
++
++    build-c386-process.cmd
++
++Back in Windows, from the release directory:
++
++    run-process.cmd
++    run-cmd32.cmd -c "hi.exe"
++    run-cmd32.cmd -c "execchild.exe 37"
++    run-cmd32.cmd
++
++Inside the interactive guest command prompt, try:
++
++    execchild.exe 37
++    echo %ERRORLEVEL%
++    execchild.exe capture > child-output.txt
++    type child-output.txt
++
++Expected process test: `process1 PASS (sync, arguments/environment, async wait, reap, stdout)`.
++The C/386 child and test EXEs must be built locally; only the existing CMD32 and hello binaries are supplied.
++`process1-output.tmp` is created exclusively and removed; an existing file of that name makes the test fail without overwriting it.
++`process-trace.txt` and `cmd32-trace.txt` contain host diagnostics. Guest redirected output should contain no host trace.
++
++## Implementation
++
++DOSCALLS.283 DosExecPgm supports EXEC_SYNC (0) and EXEC_ASYNCRESULT (2).
++Each guest child gets an independent instance of this WHP host, address space, and virtual processor.
++The host executable is launched directly, without cmd.exe. A private inherited mapping transports the original guest argument and environment blocks, with bounded validation.
++The current directory and guest standard handles 0/1/2 are inherited at launch.
++The child host keeps its diagnostic stream separate from guest stderr and stdout.
++Guest PIB PID/PPID report the corresponding host process IDs.
++
++DosExecPgm waits cooperatively for startup acknowledgment. Synchronous execution then waits cooperatively for completion, allowing other guest threads to run.
++Async-result returns the child PID in RESULTCODES.codeTerminate and zero in codeResult.
++DOSCALLS.280 DosWaitChild supports DCWA_PROCESS, WAIT/NOWAIT, a particular PID or PID zero for any direct child.
++Completion returns termination reason and exit code, optionally the collected PID; results are collected once.
++NOWAIT returns 129 while a matching child is running; no eligible child returns 128.
++The helper checks process signaling before reading exit status, so guest exit code 259 is valid.
++Failure before guest entry is an execution error; host/runtime failure after entry is reported as abnormal termination.
++There are 32 tracked child slots, reused after collection. Closing parent tracking handles does not kill asynchronous children.
++
++## Scope and limitations
++
++This is an initial process implementation, not full OS/2 process/session emulation.
++EXEC_ASYNC, background/trace/load modes, process-tree waits, kill/signal support, SESMGR START, cross-process shared memory, and inheritance of nonstandard guest file handles are not implemented.
++Programs must be OS/2 LE/LX images supported by this loader and runtime; this does not launch arbitrary Win32 or DOS programs.
++Pipelines are not yet certified end-to-end. Standard-handle inheritance provides the plumbing, but full CMD pipeline behavior still needs live testing.
++Paths use existing ANSI/MAX_PATH host handling. Executable search remains the caller's responsibility.
++
++## Evidence
++
++User validated R1 `echo WHP_CMD_OK` and reported the console tests working. Supplied R1 traces are preserved under validation.
++R2 Linux checks passed: production process helpers with mocked Win32 handles/processes, address/undefined sanitizers, cooperative sync wait, async startup/PID, wait/nowait, exactly-once collection, argument/environment packet transfer, exit 259, pre-entry failure and invalid pointers.
++Existing scheduler, console, PM/GPI and loader checks also passed in the native harness.
++The two new C/386 test sources passed GNU89 32-bit syntax checking against the supplied historical OS/2 SDK headers, with warnings treated as errors (SDK comment/pragma warnings suppressed).
++Windows validation is now user-confirmed: process1 passed, CMD32 launched hi.exe and execchild.exe, and interactive CMD32 launched phoon after changing directories and returned to the prompt. See validation/m2-process-windows-results.txt. The reported guest_err warnings are fixed in this revision; the warning-free MSVC rebuild remains to be confirmed.
++
++See v2_process.h, v2_process_boot.h and tests/process-check.inc for implementation and harness checks.
+--- a/build-c386-process.cmd
++++ b/build-c386-process.cmd
+@@ -0,0 +1,17 @@
++@echo off
++setlocal
++if "%C386LIB%"=="" set C386LIB=\c386\lib
++call :build execchild
++if errorlevel 1 exit /b %errorlevel%
++call :build process1
++exit /b %errorlevel%
++:build
++cl386 -c -Gs -Od -W3 -B1 C1_386 %1.c
++if errorlevel 1 exit /b %errorlevel%
++>%1.lnk echo %1.obj
++>>%1.lnk echo %1.exe
++>>%1.lnk echo %1.map
++>>%1.lnk echo %C386LIB%\libc.lib %C386LIB%\os2386.lib
++>>%1.lnk echo %1.def
++link386 @%1.lnk
++exit /b %errorlevel%
+--- a/execchild.c
++++ b/execchild.c
+@@ -0,0 +1,27 @@
++/* Microsoft C/386, OS/2 SDK declarations supply the calling convention. */
++#define INCL_DOSPROCESS
++#include <os2.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++int main(int argc, char **argv)
++{
++    char *value;
++    if (argc > 1 && !strcmp(argv[1], "check")) {
++        value = getenv("WHP_EXEC_TEST");
++        if (argc != 3 || strcmp(argv[2], "two words") ||
++            !value || strcmp(value, "child")) return 91;
++        puts("execchild arguments/environment PASS");
++        return 37;
++    }
++    if (argc > 1 && !strcmp(argv[1], "slow")) {
++        DosSleep(500);
++        return 23;
++    }
++    if (argc > 1 && !strcmp(argv[1], "capture")) {
++        puts("CHILD_STDOUT_OK");
++        return 0;
++    }
++    puts("execchild running inside WHP");
++    return argc > 1 ? atoi(argv[1]) : 0;
++}
+--- a/execchild.def
++++ b/execchild.def
+@@ -0,0 +1,3 @@
++NAME EXECCHILD WINDOWCOMPAT
++DESCRIPTION 'WHP M2 process regression'
++STACKSIZE 32768
+--- a/process1.c
++++ b/process1.c
+@@ -0,0 +1,59 @@
++#define INCL_DOSPROCESS
++#define INCL_DOSFILEMGR
++#include <os2.h>
++#include <stdio.h>
++#include <string.h>
++
++static unsigned char child[] = "execchild.exe";
++static unsigned char args_check[] = "execchild.exe\0check \"two words\"\0";
++static unsigned char args_slow[] = "execchild.exe\0slow\0";
++static unsigned char args_capture[] = "execchild.exe\0capture\0";
++static unsigned char env_check[] = "WHP_EXEC_TEST=child\0";
++static unsigned char capture[] = "process1-output.tmp";
++#define CHECK(x) do { if (!(x)) { printf("process1 FAIL line %d\n", __LINE__); return 1; } } while (0)
++int main(void)
++{
++    RESULTCODES result;
++    PID pid, got;
++    ULONG rc, action, count;
++    HFILE out, saved, target;
++    char object[260], text[256];
++    CHECK(DosExecPgm(object, sizeof(object), EXEC_SYNC, args_check,
++        env_check, &result, child) == 0);
++    CHECK(result.codeTerminate == 0 && result.codeResult == 37);
++    CHECK(DosExecPgm(object, sizeof(object), EXEC_ASYNCRESULT, args_slow,
++        (PSZ)0, &result, child) == 0);
++    pid = result.codeTerminate;
++    CHECK(pid != 0);
++    rc = DosWaitChild(DCWA_PROCESS, DCWW_NOWAIT, &result, &got, pid);
++    if (rc == 129) {
++        CHECK(DosWaitChild(DCWA_PROCESS, DCWW_WAIT, &result, &got, pid) == 0);
++    } else CHECK(rc == 0);
++    CHECK(got == pid && result.codeTerminate == 0 && result.codeResult == 23);
++    CHECK(DosWaitChild(DCWA_PROCESS, DCWW_NOWAIT, &result, &got, pid) == 128);
++    /* Exclusive creation avoids overwriting an existing file. */
++    CHECK(DosOpen(capture, &out, &action, 0, 0, 0x10, 0x42, (PEAOP)0) == 0);
++    saved = (HFILE)-1;
++    rc = DosDupHandle(1, &saved);
++    if (rc) { DosClose(out); DosDelete(capture); CHECK(rc == 0); }
++    fflush(stdout);
++    target = 1;
++    rc = DosDupHandle(out, &target);
++    if (!rc) rc = DosExecPgm(object, sizeof(object), EXEC_SYNC,
++        args_capture, (PSZ)0, &result, child);
++    /* Restore stdout before printing any assertion failures. */
++    target = 1;
++    action = DosDupHandle(saved, &target);
++    DosClose(saved);
++    DosSetFilePtr(out, 0, 0, &count);
++    memset(text, 0, sizeof(text));
++    count = 0;
++    DosRead(out, text, sizeof(text)-1, &count);
++    DosClose(out);
++    DosDelete(capture);
++    CHECK(action == 0 && rc == 0 && result.codeResult == 0);
++    CHECK(strstr(text, "CHILD_STDOUT_OK") != 0);
++    CHECK(strstr(text, "v2:") == 0);
++    puts("process1 PASS (sync, arguments/environment, async wait, reap, stdout)");
++    return 0;
++}
+--- a/process1.def
++++ b/process1.def
+@@ -0,0 +1,3 @@
++NAME PROCESS1 WINDOWCOMPAT
++DESCRIPTION 'WHP M2 process regression'
++STACKSIZE 32768
+--- a/run-process.cmd
++++ b/run-process.cmd
+@@ -0,0 +1,8 @@
++@echo off
++setlocal
++pushd "%~dp0"
++whp_os2_v2_hi.exe process1.exe 2>process-trace.txt
++set result=%errorlevel%
++if not "%result%"=="0" echo FAIL - inspect process-trace.txt
++popd
++exit /b %result%
+--- a/tests/process-check.inc
++++ b/tests/process-check.inc
+@@ -0,0 +1,48 @@
++static uint32_t xcall(uint32_t ord,const uint32_t *a)
++{uint32_t i;for(i=0;i<(ord==283?7u:5u);i++)guest_put_u32(&rt,0x1804+i*4,a[i]);return dispatch_process(&rt,ord,0x1800);}
++#define XCALL(ord,...) xcall(ord,(uint32_t[]){__VA_ARGS__})
++static void finish_mock_child(uint32_t slot,uint32_t code)
++{
++ struct ChildProcess *c=&children[slot];((struct MockProcess *)c->process)->done=1;
++ ((struct MockProcess *)c->process)->exitcode=code;c->packet->normal_exit=1;c->packet->exit_rc=code;
++}
++static void test_process(void)
++{
++ struct ChildPacket *p;uint32_t a[7]={0,0,0,0x3000,0x3100,0x3200,0x3300},pid;DWORD ms;
++ reset();memcpy(rt.ram+0x3000,"alternate name\0one \"two three\"\0",32);
++ memcpy(rt.ram+0x3100,"TEST=child\0EMPTY=\0\0",18);strcpy((char *)rt.ram+0x3300,"child.exe");
++ p=calloc(1,sizeof(*p));assert(p);assert(process_make_packet(&rt,a,p)==0);
++ assert(!strcmp(p->data+p->program_len,"TEST=child"));
++ assert(!strcmp(p->data+p->program_len+p->env_len,"alternate name"));
++ assert(!strcmp(p->data+p->program_len+p->env_len+15,"one \"two three\""));
++ child_boot=p;child_startup(rt.ram,&a[0],&a[1],&a[2]);child_boot=NULL;
++ assert(!strcmp((char*)rt.ram+a[0],"TEST=child"));free(p);
++ /* Sync blocks only its caller until startup AND exit, preserving result 259. */
++ assert(XCALL(283,0,0,0,0x3000,0x3100,0x3200,0x3300)==0);
++ assert(rt.threads[0].state==THREAD_WAIT_PROCESS&&children[0].packet->parent_pid==77);
++ spawn();park(0);select_thread(1);assert(next_wait_timeout(&rt,&ms)&&ms==10);
++ clock_ms+=10;wake_expired_waiters(&rt);assert(rt.threads[0].state==THREAD_WAIT_PROCESS);
++ children[0].packet->ready=1;clock_ms+=10;wake_expired_waiters(&rt);assert(rt.threads[0].state==THREAD_WAIT_PROCESS);
++ finish_mock_child(0,259);clock_ms+=10;wake_expired_waiters(&rt);
++ assert(rt.threads[0].state==THREAD_RUNNABLE&&guest_u32(&rt,0x3200)==0&&guest_u32(&rt,0x3204)==259&&!children[0].process);
++ select_thread(0);
++ /* Async-result returns PID after startup; nowait distinguishes still running. */
++ assert(XCALL(283,0,0,2,0x3000,0x3100,0x3200,0x3300)==0);
++ children[0].packet->ready=1;clock_ms+=10;wake_expired_waiters(&rt);select_thread(0);
++ pid=guest_u32(&rt,0x3200);assert(pid==children[0].pid&&guest_u32(&rt,0x3204)==0);
++ assert(XCALL(280,0,1,0x3400,0x3410,pid)==129);
++ assert(XCALL(280,0,1,0x3400,0x3410,pid+1)==128);
++ assert(XCALL(280,0,0,0x3400,0x3410,pid)==0&&rt.threads[0].state==THREAD_WAIT_PROCESS);
++ finish_mock_child(0,37);clock_ms+=10;wake_expired_waiters(&rt);select_thread(0);
++ assert(guest_u32(&rt,0x3404)==37&&guest_u32(&rt,0x3410)==pid);
++ assert(XCALL(280,0,1,0x3400,0x3410,pid)==128);
++ /* Failure before entry is an Exec error, not a normal guest exit. */
++ assert(XCALL(283,0x3500,32,0,0x3000,0x3100,0x3200,0x3300)==0);
++ ((struct MockProcess *)children[0].process)->done=1;
++ clock_ms+=10;wake_expired_waiters(&rt);assert(rt.threads[0].regs[3].Reg64==31);
++ assert(!strcmp((char*)rt.ram+0x3500,"child.exe"));select_thread(0);
++ assert(XCALL(283,0,0,4,0x3000,0x3100,0x3200,0x3300)==1);
++ assert(XCALL(283,0,0,0,RAM_SIZE-1,0x3100,0x3200,0x3300)==87);
++ assert(XCALL(280,0,1,RAM_SIZE-4,0x3410,0)==87);
++ process_cleanup();puts("process-check PASS: packet/argv/env, sync yield, async PID, wait/nowait, reap once, exit 259, pre-entry failure and bounds");
++}
+--- a/tests/process-mock.h
++++ b/tests/process-mock.h
+@@ -0,0 +1,47 @@
++#define MAX_PATH 260
++#define INVALID_HANDLE_VALUE ((HANDLE)(intptr_t)-1)
++#define INVALID_FILE_ATTRIBUTES 0xffffffffu
++#define DUPLICATE_SAME_ACCESS 2
++#define FILE_MAP_ALL_ACCESS 0xf001fu
++#define PAGE_READWRITE 4
++#define PROC_THREAD_ATTRIBUTE_HANDLE_LIST 1
++#define STARTF_USESTDHANDLES 0x100
++#define EXTENDED_STARTUPINFO_PRESENT 0x80000
++#define WAIT_OBJECT_0 0
++#define WAIT_TIMEOUT 258
++#define STD_ERROR_HANDLE 2
++#define _fileno(f) 2
++#define _get_osfhandle(f) ((intptr_t)100)
++typedef size_t SIZE_T;
++typedef struct {DWORD nLength;void *lpSecurityDescriptor;int bInheritHandle;} SECURITY_ATTRIBUTES;
++typedef struct {DWORD cb,dwFlags;HANDLE hStdInput,hStdOutput,hStdError;} STARTUPINFOA;
++typedef void *LPPROC_THREAD_ATTRIBUTE_LIST;
++typedef struct {STARTUPINFOA StartupInfo;LPPROC_THREAD_ATTRIBUTE_LIST lpAttributeList;} STARTUPINFOEXA;
++typedef struct {HANDLE hProcess,hThread;DWORD dwProcessId,dwThreadId;} PROCESS_INFORMATION;
++struct MockProcess {int done;DWORD exitcode;};
++static struct MockProcess mock_processes[64];
++static uint32_t mock_process_count,mock_inherit_count;
++static int mock_create_failure;
++static HANDLE GetCurrentProcess(void){return (HANDLE)(uintptr_t)99;}
++static DWORD GetCurrentProcessId(void){return 77;}
++static DWORD GetFileAttributesA(const char *p){(void)p;return INVALID_FILE_ATTRIBUTES;}
++static DWORD GetFullPathNameA(const char *p,DWORD cap,char *out,void *last){size_t n=strlen(p);(void)last;if(n<cap)memcpy(out,p,n+1);return (DWORD)n;}
++static DWORD GetModuleFileNameA(void *module,char *out,DWORD cap){(void)module;assert(cap>20);strcpy(out,"C:\\whp host.exe");return (DWORD)strlen(out);}
++static HANDLE CreateFileMappingA(HANDLE f,SECURITY_ATTRIBUTES *sa,DWORD prot,DWORD hi,DWORD lo,const char *name){(void)f;(void)prot;(void)hi;(void)name;assert(sa->bInheritHandle);return calloc(1,lo);}
++static void *MapViewOfFile(HANDLE h,DWORD flags,DWORD hi,DWORD lo,size_t cb){(void)flags;(void)hi;(void)lo;(void)cb;return h;}
++static int UnmapViewOfFile(void *p){free(p);return 1;}
++static int DuplicateHandle(HANDLE a,HANDLE b,HANDLE c,HANDLE *out,DWORD access,int inherit,DWORD flags){(void)a;(void)c;(void)access;(void)flags;assert(inherit);*out=(HANDLE)((uintptr_t)b+1000);return 1;}
++static int InitializeProcThreadAttributeList(void *p,DWORD n,DWORD flags,SIZE_T *size){(void)n;(void)flags;*size=32;return p!=NULL;}
++static int UpdateProcThreadAttribute(void *p,DWORD flags,uintptr_t key,void *data,SIZE_T size,void *previous,void *ret){(void)p;(void)flags;(void)key;(void)data;(void)previous;(void)ret;mock_inherit_count=(uint32_t)(size/sizeof(HANDLE));return 1;}
++static void DeleteProcThreadAttributeList(void *p){(void)p;}
++static int CreateProcessA(const char *self,char *cmd,void *ps,void *ts,int inherit,DWORD flags,void *env,const char *cwd,STARTUPINFOA *si,PROCESS_INFORMATION *pi)
++{
++ (void)ps;(void)ts;(void)cwd;assert(!strcmp(self,"C:\\whp host.exe")&&strstr(cmd,"--whp-child")&&inherit&&flags==EXTENDED_STARTUPINFO_PRESENT&&!env);
++ assert(si->dwFlags==STARTF_USESTDHANDLES&&mock_inherit_count==5);
++ if(mock_create_failure)return 0;
++ assert(mock_process_count<64);pi->hProcess=&mock_processes[mock_process_count];pi->dwProcessId=100+mock_process_count++;
++ memset(pi->hProcess,0,sizeof(struct MockProcess));pi->hThread=(HANDLE)(uintptr_t)3;return 1;
++}
++static DWORD WaitForSingleObject(HANDLE h,DWORD timeout){assert(!timeout);return ((struct MockProcess *)h)->done?WAIT_OBJECT_0:WAIT_TIMEOUT;}
++static int GetExitCodeProcess(HANDLE h,DWORD *code){*code=((struct MockProcess *)h)->exitcode;return 1;}
++static LONG InterlockedCompareExchange(volatile LONG *p,LONG val,LONG expected){LONG old=*p;if(old==expected)*p=val;return old;}
+--- a/tests/run-sync-check.py
++++ b/tests/run-sync-check.py
+@@ -20,8 +20,8 @@
+ with tempfile.TemporaryDirectory() as tmp:
+     p=pathlib.Path(tmp)
+     (p/'defs.inc').write_text(macros+'\n'+structs+'\n'+(root/'v2_sync_types.h').read_text())
+-    (p/'production.inc').write_text('static int console_poll_wait(struct Runtime *,struct GuestThread *);\n'+(root/'v2_far16.h').read_text().split('static void install_far16')[0]+'\n'+'\n'.join(map(func,helpers))+'\n'+
+-        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_callback.h','v2_sync.h','v2_queue.h','v2_pm.h','v2_gpi.h','v2_beep.h','v2_console.h'])+'\n'+
++    (p/'production.inc').write_text('static int console_poll_wait(struct Runtime *,struct GuestThread *);\nstatic int process_poll_wait(struct Runtime *,struct GuestThread *);\n'+(root/'v2_process_boot.h').read_text().split('static int child_attach')[0]+'\n'+(root/'v2_far16.h').read_text().split('static void install_far16')[0]+'\n'+'\n'.join(map(func,helpers))+'\n'+
++        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_callback.h','v2_sync.h','v2_queue.h','v2_pm.h','v2_gpi.h','v2_beep.h','v2_console.h','v2_process.h'])+'\n'+
+         '\n'.join(map(func,['create_guest_thread','schedule_next_thread','switch_after_hypercall'])))
+     subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Wno-misleading-indentation','-Werror','-fsanitize=address,undefined',
+         '-g','-I'+tmp,str(root/'tests/sync-check.c'),'-o',str(p/'check')],check=True)
+--- a/tests/sync-check.c
++++ b/tests/sync-check.c
+@@ -34,12 +34,13 @@
+ { (void)p;(void)vp;(void)n;memcpy(cpu,in,count*sizeof(*in));return 0; }
+ #include "pm-win32-mock.h"
+ #include "console-mock.h"
++#include "process-mock.h"
+ #include "defs.inc"
+ struct HostStub { uint32_t ordinal,address; };
+ struct Runtime {
+  struct GuestPM *pm;
+  struct GuestGPI *gpi;
+- void *partition; uint8_t *ram;
++ void *partition; uint8_t *ram; int std_closed[3];
+  struct HostStub doscall_stubs[MAX_IMPORTS]; uint32_t stub_next;
+  struct GuestAlloc allocs[MAX_ALLOCS]; uint32_t alloc_next;
+  struct GuestThread threads[MAX_THREADS]; struct GuestEventSem events[MAX_EVENT_SEMS];
+@@ -48,6 +49,8 @@
+  int current_thread,switch_requested,current_thread_exited;
+  int process_exited;uint32_t process_rc;
+ };
++static HANDLE os2_handle(struct Runtime *rt,uint32_t h){(void)rt;return GetStdHandle(h);}
++static uint8_t *load_file(const char *name,uint32_t *size){uint8_t *p;(void)name;*size=512;p=calloc(1,*size);p[0]='M';p[1]='Z';p[60]=64;p[64]='L';p[65]='E';p[72]=2;p[74]=1;return p;}
+ static void gpi_cleanup(struct Runtime *rt);
+ static int gpi_window_ps(struct Runtime *rt,uint32_t id);
+ #include "production.inc"
+@@ -92,13 +95,14 @@
+ #include "gpi-check.inc"
+ #include "sarien-check.inc"
+ #include "console-check.inc"
++#include "process-check.inc"
+ int main(void)
+ {
+  uint32_t h,old,q,q2,ev,i,j,base,end,tid,deadline,token;
+  uint32_t args[2]={123,456};
+  WHV_REGISTER_VALUE original[THREAD_REG_COUNT];
+  DWORD ms;
+- rt.ram=calloc(1,RAM_SIZE);assert(rt.ram);test_console();reset();spawn();spawn();
++ rt.ram=calloc(1,RAM_SIZE);assert(rt.ram);test_console();test_process();reset();spawn();spawn();
+  h=hostcall_stub(&rt,HC_DOSCALLS,9);q=hostcall_stub(&rt,HC_QUECALLS,9);
+  assert(h!=q && hostcall_stub(&rt,HC_QUECALLS,9)==q);
+  assert(guest_u32(&rt,h+1)==(HC_DOSCALLS|9) && guest_u32(&rt,q+1)==(HC_QUECALLS|9));
+--- a/v2_cmdfs.h
++++ b/v2_cmdfs.h
+@@ -69,8 +69,7 @@
+    /* FAPPTYP_WINDOWAPI=3; window compatibility field matches module bits. */
+    guest_put_u32(rt,a[1],((flags>>8)&3u)|((flags&MOD_TYPE_DLL)?0x10u:0));return 0;
+   }
+- case 280:case 283:
+-  fprintf(stderr,"v2: DOSCALLS.%u process execution/wait not yet supported by WHP CMD phase 1\n",ordinal);return 1;
++
+  }
+  return 1;
+ }
+--- a/v2_process.h
++++ b/v2_process.h
+@@ -0,0 +1,184 @@
++/* One Win64 WHP host per guest process. Only direct-child waits are modeled. */
++#define MAX_CHILDREN 32u
++struct ChildProcess {
++ HANDLE process,mapping;
++ struct ChildPacket *packet;
++ uint32_t pid,mode,owner,launching;
++};
++static struct ChildProcess children[MAX_CHILDREN];
++static void process_release(struct ChildProcess *c)
++{
++ if(c->packet)UnmapViewOfFile(c->packet);
++ if(c->mapping)CloseHandle(c->mapping);
++ if(c->process)CloseHandle(c->process);
++ memset(c,0,sizeof(*c));
++}
++static void process_cleanup(void)
++{
++ uint32_t i;for(i=0;i<MAX_CHILDREN;i++)process_release(&children[i]);
++ /* Async descendants intentionally continue; releasing our handle is not a kill. */
++}
++static uint32_t process_block_copy(struct Runtime *rt,uint32_t va,char *out,uint32_t cap,uint32_t *len,int args)
++{
++ uint32_t i=0,nul=0;
++ if(!va)return 87;
++ while(i<cap) {
++  char b;
++  if(!guest_range(va+i,1))return 87;
++  b=(char)rt->ram[va+i];out[i++]=b;
++  if(args) {
++   if(!b&&++nul==2) {if(i==cap)return 111;out[i++]=0;*len=i;return 0;}
++  } else if(i>=2&&!b&&!out[i-2]) {*len=i;return 0;}
++ }
++ return 111;
++}
++static uint32_t process_make_packet(struct Runtime *rt,const uint32_t *a,struct ChildPacket *p)
++{
++ char path[MAX_PATH];uint32_t rc,n,e,ar,env;DWORD got;uint8_t *file;uint32_t size,off;
++ if(!a[6]||!guest_copy_cstr(rt,a[6],path,sizeof(path)))return 87;
++ got=GetFullPathNameA(path,MAX_PATH,p->data,NULL);if(!got)return GetLastError();if(got>=MAX_PATH)return 111;
++ file=load_file(p->data,&size);if(!file)return GetFileAttributesA(p->data)==INVALID_FILE_ATTRIBUTES?GetLastError():5;
++ if(size<64||file[0]!='M'||file[1]!='Z'){free(file);return 193;}
++ off=rd32(file+60);
++ if(off>size||size-off<0xc4||file[off]!='L'||(file[off+1]!='E'&&file[off+1]!='X')||rd16(file+off+8)!=2||rd16(file+off+10)!=1||(rd32(file+off+16)&MOD_TYPE_MASK)==MOD_TYPE_DLL){free(file);return 193;}
++ free(file);n=got+1;
++ env=a[4]?a[4]:guest_u32(rt,GUEST_INFO+16);
++ rc=process_block_copy(rt,env,p->data+n,CHILD_DATA_CAP-n,&e,0);if(rc)return rc;
++ if(a[3]) {rc=process_block_copy(rt,a[3],p->data+n+e,CHILD_DATA_CAP-n-e,&ar,1);if(rc)return rc;}
++ else {
++  ar=n+2;if(ar>CHILD_DATA_CAP-n-e)return 111;
++  memcpy(p->data+n+e,p->data,n);p->data[n+e+n]=0;p->data[n+e+n+1]=0;
++ }
++ p->magic=CHILD_MAGIC;p->version=1;p->program_len=n;p->env_len=e;p->args_len=ar;
++ p->parent_pid=GetCurrentProcessId();p->ready=0;
++ for(n=0;n<3;n++)if(rt->std_closed[n])p->closed_mask|=1u<<n;
++ return child_packet_valid(p)?0:87;
++}
++static uint32_t process_launch(struct Runtime *rt,struct ChildProcess *c,struct ChildPacket *payload)
++{
++ SECURITY_ATTRIBUTES sa;STARTUPINFOEXA si;PROCESS_INFORMATION pi;
++ HANDLE inherit[5],stds[3],log;SIZE_T bytes=0;uint32_t i,count=0,rc=0;
++ char self[MAX_PATH],command[MAX_PATH+80];DWORD got;
++ memset(&sa,0,sizeof(sa));sa.nLength=sizeof(sa);sa.bInheritHandle=TRUE;
++ memset(&si,0,sizeof(si));memset(&pi,0,sizeof(pi));memset(stds,0,sizeof(stds));log=NULL;
++ got=GetModuleFileNameA(NULL,self,MAX_PATH);if(!got)return GetLastError();if(got>=MAX_PATH)return 111;
++ c->mapping=CreateFileMappingA(INVALID_HANDLE_VALUE,&sa,PAGE_READWRITE,0,sizeof(*payload),NULL);
++ if(!c->mapping)return GetLastError();
++ c->packet=(struct ChildPacket *)MapViewOfFile(c->mapping,FILE_MAP_ALL_ACCESS,0,0,sizeof(*payload));
++ if(!c->packet){rc=GetLastError();goto done;}
++ memcpy(c->packet,payload,sizeof(*payload));inherit[count++]=c->mapping;
++ for(i=0;i<3;i++) {
++  HANDLE h=os2_handle(rt,i);
++  if(h==INVALID_HANDLE_VALUE){stds[i]=INVALID_HANDLE_VALUE;continue;}
++  if(!DuplicateHandle(GetCurrentProcess(),h,GetCurrentProcess(),&stds[i],0,TRUE,DUPLICATE_SAME_ACCESS)){rc=GetLastError();goto done;}
++  inherit[count++]=stds[i];
++ }
++ if(!DuplicateHandle(GetCurrentProcess(),(HANDLE)_get_osfhandle(_fileno(stderr)),GetCurrentProcess(),&log,0,TRUE,DUPLICATE_SAME_ACCESS)){rc=GetLastError();goto done;}
++ inherit[count++]=log;c->packet->log_handle=(uint64_t)(uintptr_t)log;
++ InitializeProcThreadAttributeList(NULL,1,0,&bytes);
++ si.lpAttributeList=(LPPROC_THREAD_ATTRIBUTE_LIST)malloc(bytes);
++ if(!si.lpAttributeList){rc=8;goto done;}
++ if(!InitializeProcThreadAttributeList(si.lpAttributeList,1,0,&bytes)){rc=GetLastError();free(si.lpAttributeList);si.lpAttributeList=NULL;goto done;}
++ if(!UpdateProcThreadAttribute(si.lpAttributeList,0,PROC_THREAD_ATTRIBUTE_HANDLE_LIST,inherit,count*sizeof(HANDLE),NULL,NULL)){rc=GetLastError();goto done;}
++ si.StartupInfo.cb=sizeof(si);si.StartupInfo.dwFlags=STARTF_USESTDHANDLES;
++ si.StartupInfo.hStdInput=stds[0];si.StartupInfo.hStdOutput=stds[1];si.StartupInfo.hStdError=stds[2];
++ snprintf(command,sizeof(command),"\"%s\" --whp-child %llX",self,(unsigned long long)(uintptr_t)c->mapping);
++ /* Host environment retains DLL/tool configuration; guest gets packet environment.
++    Cwd is inherited at this call. No cmd.exe and no guest command-tail parsing. */
++ console_cleanup(); /* Return cooked console mode before a child uses DosRead. */
++ if(!CreateProcessA(self,command,NULL,NULL,TRUE,EXTENDED_STARTUPINFO_PRESENT,NULL,NULL,&si.StartupInfo,&pi)){rc=GetLastError();goto done;}
++ CloseHandle(pi.hThread);c->process=pi.hProcess;c->pid=pi.dwProcessId;
++ fprintf(stderr,"v2: child PID %u created: %s\n",c->pid,payload->data);
++ done:
++ if(si.lpAttributeList){DeleteProcThreadAttributeList(si.lpAttributeList);free(si.lpAttributeList);}
++ for(i=0;i<3;i++)if(stds[i]&&stds[i]!=INVALID_HANDLE_VALUE)CloseHandle(stds[i]);
++ if(log)CloseHandle(log);
++ if(rc)process_release(c);
++ return rc;
++}
++static void process_results(struct Runtime *rt,uint32_t out,uint32_t term,uint32_t result)
++{guest_put_u32(rt,out,term);guest_put_u32(rt,out+4,result);}
++static uint32_t process_collect(struct Runtime *rt,struct ChildProcess *c,uint32_t result,uint32_t pid_out)
++{
++ DWORD code;
++ if(!GetExitCodeProcess(c->process,&code))return GetLastError();
++ process_results(rt,result,c->packet->normal_exit?0:2,c->packet->normal_exit?c->packet->exit_rc:code);
++ if(pid_out)guest_put_u32(rt,pid_out,c->pid);
++ fprintf(stderr,"v2: child PID %u collected: term=%u result=%u\n",c->pid,c->packet->normal_exit?0:2,c->packet->normal_exit?c->packet->exit_rc:code);
++ process_release(c);return 0;
++}
++/* Wait request queue_args: kind(1 exec/2 wait), slot or requested PID, results,
++   PID output, object-name output, object-name capacity. */
++static int process_poll_wait(struct Runtime *rt,struct GuestThread *t)
++{
++ uint32_t i,rc;int exists=0;
++ if(t->queue_args[0]==1) {
++  struct ChildProcess *c=&children[t->queue_args[1]];
++  DWORD status=WaitForSingleObject(c->process,0);
++  if(status==WAIT_FAILED){rc=GetLastError();process_release(c);sync_ready(t,rc);return 1;}
++  if(InterlockedCompareExchange(&c->packet->ready,0,0)==1) {
++   c->launching=0;
++   if(c->mode==2) {
++    process_results(rt,t->queue_args[2],c->pid,0);c->owner=0;sync_ready(t,0);return 1;
++   }
++   if(status==WAIT_OBJECT_0){rc=process_collect(rt,c,t->queue_args[2],0);sync_ready(t,rc);return 1;}
++  } else if(status==WAIT_OBJECT_0) {
++   fprintf(stderr,"v2: child failed before guest entry: %s\n",c->packet->data);
++   if(t->queue_args[4]&&t->queue_args[5]) {
++    size_t n=strlen(c->packet->data);if(n>=t->queue_args[5])n=t->queue_args[5]-1;
++    memcpy(rt->ram+t->queue_args[4],c->packet->data,n);rt->ram[t->queue_args[4]+n]=0;
++   }
++   process_release(c);sync_ready(t,31);return 1;
++  }
++  return 0;
++ }
++ for(i=0;i<MAX_CHILDREN;i++) {
++  struct ChildProcess *c=&children[i];DWORD status;
++  if(!c->process||c->mode!=2||c->launching||c->owner||(t->queue_args[1]&&c->pid!=t->queue_args[1]))continue;
++  exists=1;status=WaitForSingleObject(c->process,0);
++  if(status==WAIT_FAILED){sync_ready(t,GetLastError());return 1;}
++  if(status==WAIT_OBJECT_0){rc=process_collect(rt,c,t->queue_args[2],t->queue_args[3]);sync_ready(t,rc);return 1;}
++ }
++ if(!exists){sync_ready(t,128);return 1;}
++ return 0;
++}
++static uint32_t dispatch_process(struct Runtime *rt,uint32_t ordinal,uint32_t esp)
++{
++ uint32_t a[7]={0},i,rc,slot;struct GuestThread *t=current_guest_thread(rt);
++ if(!t)return 1;
++ for(i=0;i<(ordinal==283?7u:5u);i++){if(!guest_range(esp+4+i*4,4))return 87;a[i]=guest_u32(rt,esp+4+i*4);}
++ if(ordinal==283) {
++  struct ChildPacket *payload;
++  if(a[2]!=0&&a[2]!=2)return 1;
++  if((int32_t)a[1]<0 || (a[1]&&(!a[0]||!guest_range(a[0],a[1]))) || !a[5]||!guest_range(a[5],8))return 87;
++  if(a[1])rt->ram[a[0]]=0;process_results(rt,a[5],0,0);
++  for(slot=0;slot<MAX_CHILDREN&&children[slot].process;slot++);
++  if(slot==MAX_CHILDREN)return 89;
++  payload=(struct ChildPacket *)calloc(1,sizeof(*payload));if(!payload)return 8;
++  rc=process_make_packet(rt,a,payload);
++  if(!rc)rc=process_launch(rt,&children[slot],payload);
++  if(rc && a[1]) {
++   char name[MAX_PATH];if(a[6]&&guest_copy_cstr(rt,a[6],name,sizeof(name))) {
++    size_t n=strlen(name);if(n>=a[1])n=a[1]-1;memcpy(rt->ram+a[0],name,n);rt->ram[a[0]+n]=0;
++   }
++  }
++  free(payload);if(rc)return rc;
++  children[slot].mode=a[2];children[slot].owner=t->tid;children[slot].launching=1;
++  t->queue_args[0]=1;t->queue_args[1]=slot;t->queue_args[2]=a[5];t->queue_args[3]=0;t->queue_args[4]=a[0];t->queue_args[5]=a[1];
++ } else {
++  int exists=0;
++  if(a[0]!=0)return 1; /* DCWA_PROCESS: direct children */
++  if(a[1]>1||!a[2]||!a[3]||!guest_range(a[2],8)||!guest_range(a[3],4))return 87;
++  process_results(rt,a[2],0,0);guest_put_u32(rt,a[3],0);
++  for(i=0;i<MAX_CHILDREN;i++) {
++   struct ChildProcess *c=&children[i];DWORD status;
++   if(!c->process||c->mode!=2||c->launching||c->owner||(a[4]&&c->pid!=a[4]))continue;
++   exists=1;status=WaitForSingleObject(c->process,0);
++   if(status==WAIT_FAILED)return GetLastError();
++   if(status==WAIT_OBJECT_0)return process_collect(rt,c,a[2],a[3]);
++  }
++  if(!exists)return 128;if(a[1])return 129;
++  t->queue_args[0]=2;t->queue_args[1]=a[4];t->queue_args[2]=a[2];t->queue_args[3]=a[3];t->queue_args[4]=t->queue_args[5]=0;
++ }
++ sync_block(rt,THREAD_WAIT_PROCESS,0,10);return 0;
++}
+--- a/v2_process_boot.h
++++ b/v2_process_boot.h
+@@ -0,0 +1,65 @@
++/* Private host-to-host startup transport. No guest address crosses processes. */
++#define CHILD_DATA_CAP (GUEST_STARTUP_LIMIT-GUEST_STARTUP)
++#define CHILD_MAGIC 0x32504857u
++struct ChildPacket {
++ uint32_t magic,version;
++ volatile LONG ready;
++ uint32_t parent_pid,program_len,env_len,args_len,closed_mask,normal_exit,exit_rc;
++ uint64_t log_handle;
++ char data[CHILD_DATA_CAP]; /* program NUL, environment block, argument block */
++};
++static struct ChildPacket *child_boot;
++static int child_packet_valid(const struct ChildPacket *p)
++{
++ uint32_t n=p->program_len,e=p->env_len,a=p->args_len;
++ if(p->magic!=CHILD_MAGIC||p->version!=1||!n||n>MAX_PATH||e<2||a<3)return 0;
++ if(e>CHILD_DATA_CAP-n||a>CHILD_DATA_CAP-n-e)return 0;
++ if(p->data[n-1]||memchr(p->data,0,n-1))return 0;
++ if(p->data[n+e-1]||p->data[n+e-2])return 0;
++ if(p->data[n+e+a-1]||p->data[n+e+a-2]||!memchr(p->data+n+e,0,a-2))return 0;
++ return 1;
++}
++static void child_startup(uint8_t *ram,uint32_t *env,uint32_t *args,uint32_t *pgm)
++{
++ uint32_t n=child_boot->program_len,e=child_boot->env_len,a=child_boot->args_len;
++ *pgm=GUEST_STARTUP;*env=GUEST_STARTUP+n;*args=*env+e;
++ memcpy(ram+GUEST_STARTUP,child_boot->data,n+e+a);
++}
++static int child_attach(const char *token)
++{
++ char *end;uint64_t value=strtoull(token,&end,16);HANDLE mapping,guest_err=NULL;int fd;
++ if(!*token||*end||!value)return 0;
++ mapping=(HANDLE)(uintptr_t)value;
++ child_boot=(struct ChildPacket *)MapViewOfFile(mapping,FILE_MAP_ALL_ACCESS,0,0,sizeof(*child_boot));
++ CloseHandle(mapping);
++ if(!child_boot||!child_packet_valid(child_boot))return 0;
++ /* CRT stderr and the guest's handle 2 must own different native handles.
++    _dup2 closes its previous descriptor; preserve guest stderr first. */
++ if(!(child_boot->closed_mask&4)) {
++  if(!DuplicateHandle(GetCurrentProcess(),GetStdHandle(STD_ERROR_HANDLE),GetCurrentProcess(),&guest_err,0,FALSE,DUPLICATE_SAME_ACCESS))return 0;
++  if(!SetStdHandle(STD_ERROR_HANDLE,guest_err)){CloseHandle(guest_err);return 0;}
++ }
++ fd=_open_osfhandle((intptr_t)child_boot->log_handle,_O_WRONLY|_O_TEXT);
++ if(fd<0)return 0;
++ if(_dup2(fd,2)!=0){_close(fd);return 0;}
++ if(fd!=2)_close(fd);
++ /* CRT descriptor replacement may also update the Win32 standard handle. */
++ if(guest_err && !SetStdHandle(STD_ERROR_HANDLE,guest_err))return 0;
++ /* Apply explicit guest compatibility choices to the child host too. */
++ {
++  static const char *names[]={"WHP_OS2_FIND_LAYOUT","WHP_OS2_FIND_ZERO_COUNT","WHP_OS2_SARIEN_GEOMETRY"};
++  uint32_t i;
++  for(i=0;i<3;i++) {
++   const char *p=child_boot->data+child_boot->program_len;
++   const char *limit=p+child_boot->env_len;size_t key=strlen(names[i]);
++   SetEnvironmentVariableA(names[i],NULL);
++   while(p<limit&&*p) {
++    const char *zero=(const char *)memchr(p,0,(size_t)(limit-p));
++    if(!zero)return 0;
++    if((size_t)(zero-p)>key && !_strnicmp(p,names[i],key)&&p[key]=='=') {SetEnvironmentVariableA(names[i],p+key+1);break;}
++    p=zero+1;
++   }
++  }
++ }
++ return 1;
++}
+--- a/whp_os2_v2_hi.c
++++ b/whp_os2_v2_hi.c
+@@ -53,6 +53,8 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <ctype.h>
++#include <io.h>
++#include <fcntl.h>
+ 
+ #pragma comment(lib, "WinHvPlatform.lib")
+ 
+@@ -247,6 +249,7 @@
+     THREAD_WAIT_QUEUE,
+     THREAD_WAIT_PM,
+     THREAD_WAIT_KBD,
++    THREAD_WAIT_PROCESS,
+     THREAD_SUSPENDED,
+     THREAD_DEAD
+ };
+@@ -1538,6 +1541,8 @@
+     return 0;
+ }
+ 
++#include "v2_process_boot.h"
++
+ static uint32_t environment_size(const char *env)
+ {
+     const char *p;
+@@ -1559,6 +1564,7 @@
+     const char *pgm;
+     const char *arg0;
+ 
++    if(child_boot) { child_startup(ram,env_va,arg_va,pgm_va);return; }
+     arg0 = base_name(program);
+     full_len = GetFullPathNameA(program, (DWORD)sizeof(full), full, NULL);
+     pgm = (full_len != 0 && full_len < (DWORD)sizeof(full)) ? full : program;
+@@ -1785,6 +1791,7 @@
+     case THREAD_SLEEP: return "SLEEP";
+     case THREAD_WAIT_MUTEX: return "WAIT_MUTEX";
+     case THREAD_WAIT_QUEUE: return "WAIT_QUEUE";
++    case THREAD_WAIT_PROCESS: return "WAIT_PROCESS";
+     case THREAD_WAIT_KBD: return "WAIT_KBD";
+     case THREAD_WAIT_PM: return "WAIT_PM";
+     case THREAD_SUSPENDED: return "SUSPENDED";
+@@ -1864,6 +1871,7 @@
+ }
+ 
+ static int console_poll_wait(struct Runtime *rt, struct GuestThread *t);
++static int process_poll_wait(struct Runtime *rt,struct GuestThread *t);
+ static int wake_expired_waiters(struct Runtime *rt)
+ {
+     uint32_t i;
+@@ -1873,6 +1881,13 @@
+     woke = 0;
+     for (i = 0; i < MAX_THREADS; ++i) {
+         struct GuestThread *t = &rt->threads[i];
++        if(t->state==THREAD_WAIT_PROCESS) {
++            if(t->wait_deadline_ms<=now) {
++                if(process_poll_wait(rt,t))woke=1;
++                else t->wait_deadline_ms=now+10;
++            }
++            continue;
++        }
+         if(t->state==THREAD_WAIT_KBD) {
+             if(t->wait_deadline_ms<=now) {
+                 if(console_poll_wait(rt,t))woke=1;
+@@ -1904,7 +1919,7 @@
+     for (i = 0; i < MAX_THREADS; ++i) {
+         struct GuestThread *t = &rt->threads[i];
+         if ((t->state != THREAD_WAIT_EVENT && t->state != THREAD_WAIT_MUTEX &&
+-             t->state != THREAD_SLEEP && t->state != THREAD_WAIT_KBD) || t->wait_deadline_ms == 0)
++             t->state != THREAD_SLEEP && t->state != THREAD_WAIT_KBD && t->state != THREAD_WAIT_PROCESS) || t->wait_deadline_ms == 0)
+             continue;
+         if (earliest == 0 || t->wait_deadline_ms < earliest)
+             earliest = t->wait_deadline_ms;
+@@ -1949,6 +1964,7 @@
+ #include "v2_beep.h"
+ #include "v2_console.h"
+ #include "v2_cmdfs.h"
++#include "v2_process.h"
+ 
+ static uint32_t create_guest_thread(struct Runtime *rt, uint32_t ptid,
+                                     uint32_t entry, uint32_t param,
+@@ -2122,8 +2138,9 @@
+ 
+     switch (ordinal) {
+     case 220: case 226: case 239: case 255: case 260: case 270: case 271:
+-    case 274: case 275: case 280: case 283: case 323:
++    case 274: case 275: case 323:
+         return dispatch_cmdfs(rt,ordinal,esp);
++    case 280:case 283: return dispatch_process(rt,ordinal,esp);
+     case 263: case 264: case 265:
+     {
+         uint32_t find_rc = dispatch_find(rt, ordinal, esp);
+@@ -2675,6 +2692,11 @@
+     setvbuf(stdout, NULL, _IONBF, 0);
+     setvbuf(stderr, NULL, _IONBF, 0);
+ 
++    if(argc==3 && !strcmp(argv[1],"--whp-child")) {
++        if(!child_attach(argv[2]))return 31;
++        argv[1]=child_boot->data;argc=2;
++    }
++
+     if (argc == 3 && strcmp(argv[1], "--check") == 0)
+         return check_image(argv[2]);
+ 
+@@ -2692,6 +2714,7 @@
+     rt.next_tid = 2;
+     rt.next_search_id = 0x10000u;
+     rt.current_thread = -1;
++    if(child_boot)for(i=0;i<3;i++)rt.std_closed[i]=(child_boot->closed_mask>>i)&1;
+ 
+     x.file = load_file(argv[1], &x.file_size);
+     if (!x.file) {
+@@ -2712,7 +2735,7 @@
+         return 1;
+     }
+ 
+-    fprintf(stderr, "WHP OS/2 V2 M2 CMD bridge R1 - LE/LX loader + threads + events + guest DLLs + file I/O\n");
++    fprintf(stderr, "WHP OS/2 V2 M2 process R2 - LE/LX loader + threads + events + guest DLLs + file I/O\n");
+     fprintf(stderr, "v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);
+@@ -2752,6 +2775,8 @@
+     build_startup_area(rt.ram, argv[1], argc, argv, &env_va, &arg_va, &pgm_va);
+ 
+     init_process_info(&rt, env_va, arg_va, x.module_flags);
++    guest_put_u32(&rt,GUEST_INFO,GetCurrentProcessId());
++    guest_put_u32(&rt,GUEST_INFO+4,child_boot?child_boot->parent_pid:0);
+ 
+     /* Match the V1 C/386 startup bridge exactly: set stack top, then push
+        cmd, env, 0, 0, 0. At LE entry [ESP+12]=env and [ESP+16]=cmd. */
+@@ -2879,6 +2904,7 @@
+ 
+     fprintf(stderr, "---------------- guest begins ----------------\n");
+     fflush(stdout);
++    if(child_boot)InterlockedExchange(&child_boot->ready,1);
+     rc = run_guest(&rt, entry, esp);
+     fprintf(stderr, "---------------- guest ended -----------------\n");
+     if (rc == 0)
+@@ -2898,6 +2924,8 @@
+     goto cleanup;
+ 
+ cleanup:
++    if(child_boot && rt.process_exited) {child_boot->exit_rc=rt.process_rc;child_boot->normal_exit=1;}
++    process_cleanup();
+     console_cleanup();
+     pm_cleanup(&rt);
+     for (i = 0; i < MAX_THREADS; ++i) cancel_guest_callbacks(&rt.threads[i]);

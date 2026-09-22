@@ -1,0 +1,7 @@
+M31A R11
+- Added runtime tracing for WMCHAR metric-global, sprintf format-string, and
+  sprintf FILE-object OFF32 relocations.
+- Added PMGPI FONTMETRICS field tracing for offsets used by Beta-2 WMCHAR.
+- Added WMCHAR metric-global/format-string dump at WinRegisterClass.
+- WinDrawText now copies explicit-length guest strings into host-owned memory
+  before invoking GDI, preserving the PM personality boundary.

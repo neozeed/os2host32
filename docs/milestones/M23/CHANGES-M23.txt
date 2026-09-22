@@ -1,0 +1,17 @@
+Milestone 23
+============
+
+* Added C89 `cmdparse.c` / `cmdparse.h` semantic reconstruction of the
+  Dec-1991 NT CMD `clex.c` and `cparse.c` architecture.
+* Preserved recovered parser levels ParseS0..ParseS5 and exact operator
+  precedence: &, ||, &&, |, redirection, command/group.
+* Added quote-aware metacharacter lexing and `%NAME%` environment expansion at
+  the recovered SubVar/MSEnvVar boundary.
+* Added parentheses, @ prefix, REM handling, redirection AST nodes, parse errors.
+* CMD32OS2 now executes &, &&, ||, groups through the parser AST.
+* Pipelines and redirection are parsed but not executed yet.
+* Added `cmd32os2 --parse ...` AST diagnostics independent of DOSCALLS.dll.
+* Added portable `parse-test.c` and `make parser-check` regression.
+* Added original clex/cparse disassembly ranges and recovery notes under
+  analysis/.
+* Updated MinGW and MSC8/VC1-oriented build paths to link cmdparse.c.

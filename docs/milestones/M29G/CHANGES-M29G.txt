@@ -1,0 +1,20 @@
+Milestone 29G
+=============
+
+* Replaced the direct C/386 backend's temporary DosWrite console fallback with
+  the genuine `_far16 _pascal` VIOCALLS.19 VioWrtTTY path proven in M29B/M29F.
+* Replaced the DosRead-based keyboard fallback with the genuine KBDCALLS.4
+  KbdCharIn migration thunk.
+* Replaced the no-op keyboard flush with KBDCALLS.13 KbdFlushBuffer.
+* Added a private two-byte-packed 10-byte KBDKEYINFO wire structure so the
+  historical ABI does not leak compiler padding into cmdos2.h.
+* Added explicit DEF imports for DosFlatToSel plus the three VIO/KBD ordinals
+  required by the backend-owned C/386 migration helpers.
+* Added cmdos2_os2_console_test.c/.def.  The test itself contains no `_far16`
+  declarations and therefore proves that the thunks are owned by the real
+  backend rather than by a synthetic compiler probe.
+* Updated build-os2-backend.cmd to link the existing smoke image with the M29G
+  import contract and to build the new interactive backend console probe.
+* Added examples/m29g-os2-backend-console-test.cmd.
+* No os2host32 loader changes: M29G intentionally consumes the generalized
+  M29F bridge machinery unchanged.

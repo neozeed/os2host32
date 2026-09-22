@@ -1,0 +1,29 @@
+CMD32 PS/KILL R2
+=================
+
+Fixes the R1 session-registry regression observed on real Windows/CMD32:
+
+  PS
+    PS: session query failed rc=87
+
+  START /PM NEKO
+    cmd32os2: DosStartSession(neko.exe) rc=463
+
+Root cause
+----------
+R1 process_creation_time() rejected INVALID_HANDLE_VALUE.  On Win32, however,
+GetCurrentProcess() returns the pseudo-handle (HANDLE)-1, which is numerically
+the same value as INVALID_HANDLE_VALUE and is valid for GetProcessTimes().
+
+The owner timestamp therefore always failed:
+
+* PS returned ERROR_INVALID_PARAMETER (87);
+* related START created the child suspended, but remember_session() could not
+  register the owner, deliberately terminated the child, and returned
+  ERROR_SMG_RETRY_SUB_ALLOC (463).
+
+R2 only rejects NULL before calling GetProcessTimes().  The current-process
+pseudo-handle is now accepted; any genuinely invalid non-NULL handle naturally
+fails GetProcessTimes().
+
+No process/session model semantics changed.

@@ -1,0 +1,6 @@
+M31A R7
+=======
+
+* Suppress host Win32 WM_IME_* messages for OS/2 PM compatibility windows.
+* Add DefWindowProc enter/leave trace during deferred ShowWindow.
+* No LE loader, guest ABI, WMCHAR source, or PM keyboard semantic changes.

@@ -1,0 +1,13 @@
+Milestone 21 - CMD lineage / personality bootstrap
+
+* Preserved M20 32-bit LX loader and M19 DosExecPgm behavior.
+* Extracted Dec-1991 NT CMD COFF source contributions and function symbols.
+* Added analysis/nt_source_modules.tsv (30 Microsoft CMD source modules).
+* Added analysis/nt_functions.tsv and NT_CMD_FUNCTION_INDEX.md (307 named CMD functions).
+* Added OS/2 6.64 -> NT command-handler crosswalk (40 commands, 38 high-confidence direct matches).
+* Added module-level keep/mixed/adapt/replace porting plan.
+* Added exact common-string comparison for OS/2 2.0 GA vs Dec-1991 NT CMD.
+* Added C89-oriented cmd32os2.c integration bootstrap.
+* DOSCALLS.283 accepts optional OS2HOST32_LOADER override for native personality front-ends.
+* Makefile builds cmd32os2.exe with the other tools; build-msvc.cmd updated for MSC8/VC1.
+* Added make crosswalk target (Python/objdump development-time analysis only).

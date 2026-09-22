@@ -1,0 +1,38 @@
+/*
+    Resource file for OpenDlg demonstrator
+    Created by Microsoft, IBM Corporation 1990
+*/
+#include <os2.h>
+#include "hello.h"
+
+POINTER ID_RESOURCE	hello.ico
+
+MENU ID_RESOURCE PRELOAD
+BEGIN
+	SUBMENU	"~File", IDM_FILE
+	BEGIN
+		MENUITEM "~Open...",	IDM_OPEN,	MIS_TEXT
+		MENUITEM "~Save As...", IDM_SAVE,	MIS_TEXT
+		MENUITEM SEPARATOR
+		MENUITEM "E~xit",	SC_CLOSE,	MIS_SYSCOMMAND
+		MENUITEM "A~bout...",	IDM_ABOUT,	MIS_TEXT
+	END
+END
+
+DLGTEMPLATE IDD_ABOUT LOADONCALL MOVEABLE DISCARDABLE
+BEGIN
+    DIALOG "About", IDD_ABOUT, 9, 17, 194, 90, FS_NOBYTEALIGN | FS_DLGBORDER |
+                WS_VISIBLE | WS_CLIPSIBLINGS | WS_SAVEBITS, FCF_TITLEBAR
+    BEGIN
+        CONTROL ID_RESOURCE, -1, 13, 56, 21, 21, WC_STATIC, SS_ICON |
+                WS_GROUP | WS_VISIBLE
+        CONTROL "Open Dialog Demo Application", 256, 37, 65, 154, 8, WC_STATIC,
+                SS_TEXT | DT_CENTER | DT_TOP | WS_GROUP | WS_VISIBLE
+        CONTROL "Created 1990, Microsoft, IBM Corp.", 257, 5, 35, 184, 8, 
+                WC_STATIC, SS_TEXT | DT_CENTER | DT_TOP | WS_GROUP | WS_VISIBLE
+        CONTROL "Version 2.0", 258, 37, 50, 153, 8, WC_STATIC, SS_TEXT | 
+                DT_CENTER | DT_TOP | WS_GROUP | WS_VISIBLE
+        CONTROL "Ok", DID_OK, 78, 10, 38, 13, WC_BUTTON, BS_PUSHBUTTON |
+                BS_DEFAULT | WS_TABSTOP | WS_VISIBLE
+    END
+END

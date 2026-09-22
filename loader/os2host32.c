@@ -1,0 +1,5007 @@
+/*
+ * os2host32.c - direct OS/2 LE/LX image host
+ *
+ * Goals:
+ *   - Conservative ANSI C89 source, suitable for Microsoft C/C++ 8.x and
+ *     Visual C++ 1.x as well as modern 32-bit Win32 compilers.
+ *   - Load an unmodified 32-bit OS/2 LE or LX executable directly into a
+ *     Win32 process; do not translate the guest image to PE.
+ *   - Reuse the narrow, already-proven LE/LX fixup subset from le2pe386 M17:
+ *       internal OFF32 fixups
+ *       external ordinal REL32 fixups
+ *   - Resolve OS/2 personality imports against compatibility DLLs such as
+ *     DOSCALLS.dll, and (M29N2a) map ordinary LE/LX user DLLs recursively
+ *     from OS2LIBPATH with ordinal/name export resolution.
+ *
+ * Current execution gate:
+ *   --run maps the guest, resolves imports, applies relocations, constructs
+ *   the OS/2/C386 startup stack/environment contract used by M17, then
+ *   transfers control to the original LE/LX entry point.
+ *
+ * M29B added the first deliberately narrow mixed-mode exception: Microsoft
+ * C/386 _far16 _pascal VIOCALLS.19.  M29C added KBDCALLS.4 (KbdCharIn).
+ * M29D added KBDCALLS.9 (KbdStringIn), proving a twelve-byte Pascal frame with
+ * two independent far16 pointers.  M29E converted the native bridge generator
+ * to a descriptor-driven Pascal-frame engine and added the scalar-only
+ * KBDCALLS.13 (KbdFlushBuffer) case.  M29F generalizes that descriptor engine
+ * to multiple migration thunks in one executable.  M29H extends the proven
+ * descriptor set through the VIO cursor/mode/scroll calls needed by CLS.  The 16-bit thunk remains
+ * loader metadata and is never executed; each generated 32->16 helper is
+ * patched to a native
+ * 32-bit bridge.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+#if UINT_MAX == 0xffffffffU
+typedef unsigned int U32;
+typedef signed int S32;
+#elif ULONG_MAX == 0xffffffffUL
+typedef unsigned long U32;
+typedef signed long S32;
+#else
+#error Need a 32-bit integer type
+#endif
+
+typedef unsigned char  U8;
+typedef unsigned short U16;
+typedef signed short   S16;
+
+#define MAX_OBJECTS 128
+#define MAX_MODULES 256
+#define MAX_IMPORTS 1024
+#define MAX_RESOURCES 1024
+#define MAX_LE_PAGES 65535UL
+
+#define FORMAT_LX 1
+#define FORMAT_LE 2
+
+#define LX_PAGE_VALID      0UL
+#define LX_PAGE_ITERATED   1UL
+#define LX_PAGE_INVALID    2UL
+#define LX_PAGE_ZERO       3UL
+#define LX_PAGE_RANGE      4UL
+#define LX_PAGE_COMPRESSED 5UL
+
+static int g_quiet = 0;
+#define MAX_NAME_IMPORTS 256
+#define OBJ_BIG_DEFAULT 0x00002000UL
+#define MOD_TYPE_MASK    0x00038000UL
+#define MOD_TYPE_DLL     0x00008000UL
+#define MOD_INIT_INSTANCE 0x00000004UL
+#define MOD_TERM_INSTANCE 0x40000000UL
+
+#define IMPORT_KIND_NONE  0
+#define IMPORT_KIND_HOST  1
+#define IMPORT_KIND_GUEST 2
+#define IMPORT_KIND_TRAP  3
+#define MAX_GUEST_MODULES 64
+
+#define O2_NO_ERROR             0UL
+#define O2_ERROR_INVALID_HANDLE 6UL
+#define O2_ERROR_INVALID_PARAMETER 87UL
+#define O2_ERROR_BUFFER_OVERFLOW 111UL
+#define O2_ERROR_MOD_NOT_FOUND 126UL
+#define O2_ERROR_PROC_NOT_FOUND 127UL
+#define O2_ERROR_INIT_ROUTINE_FAILED 295UL
+
+struct GuestModule;
+
+#define SRC_MASK            0x0f
+#define SRC_BYTE8           0x00
+#define SRC_SEL16           0x02
+#define SRC_PTR1616         0x03
+#define SRC_OFF16           0x05
+#define SRC_PTR1632         0x06
+#define SRC_OFF32           0x07
+#define SRC_REL32           0x08
+#define SRC_ALIAS           0x10
+#define SRC_LIST            0x20
+
+#define TGT_MASK            0x03
+#define TGT_INTERNAL        0x00
+#define TGT_EXT_ORD         0x01
+#define TGT_EXT_NAME        0x02
+#define TGT_INT_ENTRY       0x03
+#define TGT_ADDITIVE        0x04
+#define TGT_CHAIN           0x08
+#define TGT_OFF32           0x10
+#define TGT_ADD32           0x20
+#define TGT_OBJ16           0x40
+#define TGT_ORD8            0x80
+
+struct LxObject {
+    U32 size;
+    U32 base;
+    U32 flags;
+    U32 page_index;
+    U32 page_count;
+    U32 reserved;
+    U8 *mapped;
+    U8 *resource_shadow; /* M31D: immutable copy for overlapping LE resource objects */
+};
+
+struct ImportModule {
+    char name[64];
+    int kind;
+#ifdef _WIN32
+    HMODULE handle;
+#else
+    void *handle;
+#endif
+    struct GuestModule *guest;
+};
+
+struct ImportOrd {
+    U32 module;
+    U32 ordinal;
+    U32 address;
+    U32 sites;
+};
+
+struct ImportName {
+    U32 module;
+    U32 name_offset;
+    U32 address;
+    U32 sites;
+};
+
+struct LePageEntry {
+    U32 physical;
+    U8 flags;
+};
+
+struct LxResource {
+    U16 type;
+    U16 name;
+    U32 size;
+    U16 object;
+    U32 offset;
+};
+
+struct PhysOwner {
+    int valid;
+    U32 object;
+    U32 object_page;
+};
+
+/*
+ * Descriptor for one proven Microsoft C/386 _far16 _pascal target.
+ *
+ * arg_width[] is in the order the arguments appear in the Pascal frame when
+ * the native replacement helper is entered: the rightmost source argument is
+ * closest to the return address.  Width 2 means an unsigned 16-bit scalar;
+ * width 4 means a 32-bit value/token (currently a preserved flat-pointer
+ * token).  Reading the frame from low to high and pushing each widened value
+ * produces the correct right-to-left Win32 cdecl argument order.
+ */
+#define C386_FAR16_MAX_ARGS 8
+struct C386Far16ApiDesc {
+    const char *module;
+    U32 ordinal;
+    const char *name;
+    U8 arg_count;
+    U8 arg_width[C386_FAR16_MAX_ARGS];
+};
+
+static const struct C386Far16ApiDesc c386_far16_apis[] = {
+    { "VIOCALLS",  7UL, "VioScrollUp",      7, { 2, 4, 2, 2, 2, 2, 2, 0 } },
+    { "VIOCALLS",  9UL, "VioGetCurPos",    3, { 2, 4, 4, 0, 0, 0, 0, 0 } },
+    { "VIOCALLS", 15UL, "VioSetCurPos",    3, { 2, 2, 2, 0, 0, 0, 0, 0 } },
+    { "VIOCALLS", 19UL, "VioWrtTTY",       3, { 2, 2, 4, 0, 0, 0, 0, 0 } },
+    { "VIOCALLS", 21UL, "VioGetMode",      2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "KBDCALLS",  4UL, "KbdCharIn",       3, { 2, 2, 4, 0, 0, 0, 0, 0 } },
+    { "KBDCALLS",  9UL, "KbdStringIn",     4, { 2, 2, 4, 4, 0, 0, 0, 0 } },
+    { "KBDCALLS", 13UL, "KbdFlushBuffer",  1, { 2, 0, 0, 0, 0, 0, 0, 0 } }
+};
+#define C386_FAR16_API_COUNT \
+    ((U32)(sizeof(c386_far16_apis) / sizeof(c386_far16_apis[0])))
+#define C386_FAR16_DESC_NONE 0xffffffffUL
+
+/*
+ * M30: EMX 0.9x uses one generic 32->16 dispatcher rather than the one-thunk
+ * per API shape emitted by Microsoft C/386.  These are the far16 targets
+ * reached by the generic EMX_THUNK1 wrapper in the specimen used to bring up
+ * the bridge.  arg_width[] is again in low-to-high packed-frame order, which
+ * is the right-to-left order required when widening onto a Win32 cdecl stack.
+ */
+static const struct C386Far16ApiDesc emx_far16_apis[] = {
+    { "DOSCALLS", 14UL, "DosSetSigHandler", 5, { 2, 2, 4, 4, 4, 0, 0, 0 } },
+    { "DOSCALLS", 15UL, "DosFlagProcess",   4, { 2, 2, 2, 2, 0, 0, 0, 0 } },
+    { "KBDCALLS",  4UL, "KbdCharIn",       3, { 2, 2, 4, 0, 0, 0, 0, 0 } },
+    { "KBDCALLS",  9UL, "KbdStringIn",     4, { 2, 2, 4, 4, 0, 0, 0, 0 } },
+    { "KBDCALLS", 10UL, "KbdGetStatus",    2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "KBDCALLS", 11UL, "KbdSetStatus",    2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "KBDCALLS", 13UL, "KbdFlushBuffer",  1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
+    { "KBDCALLS", 22UL, "KbdPeek",         2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "VIOCALLS", 21UL, "VioGetMode",      2, { 2, 4, 0, 0, 0, 0, 0, 0 } }
+};
+#define EMX_FAR16_API_COUNT \
+    ((U32)(sizeof(emx_far16_apis) / sizeof(emx_far16_apis[0])))
+
+static U32 c386_far16_desc_index(const char *module, U32 ordinal)
+{
+    U32 i;
+    for (i = 0; i < C386_FAR16_API_COUNT; ++i) {
+        if (c386_far16_apis[i].ordinal == ordinal &&
+            strcmp(c386_far16_apis[i].module, module) == 0)
+            return i;
+    }
+    return C386_FAR16_DESC_NONE;
+}
+
+/*
+ * One Microsoft C/386 _far16 _pascal migration thunk.
+ *
+ * The 16-bit thunk is metadata only and is never entered on Win32.  M29E
+ * stores a descriptor index so native stub generation is data-driven instead
+ * of special-casing each API's frame in machine-code branches.
+ *
+ * Object numbers stored here are 0-based except target/return objects, which
+ * are converted to 0-based as soon as they are recorded.
+ */
+#define C386_FAR16_MAX_BRIDGES 32
+struct C386Far16Bridge {
+    int candidate;
+    int validated;
+    U32 api_desc_index;
+    U32 thunk_object;
+    U32 thunk_offset;
+    U32 import_module;
+    U32 import_ordinal;
+    U32 alias_source_object;
+    U32 alias_selector_offset;
+    U32 stack_selector_offset;
+    U32 return_object;
+    U32 return_offset;
+    U32 helper_offset;
+#ifdef _WIN32
+    U8 *native_stub;
+#endif
+};
+
+struct LxImage {
+    U8 *file;
+    U32 file_size;
+    U32 h;
+    int format;
+    U32 module_flags;
+    U32 module_pages;
+    U32 entry_object;
+    U32 entry_eip;
+    U32 stack_object;
+    U32 stack_esp;
+    U32 page_size;
+    U32 page_shift;
+    U32 last_page_size;
+    U32 logical_pages;
+    U32 object_table;
+    U32 object_count;
+    U32 page_map;
+    U32 iter_pages;
+    U32 resource_table;
+    U32 resource_count;
+    U32 fixup_page_table;
+    U32 fixup_record_table;
+    U32 import_module_table;
+    U32 import_module_count;
+    U32 import_proc_table;
+    U32 resident_name_table;
+    U32 entry_table;
+    U32 nonresident_name_table;
+    U32 nonresident_name_len;
+    U32 data_pages;
+    struct LxObject objects[MAX_OBJECTS];
+    struct ImportModule modules[MAX_MODULES];
+    struct LxResource resources[MAX_RESOURCES];
+    struct ImportOrd imports[MAX_IMPORTS];
+    U32 import_count;
+    U32 internal_fixups;
+    U32 internal_sites;
+    U32 external_fixups;
+    U32 source_records[9];
+    U32 source_sites[9];
+    U32 alias_records;
+    U32 alias_sites;
+    U32 name_import_count;
+    struct ImportName name_imports[MAX_NAME_IMPORTS];
+    struct LePageEntry *le_pages;
+    struct PhysOwner *le_owner;
+#ifdef _WIN32
+    U8 *mapping_arena;
+    U32 mapping_span;
+#endif
+    int has_16bit_objects;
+    int direct32_fixups;
+    U32 c386_bridge_count;
+    int c386_bridges_complete;
+    struct C386Far16Bridge c386_bridges[C386_FAR16_MAX_BRIDGES];
+    int emx_bridge_complete;
+#ifdef _WIN32
+    U8 *emx_thunk_stub;
+    U8 *emx_import_traps[MAX_IMPORTS];
+#endif
+};
+
+struct GuestModule {
+    char request_name[64];
+    char path[260];
+    int state;              /* 1 = loading, 2 = ready */
+    U32 handle;
+    U32 refcount;
+    int init_called;
+    int term_called;
+    U32 init_order;
+    struct LxImage image;
+};
+
+#ifdef _WIN32
+static struct GuestModule *g_guest_modules[MAX_GUEST_MODULES];
+static U32 g_guest_module_count = 0;
+static U32 g_next_guest_module_handle = 0x00010000UL;
+static U32 g_next_guest_init_order = 1UL;
+static U32 g_last_guest_load_error = O2_NO_ERROR;
+static int g_guest_process_exit = 0;
+/* M30: synthetic module handle 1 represents the main guest executable. */
+static char g_main_guest_program[260];
+/* M30D: actual mapped main-thread stack bounds published to DOSCALLS so
+ * DosGetInfoBlocks can return an OS/2-compatible TIB. */
+static U32 g_main_guest_stack_low = 0;
+static U32 g_main_guest_stack_high = 0;
+/* M30M2: exact OS/2 command block (argv0\0tail\0\0) published to DOSCALLS. */
+static char *g_main_guest_cmd = NULL;
+static U32 g_main_guest_cmd_len = 0;
+/* M30M4: retain the most recent inferred TEXT relocation map so an
+ * exception report can say whether the fault is near bytes we rewrote. */
+static U8 *g_m30m_diag_text = NULL;
+static U32 g_m30m_diag_text_size = 0;
+static U32 g_m30m_diag_text_preferred = 0;
+static U8 *g_m30m_diag_mark = NULL;
+#endif
+
+static U16 rd16(const U8 *p)
+{
+    return (U16)((U16)p[0] | ((U16)p[1] << 8));
+}
+
+static S16 rds16(const U8 *p)
+{
+    return (S16)rd16(p);
+}
+
+static U32 rd32(const U8 *p)
+{
+    return (U32)p[0] | ((U32)p[1] << 8) | ((U32)p[2] << 16) |
+           ((U32)p[3] << 24);
+}
+
+#ifdef _WIN32
+static void wr32(U8 *p, U32 v)
+{
+    p[0] = (U8)(v & 0xff);
+    p[1] = (U8)((v >> 8) & 0xff);
+    p[2] = (U8)((v >> 16) & 0xff);
+    p[3] = (U8)((v >> 24) & 0xff);
+}
+#endif
+
+static int range_ok(struct LxImage *x, U32 off, U32 len)
+{
+    if (off > x->file_size) return 0;
+    if (len > x->file_size - off) return 0;
+    return 1;
+}
+
+static void fail(const char *s)
+{
+    fprintf(stderr, "os2host32: %s\n", s);
+    exit(1);
+}
+
+static void load_file(struct LxImage *x, const char *name)
+{
+    FILE *f;
+    long n;
+    memset(x, 0, sizeof(*x));
+    f = fopen(name, "rb");
+    if (!f) fail("cannot open input file");
+    if (fseek(f, 0, SEEK_END) != 0) fail("cannot seek input file");
+    n = ftell(f);
+    if (n < 0) fail("cannot determine input size");
+    if (fseek(f, 0, SEEK_SET) != 0) fail("cannot rewind input file");
+    x->file_size = (U32)n;
+    x->file = (U8 *)malloc((size_t)x->file_size);
+    if (!x->file) fail("out of memory reading input");
+    if (fread(x->file, 1, (size_t)x->file_size, f) != (size_t)x->file_size)
+        fail("short read");
+    fclose(f);
+}
+
+static void parse_import_modules(struct LxImage *x)
+{
+    U32 p, i, n;
+    p = x->import_module_table;
+    if (x->import_module_count > MAX_MODULES)
+        fail("too many LX import modules");
+    for (i = 0; i < x->import_module_count; ++i) {
+        if (!range_ok(x, p, 1)) fail("bad LX import module table");
+        n = x->file[p++];
+        if (n == 0 || n >= sizeof(x->modules[i].name))
+            fail("unsupported LX import module name length");
+        if (!range_ok(x, p, n)) fail("bad LX import module name");
+        memcpy(x->modules[i].name, x->file + p, (size_t)n);
+        x->modules[i].name[n] = 0;
+        x->modules[i].kind = IMPORT_KIND_NONE;
+        x->modules[i].handle = 0;
+        x->modules[i].guest = 0;
+        p += n;
+    }
+}
+
+static void parse_resources(struct LxImage *x)
+{
+    U32 i, o;
+    struct LxResource *r;
+    struct LxObject *obj;
+
+    if (x->resource_count > MAX_RESOURCES)
+        fail("too many LE/LX resources");
+    if (x->resource_count == 0)
+        return;
+    if (!range_ok(x, x->resource_table, x->resource_count * 14UL))
+        fail("bad LE/LX resource table");
+
+    for (i = 0; i < x->resource_count; ++i) {
+        o = x->resource_table + i * 14UL;
+        r = &x->resources[i];
+        r->type   = rd16(x->file + o + 0);
+        r->name   = rd16(x->file + o + 2);
+        r->size   = rd32(x->file + o + 4);
+        r->object = rd16(x->file + o + 8);
+        r->offset = rd32(x->file + o + 10);
+        if (r->object == 0 || r->object > x->object_count)
+            fail("resource references invalid object");
+        obj = &x->objects[r->object - 1];
+        if (r->offset > obj->size || r->size > obj->size - r->offset)
+            fail("resource lies outside object");
+    }
+}
+
+static void parse_lx(struct LxImage *x)
+{
+    U32 i, o;
+    x->format = FORMAT_LX;
+    if (!range_ok(x, 0, 0x40)) fail("file is too small for MZ header");
+    if (x->file[0] != 'M' || x->file[1] != 'Z') fail("missing MZ header");
+    x->h = rd32(x->file + 0x3c);
+    if (!range_ok(x, x->h, 0xb0)) fail("LX header is outside file");
+    if (x->file[x->h] != 'L' || x->file[x->h + 1] != 'X')
+        fail("input is not an LX executable");
+    if (x->file[x->h + 2] != 0 || x->file[x->h + 3] != 0)
+        fail("big-endian LX is not supported");
+    if (rd16(x->file + x->h + 8) != 2) fail("only i386 LX images are supported");
+    if (rd16(x->file + x->h + 0x0a) != 1) fail("only OS/2 LX images are supported");
+
+    x->module_flags        = rd32(x->file + x->h + 0x10);
+    x->module_pages        = rd32(x->file + x->h + 0x14);
+    x->entry_object        = rd32(x->file + x->h + 0x18);
+    x->entry_eip           = rd32(x->file + x->h + 0x1c);
+    x->stack_object        = rd32(x->file + x->h + 0x20);
+    x->stack_esp           = rd32(x->file + x->h + 0x24);
+    x->page_size           = rd32(x->file + x->h + 0x28);
+    x->page_shift          = rd32(x->file + x->h + 0x2c);
+    x->object_table        = x->h + rd32(x->file + x->h + 0x40);
+    x->object_count        = rd32(x->file + x->h + 0x44);
+    x->page_map            = x->h + rd32(x->file + x->h + 0x48);
+    x->iter_pages          = rd32(x->file + x->h + 0x4c);
+    x->resource_table      = x->h + rd32(x->file + x->h + 0x50);
+    x->resource_count      = rd32(x->file + x->h + 0x54);
+    x->fixup_page_table    = x->h + rd32(x->file + x->h + 0x68);
+    x->fixup_record_table  = x->h + rd32(x->file + x->h + 0x6c);
+    x->import_module_table = x->h + rd32(x->file + x->h + 0x70);
+    x->import_module_count = rd32(x->file + x->h + 0x74);
+    x->import_proc_table   = x->h + rd32(x->file + x->h + 0x78);
+    x->resident_name_table = x->h + rd32(x->file + x->h + 0x58);
+    x->entry_table         = x->h + rd32(x->file + x->h + 0x5c);
+    x->nonresident_name_table = rd32(x->file + x->h + 0x88);
+    x->nonresident_name_len   = rd32(x->file + x->h + 0x8c);
+    x->data_pages          = rd32(x->file + x->h + 0x80);
+    x->last_page_size      = 0;
+    x->logical_pages       = x->module_pages;
+
+    if (x->object_count == 0 || x->object_count > MAX_OBJECTS)
+        fail("unsupported LX object count");
+    if (x->page_size == 0) fail("invalid LX page size");
+    if (x->module_pages == 0) fail("invalid LX module page count");
+    if (!range_ok(x, x->object_table, x->object_count * 24UL))
+        fail("bad LX object table");
+    if (!range_ok(x, x->fixup_page_table, (x->module_pages + 1UL) * 4UL))
+        fail("bad LX fixup page table");
+
+    for (i = 0; i < x->object_count; ++i) {
+        o = x->object_table + i * 24UL;
+        x->objects[i].size       = rd32(x->file + o + 0);
+        x->objects[i].base       = rd32(x->file + o + 4);
+        x->objects[i].flags      = rd32(x->file + o + 8);
+        x->objects[i].page_index = rd32(x->file + o + 12);
+        x->objects[i].page_count = rd32(x->file + o + 16);
+        x->objects[i].reserved   = rd32(x->file + o + 20);
+        x->objects[i].mapped     = 0;
+    }
+    if ((x->module_flags & MOD_TYPE_MASK) == MOD_TYPE_DLL) {
+        if (x->entry_object != 0) {
+            if (x->entry_object > x->object_count)
+                fail("invalid LX library entry object");
+            if (x->entry_eip >= x->objects[x->entry_object - 1].size)
+                fail("LX library entry offset lies outside entry object");
+        }
+    } else {
+        if (x->entry_object == 0 || x->entry_object > x->object_count)
+            fail("invalid LX entry object");
+        if (x->entry_eip >= x->objects[x->entry_object - 1].size)
+            fail("LX entry offset lies outside entry object");
+        if (x->stack_object == 0 || x->stack_object > x->object_count)
+            fail("invalid LX stack object");
+        if (x->stack_esp > x->objects[x->stack_object - 1].size)
+            fail("LX stack offset lies outside stack object");
+    }
+    parse_resources(x);
+    parse_import_modules(x);
+}
+
+static void parse_le(struct LxImage *x)
+{
+    U32 i, j, o, last_map, map_index, phys;
+    U8 flags;
+
+    x->format = FORMAT_LE;
+    if (!range_ok(x, 0, 0x40)) fail("file is too small for MZ header");
+    if (x->file[0] != 'M' || x->file[1] != 'Z') fail("missing MZ header");
+    x->h = rd32(x->file + 0x3c);
+    if (!range_ok(x, x->h, 0xc4)) fail("LE header is outside file");
+    if (x->file[x->h] != 'L' || x->file[x->h + 1] != 'E')
+        fail("input is not an LE executable");
+    if (x->file[x->h + 2] != 0 || x->file[x->h + 3] != 0)
+        fail("big-endian LE is not supported");
+    if (rd16(x->file + x->h + 8) != 2) fail("only i386 LE images are supported");
+    if (rd16(x->file + x->h + 0x0a) != 1) fail("only OS/2 LE images are supported");
+
+    x->module_flags        = rd32(x->file + x->h + 0x10);
+    x->module_pages        = rd32(x->file + x->h + 0x14); /* physical pages */
+    x->entry_object        = rd32(x->file + x->h + 0x18);
+    x->entry_eip           = rd32(x->file + x->h + 0x1c);
+    x->stack_object        = rd32(x->file + x->h + 0x20);
+    x->stack_esp           = rd32(x->file + x->h + 0x24);
+    x->page_size           = rd32(x->file + x->h + 0x28);
+    x->last_page_size      = rd32(x->file + x->h + 0x2c);
+    x->page_shift          = 0;
+    x->object_table        = x->h + rd32(x->file + x->h + 0x40);
+    x->object_count        = rd32(x->file + x->h + 0x44);
+    x->page_map            = x->h + rd32(x->file + x->h + 0x48);
+    x->iter_pages          = 0;
+    x->resource_table      = x->h + rd32(x->file + x->h + 0x50);
+    x->resource_count      = rd32(x->file + x->h + 0x54);
+    x->fixup_page_table    = x->h + rd32(x->file + x->h + 0x68);
+    x->fixup_record_table  = x->h + rd32(x->file + x->h + 0x6c);
+    x->import_module_table = x->h + rd32(x->file + x->h + 0x70);
+    x->import_module_count = rd32(x->file + x->h + 0x74);
+    x->import_proc_table   = x->h + rd32(x->file + x->h + 0x78);
+    x->resident_name_table = x->h + rd32(x->file + x->h + 0x58);
+    x->entry_table         = x->h + rd32(x->file + x->h + 0x5c);
+    x->nonresident_name_table = rd32(x->file + x->h + 0x88);
+    x->nonresident_name_len   = rd32(x->file + x->h + 0x8c);
+    /* LE data-page offset is absolute, unlike the resident tables. */
+    x->data_pages          = rd32(x->file + x->h + 0x80);
+
+    if (x->object_count == 0 || x->object_count > MAX_OBJECTS)
+        fail("unsupported LE object count");
+    if (x->module_pages == 0 || x->module_pages > MAX_LE_PAGES)
+        fail("unsupported LE physical page count");
+    if (x->page_size == 0 || (x->page_size & (x->page_size - 1UL)) != 0)
+        fail("invalid LE page size");
+    if (!range_ok(x, x->object_table, x->object_count * 24UL))
+        fail("bad LE object table");
+    if (!range_ok(x, x->fixup_page_table, (x->module_pages + 1UL) * 4UL))
+        fail("bad LE fixup page table");
+
+    last_map = 0;
+    for (i = 0; i < x->object_count; ++i) {
+        o = x->object_table + i * 24UL;
+        x->objects[i].size       = rd32(x->file + o + 0);
+        x->objects[i].base       = rd32(x->file + o + 4);
+        x->objects[i].flags      = rd32(x->file + o + 8);
+        x->objects[i].page_index = rd32(x->file + o + 12);
+        x->objects[i].page_count = rd32(x->file + o + 16);
+        x->objects[i].reserved   = rd32(x->file + o + 20);
+        x->objects[i].mapped     = 0;
+        if (x->objects[i].page_count != 0) {
+            if (x->objects[i].page_index == 0)
+                fail("LE object has invalid page-map index");
+            if (x->objects[i].page_index - 1UL >
+                0xffffffffUL - x->objects[i].page_count)
+                fail("LE object page-map range overflows");
+            if (x->objects[i].page_index - 1UL + x->objects[i].page_count > last_map)
+                last_map = x->objects[i].page_index - 1UL + x->objects[i].page_count;
+        }
+    }
+    x->logical_pages = last_map;
+    if (x->logical_pages == 0 || x->logical_pages > MAX_LE_PAGES)
+        fail("unsupported LE logical page-map size");
+    if (!range_ok(x, x->page_map, x->logical_pages * 4UL))
+        fail("bad LE object page map");
+
+    x->le_pages = (struct LePageEntry *)calloc((size_t)x->logical_pages,
+                                                sizeof(struct LePageEntry));
+    x->le_owner = (struct PhysOwner *)calloc((size_t)x->module_pages + 1U,
+                                              sizeof(struct PhysOwner));
+    if (!x->le_pages || !x->le_owner)
+        fail("out of memory parsing LE page map");
+
+    for (i = 0; i < x->logical_pages; ++i) {
+        const U8 *m;
+        m = x->file + x->page_map + i * 4UL;
+        phys = ((U32)m[0] << 16) | ((U32)m[1] << 8) | (U32)m[2];
+        flags = m[3];
+        x->le_pages[i].physical = phys;
+        x->le_pages[i].flags = flags;
+        if (flags == 0) {
+            if (phys == 0 || phys > x->module_pages)
+                fail("bad LE physical page number");
+        } else if (flags == 3) {
+            /* Explicit zero-fill logical page. */
+        } else {
+            fail("iterated/range/compressed LE pages are not supported yet");
+        }
+    }
+
+    for (i = 0; i < x->object_count; ++i) {
+        struct LxObject *obj;
+        obj = &x->objects[i];
+        if (obj->page_count != 0 &&
+            (obj->page_index == 0 ||
+             obj->page_index - 1UL + obj->page_count > x->logical_pages))
+            fail("LE object has invalid page-map range");
+        for (j = 0; j < obj->page_count; ++j) {
+            map_index = obj->page_index - 1UL + j;
+            if (x->le_pages[map_index].flags == 3)
+                continue;
+            phys = x->le_pages[map_index].physical;
+            if (x->le_owner[phys].valid)
+                fail("physical LE page belongs to more than one object");
+            x->le_owner[phys].valid = 1;
+            x->le_owner[phys].object = i;
+            x->le_owner[phys].object_page = j;
+        }
+    }
+
+    if ((x->module_flags & MOD_TYPE_MASK) == MOD_TYPE_DLL) {
+        if (x->entry_object != 0) {
+            if (x->entry_object > x->object_count)
+                fail("invalid LE library entry object");
+            if (x->entry_eip >= x->objects[x->entry_object - 1].size)
+                fail("LE library entry offset lies outside entry object");
+        }
+    } else {
+        if (x->entry_object == 0 || x->entry_object > x->object_count)
+            fail("invalid LE entry object");
+        if (x->entry_eip >= x->objects[x->entry_object - 1].size)
+            fail("LE entry offset lies outside entry object");
+        if (x->stack_object == 0 || x->stack_object > x->object_count)
+            fail("invalid LE stack object");
+        if (x->stack_esp > x->objects[x->stack_object - 1].size)
+            fail("LE stack offset lies outside stack object");
+    }
+
+    parse_resources(x);
+    parse_import_modules(x);
+}
+
+static void parse_image(struct LxImage *x)
+{
+    U32 h;
+    if (!range_ok(x, 0, 0x40)) fail("file is too small for MZ header");
+    if (x->file[0] != 'M' || x->file[1] != 'Z') fail("missing MZ header");
+    h = rd32(x->file + 0x3c);
+    if (!range_ok(x, h, 2)) fail("linear executable header is outside file");
+    if (x->file[h] == 'L' && x->file[h + 1] == 'X')
+        parse_lx(x);
+    else if (x->file[h] == 'L' && x->file[h + 1] == 'E')
+        parse_le(x);
+    else
+        fail("input is neither an OS/2 LE nor LX executable");
+}
+
+static void print_import_modules(struct LxImage *x)
+{
+    U32 i;
+    printf("Import modules (%lu):\n", (unsigned long)x->import_module_count);
+    for (i = 0; i < x->import_module_count; ++i)
+        printf("  %3lu: %s\n", (unsigned long)(i + 1), x->modules[i].name);
+}
+
+static void print_info(struct LxImage *x)
+{
+    U32 i;
+    printf("%s header       : 0x%08lX\n",
+           x->format == FORMAT_LE ? "LE" : "LX", (unsigned long)x->h);
+    printf("File size       : %lu bytes\n", (unsigned long)x->file_size);
+    printf("Module flags    : 0x%08lX\n", (unsigned long)x->module_flags);
+    if (x->format == FORMAT_LE) {
+        printf("Page size/last  : %lu / %lu\n",
+               (unsigned long)x->page_size, (unsigned long)x->last_page_size);
+        printf("Physical pages  : %lu\n", (unsigned long)x->module_pages);
+        printf("Logical pages   : %lu\n", (unsigned long)x->logical_pages);
+    } else {
+        printf("Page size/shift : %lu / %lu\n",
+               (unsigned long)x->page_size, (unsigned long)x->page_shift);
+        printf("Module pages    : %lu\n", (unsigned long)x->module_pages);
+    }
+    printf("Entry           : object %lu + 0x%08lX\n",
+           (unsigned long)x->entry_object, (unsigned long)x->entry_eip);
+    printf("Stack           : object %lu + 0x%08lX\n",
+           (unsigned long)x->stack_object, (unsigned long)x->stack_esp);
+    printf("Data pages      : file+0x%08lX\n", (unsigned long)x->data_pages);
+    printf("Fixup tables    : page=0x%08lX record=0x%08lX\n",
+           (unsigned long)x->fixup_page_table,
+           (unsigned long)x->fixup_record_table);
+    printf("Objects (%lu):\n", (unsigned long)x->object_count);
+    for (i = 0; i < x->object_count; ++i) {
+        struct LxObject *o;
+        o = &x->objects[i];
+        printf("  %3lu: base=%08lX size=%08lX flags=%08lX pages=%lu @%lu [%s]\n",
+               (unsigned long)(i + 1), (unsigned long)o->base,
+               (unsigned long)o->size, (unsigned long)o->flags,
+               (unsigned long)o->page_count, (unsigned long)o->page_index,
+               (o->flags & OBJ_BIG_DEFAULT) ? "32-bit" : "16-bit");
+    }
+    printf("Resources (%lu):\n", (unsigned long)x->resource_count);
+    for (i = 0; i < x->resource_count; ++i) {
+        struct LxResource *r;
+        r = &x->resources[i];
+        printf("  %3lu: type=%u id=%u size=%lu object=%u +%08lX\n",
+               (unsigned long)(i + 1), (unsigned)r->type,
+               (unsigned)r->name, (unsigned long)r->size,
+               (unsigned)r->object, (unsigned long)r->offset);
+    }
+    print_import_modules(x);
+}
+
+static U32 skip_objmod(struct LxImage *x, U32 *pos, U8 flags, U32 end)
+{
+    U32 v;
+    if (flags & TGT_OBJ16) {
+        if (*pos > end || end - *pos < 2) fail("truncated LX fixup target");
+        v = rd16(x->file + *pos);
+        *pos += 2;
+    } else {
+        if (*pos >= end) fail("truncated LX fixup target");
+        v = x->file[(*pos)++];
+    }
+    return v;
+}
+
+static U32 find_or_add_import(struct LxImage *x, U32 module, U32 ordinal)
+{
+    U32 i;
+    if (module >= x->import_module_count)
+        fail("external fixup references invalid module");
+    for (i = 0; i < x->import_count; ++i) {
+        if (x->imports[i].module == module && x->imports[i].ordinal == ordinal)
+            return i;
+    }
+    if (x->import_count >= MAX_IMPORTS) fail("too many LX ordinal imports");
+    x->imports[x->import_count].module = module;
+    x->imports[x->import_count].ordinal = ordinal;
+    x->imports[x->import_count].address = 0;
+    x->imports[x->import_count].sites = 0;
+    ++x->import_count;
+    return x->import_count - 1;
+}
+
+static U32 find_or_add_name_import(struct LxImage *x, U32 module, U32 name_offset)
+{
+    U32 i;
+    if (module >= x->import_module_count)
+        fail("external named fixup references invalid module");
+    for (i = 0; i < x->name_import_count; ++i) {
+        if (x->name_imports[i].module == module &&
+            x->name_imports[i].name_offset == name_offset)
+            return i;
+    }
+    if (x->name_import_count >= MAX_NAME_IMPORTS)
+        fail("too many LX named imports");
+    x->name_imports[x->name_import_count].module = module;
+    x->name_imports[x->name_import_count].name_offset = name_offset;
+    x->name_imports[x->name_import_count].address = 0;
+    x->name_imports[x->name_import_count].sites = 0;
+    ++x->name_import_count;
+    return x->name_import_count - 1;
+}
+
+static const char *source_type_name(U8 st)
+{
+    switch (st) {
+    case SRC_BYTE8: return "BYTE8";
+    case SRC_SEL16: return "SEL16";
+    case SRC_PTR1616: return "PTR16:16";
+    case SRC_OFF16: return "OFF16";
+    case SRC_PTR1632: return "PTR16:32";
+    case SRC_OFF32: return "OFF32";
+    case SRC_REL32: return "REL32";
+    }
+    return "UNKNOWN";
+}
+
+static U32 source_width(U8 st)
+{
+    switch (st) {
+    case SRC_BYTE8: return 1;
+    case SRC_SEL16: return 2;
+    case SRC_PTR1616: return 4;
+    case SRC_OFF16: return 2;
+    case SRC_PTR1632: return 6;
+    case SRC_OFF32: return 4;
+    case SRC_REL32: return 4;
+    }
+    return 0;
+}
+
+static const char *import_name_at(struct LxImage *x, U32 off, char *buf, U32 buflen)
+{
+    U32 p, n;
+    if (buflen == 0) return "";
+    buf[0] = 0;
+    p = x->import_proc_table + off;
+    if (!range_ok(x, p, 1)) return "<bad-name-offset>";
+    n = x->file[p++];
+    if (n >= buflen || !range_ok(x, p, n)) return "<bad-name>";
+    memcpy(buf, x->file + p, (size_t)n);
+    buf[n] = 0;
+    return buf;
+}
+
+#ifdef _WIN32
+static U32 import_index(struct LxImage *x, U32 module, U32 ordinal)
+{
+    U32 i;
+    for (i = 0; i < x->import_count; ++i) {
+        if (x->imports[i].module == module && x->imports[i].ordinal == ordinal)
+            return i;
+    }
+    fail("internal error: missing LX ordinal import");
+    return 0;
+}
+#endif
+
+static void page_owner(struct LxImage *x, U32 page, U32 *obj_out,
+                       U32 *obj_page_out)
+{
+    U32 i, first, last;
+    if (page == 0 || page > x->module_pages)
+        fail("fixup references invalid linear-executable page");
+
+    if (x->format == FORMAT_LE) {
+        if (!x->le_owner || !x->le_owner[page].valid)
+            fail("LE fixup physical page has no object owner");
+        *obj_out = x->le_owner[page].object;
+        *obj_page_out = x->le_owner[page].object_page;
+        return;
+    }
+
+    for (i = 0; i < x->object_count; ++i) {
+        if (x->objects[i].page_count == 0) continue;
+        first = x->objects[i].page_index;
+        last = first + x->objects[i].page_count;
+        if (page >= first && page < last) {
+            *obj_out = i;
+            *obj_page_out = page - first;
+            return;
+        }
+    }
+    fail("LX fixup page has no object owner");
+}
+
+static U32 source_object_offset_width(struct LxImage *x, U32 page, S16 source,
+                                      U32 width, U32 *obj_out)
+{
+    U32 obj, obj_page;
+    S32 off;
+    page_owner(x, page, &obj, &obj_page);
+    off = (S32)(obj_page * x->page_size) + (S32)source;
+    if (off < 0 || (U32)off + width > x->objects[obj].size)
+        fail("LX fixup source lies outside object");
+    *obj_out = obj;
+    return (U32)off;
+}
+
+#ifdef _WIN32
+static U32 source_object_offset(struct LxImage *x, U32 page, S16 source,
+                                U32 *obj_out)
+{
+    return source_object_offset_width(x, page, source, 4UL, obj_out);
+}
+#endif
+
+static void detect_c386_far16_bridges(struct LxImage *x);
+static void detect_emx_generic_bridge(struct LxImage *x);
+
+/*
+ * Inventory LX fixups broadly enough for mixed 16/32-bit OS/2 2.x images.
+ * Direct application is still deliberately limited to the proven flat-32
+ * subset; the broader scanner exists so mixed images such as OS/2 2.0 CMD.EXE
+ * can tell us exactly what execution machinery they require.
+ */
+static void scan_fixups(struct LxImage *x)
+{
+    U32 page, start, endoff, p, end, q, first, target;
+    U32 count, i, idx, dummy_obj, width;
+    U8 type, flags, kind, st;
+    S16 source;
+
+    x->import_count = 0;
+    x->name_import_count = 0;
+    x->internal_fixups = 0;
+    x->internal_sites = 0;
+    x->external_fixups = 0;
+    x->alias_records = 0;
+    x->alias_sites = 0;
+    x->has_16bit_objects = 0;
+    x->direct32_fixups = 1;
+    memset(x->source_records, 0, sizeof(x->source_records));
+    memset(x->source_sites, 0, sizeof(x->source_sites));
+
+    for (i = 0; i < x->object_count; ++i) {
+        if ((x->objects[i].flags & OBJ_BIG_DEFAULT) == 0)
+            x->has_16bit_objects = 1;
+    }
+
+    for (page = 1; page <= x->module_pages; ++page) {
+        start  = rd32(x->file + x->fixup_page_table + (page - 1) * 4UL);
+        endoff = rd32(x->file + x->fixup_page_table + page * 4UL);
+        p = x->fixup_record_table + start;
+        end = x->fixup_record_table + endoff;
+        if (p > end || !range_ok(x, p, end - p))
+            fail("bad LX fixup record range");
+        if (end > x->import_module_table)
+            fail("LX fixup records overlap import table");
+
+        while (p < end) {
+            if (end - p < 2) fail("truncated LX fixup record");
+            type = x->file[p++];
+            flags = x->file[p++];
+            st = type & SRC_MASK;
+            kind = flags & TGT_MASK;
+            width = source_width(st);
+            if (width == 0)
+                fail("unknown/undefined LX source fixup type");
+            if (flags & TGT_CHAIN)
+                fail("chained LX fixups are not supported by the scanner yet");
+
+            if (type & SRC_LIST) {
+                if (p >= end) fail("truncated LX fixup source-list count");
+                count = x->file[p++];
+                source = 0;
+            } else {
+                if (end - p < 2) fail("truncated LX fixup source");
+                count = 1;
+                source = rds16(x->file + p);
+                p += 2;
+            }
+
+            if (st <= SRC_REL32) {
+                ++x->source_records[st];
+                x->source_sites[st] += count;
+            }
+            if (type & SRC_ALIAS) {
+                ++x->alias_records;
+                x->alias_sites += count;
+            }
+
+            q = p;
+            first = skip_objmod(x, &q, flags, end);
+            target = 0;
+
+            if (kind == TGT_INTERNAL) {
+                if (first == 0 || first > x->object_count)
+                    fail("internal LX fixup has bad target object");
+                if (st != SRC_SEL16) {
+                    if (flags & TGT_OFF32) {
+                        if (end - q < 4) fail("truncated internal LX OFF32 target");
+                        q += 4;
+                    } else {
+                        if (end - q < 2) fail("truncated internal LX OFF16 target");
+                        q += 2;
+                    }
+                }
+                ++x->internal_fixups;
+                x->internal_sites += count;
+                if (st != SRC_OFF32 || (type & SRC_ALIAS))
+                    x->direct32_fixups = 0;
+            } else if (kind == TGT_EXT_ORD) {
+                if (first == 0 || first > x->import_module_count)
+                    fail("external LX fixup references invalid module");
+                if (flags & TGT_ORD8) {
+                    if (q >= end) fail("truncated LX 8-bit ordinal");
+                    target = x->file[q++];
+                } else if (flags & TGT_OFF32) {
+                    if (end - q < 4) fail("truncated LX 32-bit ordinal");
+                    target = rd32(x->file + q);
+                    q += 4;
+                } else {
+                    if (end - q < 2) fail("truncated LX 16-bit ordinal");
+                    target = rd16(x->file + q);
+                    q += 2;
+                }
+                idx = find_or_add_import(x, first - 1, target);
+                x->imports[idx].sites += count;
+                x->external_fixups += count;
+                if (st != SRC_REL32 || (type & SRC_ALIAS))
+                    x->direct32_fixups = 0;
+            } else if (kind == TGT_EXT_NAME) {
+                if (first == 0 || first > x->import_module_count)
+                    fail("external named LX fixup references invalid module");
+                if (flags & TGT_OFF32) {
+                    if (end - q < 4) fail("truncated LX 32-bit name offset");
+                    target = rd32(x->file + q);
+                    q += 4;
+                } else {
+                    if (end - q < 2) fail("truncated LX 16-bit name offset");
+                    target = rd16(x->file + q);
+                    q += 2;
+                }
+                idx = find_or_add_name_import(x, first - 1, target);
+                x->name_imports[idx].sites += count;
+                x->external_fixups += count;
+                if (st != SRC_REL32 || (type & SRC_ALIAS))
+                    x->direct32_fixups = 0;
+            } else if (kind == TGT_INT_ENTRY) {
+                /* 'first' is the entry-table ordinal for this target kind. */
+                x->internal_fixups++;
+                x->internal_sites += count;
+                x->direct32_fixups = 0;
+            } else {
+                fail("unknown LX fixup target kind");
+            }
+
+            if (flags & TGT_ADDITIVE) {
+                if (flags & TGT_ADD32) {
+                    if (end - q < 4) fail("truncated LX 32-bit additive");
+                    q += 4;
+                } else {
+                    if (end - q < 2) fail("truncated LX 16-bit additive");
+                    q += 2;
+                }
+                x->direct32_fixups = 0;
+            }
+
+            p = q;
+            if (type & SRC_LIST) {
+                if ((U32)(end - p) < count * 2UL)
+                    fail("LX fixup source list extends past page records");
+                for (i = 0; i < count; ++i) {
+                    U32 trace_off;
+                    source = rds16(x->file + p);
+                    trace_off = source_object_offset_width(x, page, source, width,
+                                                           &dummy_obj);
+                    if (getenv("OS2_TRACE_FIXUPS") != NULL &&
+                        kind == TGT_EXT_ORD)
+                        printf("FIXUPSITE obj=%lu+%08lX %-12s.%lu type=%s%s\n",
+                               (unsigned long)(dummy_obj + 1UL),
+                               (unsigned long)trace_off,
+                               x->modules[first - 1UL].name,
+                               (unsigned long)target, source_type_name(st),
+                               (type & SRC_ALIAS) ? "+ALIAS" : "");
+                    p += 2;
+                }
+            } else {
+                U32 trace_off;
+                trace_off = source_object_offset_width(x, page, source, width,
+                                                       &dummy_obj);
+                if (getenv("OS2_TRACE_FIXUPS") != NULL &&
+                    kind == TGT_EXT_ORD)
+                    printf("FIXUPSITE obj=%lu+%08lX %-12s.%lu type=%s%s\n",
+                           (unsigned long)(dummy_obj + 1UL),
+                           (unsigned long)trace_off,
+                           x->modules[first - 1UL].name,
+                           (unsigned long)target, source_type_name(st),
+                           (type & SRC_ALIAS) ? "+ALIAS" : "");
+            }
+            if (p > end) fail("LX fixup record extends past page records");
+        }
+        if (p != end) fail("LX fixup page did not end on a record boundary");
+    }
+
+    if (x->has_16bit_objects)
+        x->direct32_fixups = 0;
+
+    detect_c386_far16_bridges(x);
+    detect_emx_generic_bridge(x);
+}
+
+/*
+ * Recognize the Microsoft C/386 migration shape emitted for the currently
+ * proven far-Pascal calls:
+ *
+ *     USHORT _far16 _pascal VioScrollUp(USHORT, USHORT, USHORT, USHORT,
+ *                                        USHORT, BYTE _far16 *, USHORT)
+ *     USHORT _far16 _pascal VioGetCurPos(USHORT _far16 *,
+ *                                         USHORT _far16 *, USHORT)
+ *     USHORT _far16 _pascal VioSetCurPos(USHORT, USHORT, USHORT)
+ *     USHORT _far16 _pascal VioWrtTTY(char _far16 *, USHORT, USHORT)
+ *     USHORT _far16 _pascal VioGetMode(VIOMODEINFO _far16 *, USHORT)
+ *     USHORT _far16 _pascal KbdCharIn(KBDKEYINFO _far16 *, USHORT, USHORT)
+ *     USHORT _far16 _pascal KbdStringIn(char _far16 *,
+ *                                        STRINGINBUF _far16 *,
+ *                                        USHORT, USHORT)
+ *     USHORT _far16 _pascal KbdFlushBuffer(USHORT)
+ *
+ * The proven shape contains:
+ *   - one 16-bit thunk object;
+ *   - PTR16:16 + ALIAS from that object to the supported import;
+ *   - PTR16:32 from that object back into the 32-bit helper continuation;
+ *   - SEL16 + ALIAS from 32-bit code to the 16-bit thunk object;
+ *   - one additional SEL16 in the helper for its SS comparison.
+ *
+ * Everything else must remain in the normal flat subset (internal OFF32 and
+ * external ordinal REL32).  This intentionally fails closed for other mixed
+ * binaries until we have a real specimen for them.
+ */
+static void detect_c386_far16_bridges(struct LxImage *x)
+{
+    struct ExtRec { U32 obj, mod, ord, src; } exts[C386_FAR16_MAX_BRIDGES];
+    struct RetRec { U32 obj, target, off, src; } rets[C386_FAR16_MAX_BRIDGES];
+    struct SelRec { U32 obj, target, src; } aliases[C386_FAR16_MAX_BRIDGES];
+    struct SelRec stacks[C386_FAR16_MAX_BRIDGES];
+    struct C386Far16Bridge found[C386_FAR16_MAX_BRIDGES];
+    U8 ret_used[C386_FAR16_MAX_BRIDGES];
+    U8 alias_used[C386_FAR16_MAX_BRIDGES];
+    U8 stack_used[C386_FAR16_MAX_BRIDGES];
+    U32 ext_count, ret_count, alias_count, stack_count;
+    U32 page, start, endoff, p, end, q, first, target, target_off;
+    U32 count, i, j, width, src_obj, src_off, sixteen_count;
+    U32 desc_index, thunk_base, ret_index, alias_index, stack_index;
+    U32 best_stack;
+    U8 type, flags, kind, st;
+    S16 source;
+
+    x->c386_bridge_count = 0;
+    x->c386_bridges_complete = 0;
+    memset(x->c386_bridges, 0, sizeof(x->c386_bridges));
+    memset(found, 0, sizeof(found));
+    memset(ret_used, 0, sizeof(ret_used));
+    memset(alias_used, 0, sizeof(alias_used));
+    memset(stack_used, 0, sizeof(stack_used));
+    ext_count = ret_count = alias_count = stack_count = 0;
+
+    sixteen_count = 0;
+    for (i = 0; i < x->object_count; ++i) {
+        if ((x->objects[i].flags & OBJ_BIG_DEFAULT) == 0)
+            ++sixteen_count;
+    }
+    if (sixteen_count != 1)
+        return;
+
+    /*
+     * Inventory every non-flat migration record.  M29F deliberately permits
+     * several C/386 14-byte thunk fragments in the same 16-bit object.  Normal
+     * OFF32 and external REL32 records remain part of the ordinary flat path.
+     */
+    for (page = 1; page <= x->module_pages; ++page) {
+        start  = rd32(x->file + x->fixup_page_table + (page - 1) * 4UL);
+        endoff = rd32(x->file + x->fixup_page_table + page * 4UL);
+        p = x->fixup_record_table + start;
+        end = x->fixup_record_table + endoff;
+
+        while (p < end) {
+            type = x->file[p++];
+            flags = x->file[p++];
+            st = type & SRC_MASK;
+            kind = flags & TGT_MASK;
+            width = source_width(st);
+            if (width == 0 || (flags & TGT_CHAIN))
+                return;
+
+            if (type & SRC_LIST) {
+                if (p >= end) return;
+                count = x->file[p++];
+                source = 0;
+            } else {
+                if (end - p < 2) return;
+                count = 1;
+                source = rds16(x->file + p);
+                p += 2;
+            }
+
+            q = p;
+            first = skip_objmod(x, &q, flags, end);
+            target = 0;
+            target_off = 0;
+
+            if (kind == TGT_INTERNAL) {
+                target = first;
+                if (st != SRC_SEL16) {
+                    if (flags & TGT_OFF32) {
+                        if (end - q < 4) return;
+                        target_off = rd32(x->file + q);
+                        q += 4;
+                    } else {
+                        if (end - q < 2) return;
+                        target_off = rd16(x->file + q);
+                        q += 2;
+                    }
+                }
+            } else if (kind == TGT_EXT_ORD) {
+                if (flags & TGT_ORD8) {
+                    if (q >= end) return;
+                    target = x->file[q++];
+                } else if (flags & TGT_OFF32) {
+                    if (end - q < 4) return;
+                    target = rd32(x->file + q);
+                    q += 4;
+                } else {
+                    if (end - q < 2) return;
+                    target = rd16(x->file + q);
+                    q += 2;
+                }
+            } else {
+                return;
+            }
+
+            if (flags & TGT_ADDITIVE)
+                return;
+
+            p = q;
+            if (type & SRC_LIST) {
+                if ((U32)(end - p) < count * 2UL)
+                    return;
+
+                /*
+                 * LINK386 may collapse repeated selector fixups to the same
+                 * target into one source-list record once several far16
+                 * helpers coexist.  Expand those sites here so the pairing
+                 * logic below still sees one semantic record per helper.
+                 */
+                for (i = 0; i < count; ++i) {
+                    source = rds16(x->file + p);
+                    p += 2;
+                    src_off = source_object_offset_width(x, page, source,
+                                                         width, &src_obj);
+                    if (kind == TGT_INTERNAL && st == SRC_OFF32 &&
+                        (type & SRC_ALIAS) == 0) {
+                        continue;
+                    }
+                    if (kind == TGT_EXT_ORD && st == SRC_REL32 &&
+                        (type & SRC_ALIAS) == 0) {
+                        continue;
+                    }
+                    if (kind == TGT_EXT_ORD && st == SRC_PTR1616 &&
+                        (type & SRC_ALIAS) != 0) {
+                        if (ext_count >= C386_FAR16_MAX_BRIDGES ||
+                            first == 0 || first > x->import_module_count)
+                            return;
+                        exts[ext_count].obj = src_obj;
+                        exts[ext_count].mod = first - 1UL;
+                        exts[ext_count].ord = target;
+                        exts[ext_count].src = src_off;
+                        ++ext_count;
+                    } else if (kind == TGT_INTERNAL && st == SRC_PTR1632 &&
+                               (type & SRC_ALIAS) == 0) {
+                        if (ret_count >= C386_FAR16_MAX_BRIDGES ||
+                            target == 0 || target > x->object_count)
+                            return;
+                        rets[ret_count].obj = src_obj;
+                        rets[ret_count].target = target - 1UL;
+                        rets[ret_count].off = target_off;
+                        rets[ret_count].src = src_off;
+                        ++ret_count;
+                    } else if (kind == TGT_INTERNAL && st == SRC_SEL16 &&
+                               (type & SRC_ALIAS) != 0) {
+                        if (alias_count >= C386_FAR16_MAX_BRIDGES ||
+                            target == 0 || target > x->object_count)
+                            return;
+                        aliases[alias_count].obj = src_obj;
+                        aliases[alias_count].target = target - 1UL;
+                        aliases[alias_count].src = src_off;
+                        ++alias_count;
+                    } else if (kind == TGT_INTERNAL && st == SRC_SEL16 &&
+                               (type & SRC_ALIAS) == 0) {
+                        if (stack_count >= C386_FAR16_MAX_BRIDGES ||
+                            target == 0 || target > x->object_count)
+                            return;
+                        stacks[stack_count].obj = src_obj;
+                        stacks[stack_count].target = target - 1UL;
+                        stacks[stack_count].src = src_off;
+                        ++stack_count;
+                    } else {
+                        return;
+                    }
+                }
+                continue;
+            }
+
+            src_off = source_object_offset_width(x, page, source, width,
+                                                 &src_obj);
+
+            if (kind == TGT_INTERNAL && st == SRC_OFF32 &&
+                (type & SRC_ALIAS) == 0)
+                continue;
+            if (kind == TGT_EXT_ORD && st == SRC_REL32 &&
+                (type & SRC_ALIAS) == 0)
+                continue;
+
+            if (kind == TGT_EXT_ORD && st == SRC_PTR1616 &&
+                (type & SRC_ALIAS) != 0) {
+                if (ext_count >= C386_FAR16_MAX_BRIDGES || first == 0 ||
+                    first > x->import_module_count)
+                    return;
+                exts[ext_count].obj = src_obj;
+                exts[ext_count].mod = first - 1UL;
+                exts[ext_count].ord = target;
+                exts[ext_count].src = src_off;
+                ++ext_count;
+            } else if (kind == TGT_INTERNAL && st == SRC_PTR1632 &&
+                       (type & SRC_ALIAS) == 0) {
+                if (ret_count >= C386_FAR16_MAX_BRIDGES || target == 0 ||
+                    target > x->object_count)
+                    return;
+                rets[ret_count].obj = src_obj;
+                rets[ret_count].target = target - 1UL;
+                rets[ret_count].off = target_off;
+                rets[ret_count].src = src_off;
+                ++ret_count;
+            } else if (kind == TGT_INTERNAL && st == SRC_SEL16 &&
+                       (type & SRC_ALIAS) != 0) {
+                if (alias_count >= C386_FAR16_MAX_BRIDGES || target == 0 ||
+                    target > x->object_count)
+                    return;
+                aliases[alias_count].obj = src_obj;
+                aliases[alias_count].target = target - 1UL;
+                aliases[alias_count].src = src_off;
+                ++alias_count;
+            } else if (kind == TGT_INTERNAL && st == SRC_SEL16 &&
+                       (type & SRC_ALIAS) == 0) {
+                if (stack_count >= C386_FAR16_MAX_BRIDGES || target == 0 ||
+                    target > x->object_count)
+                    return;
+                stacks[stack_count].obj = src_obj;
+                stacks[stack_count].target = target - 1UL;
+                stacks[stack_count].src = src_off;
+                ++stack_count;
+            } else {
+                return;
+            }
+        }
+    }
+
+    if (ext_count == 0 || ret_count != ext_count ||
+        alias_count != ext_count || stack_count != ext_count)
+        return;
+
+    /*
+     * Pair records structurally.  A C/386 thunk fragment is 14 bytes:
+     *   +0  9A ptr16:16      imported 16-bit API (fixup starts +1)
+     *   +5  66 67 EA ptr16:32 return to 32-bit continuation (+8)
+     * The helper's alias selector is exactly two bytes before that return
+     * continuation, so it can be paired without assuming thunk ordering.
+     */
+    for (i = 0; i < ext_count; ++i) {
+        if (exts[i].src == 0)
+            return;
+        thunk_base = exts[i].src - 1UL;
+        desc_index = c386_far16_desc_index(x->modules[exts[i].mod].name,
+                                           exts[i].ord);
+        if (desc_index == C386_FAR16_DESC_NONE)
+            return;
+        if (exts[i].obj >= x->object_count ||
+            (x->objects[exts[i].obj].flags & OBJ_BIG_DEFAULT) != 0)
+            return;
+
+        ret_index = 0xffffffffUL;
+        for (j = 0; j < ret_count; ++j) {
+            if (!ret_used[j] && rets[j].obj == exts[i].obj &&
+                rets[j].src == thunk_base + 8UL) {
+                if (ret_index != 0xffffffffUL)
+                    return;
+                ret_index = j;
+            }
+        }
+        if (ret_index == 0xffffffffUL)
+            return;
+
+        alias_index = 0xffffffffUL;
+        for (j = 0; j < alias_count; ++j) {
+            if (!alias_used[j] && aliases[j].target == exts[i].obj &&
+                aliases[j].obj == rets[ret_index].target &&
+                rets[ret_index].off == aliases[j].src + 2UL) {
+                if (alias_index != 0xffffffffUL)
+                    return;
+                alias_index = j;
+            }
+        }
+        if (alias_index == 0xffffffffUL)
+            return;
+
+        /* The helper has one plain SS selector comparison before its alias JMP. */
+        stack_index = 0xffffffffUL;
+        best_stack = 0;
+        for (j = 0; j < stack_count; ++j) {
+            if (!stack_used[j] && stacks[j].obj == aliases[alias_index].obj &&
+                stacks[j].target == x->stack_object - 1UL &&
+                stacks[j].src < aliases[alias_index].src &&
+                aliases[alias_index].src - stacks[j].src <= 192UL) {
+                if (stack_index == 0xffffffffUL || stacks[j].src > best_stack) {
+                    stack_index = j;
+                    best_stack = stacks[j].src;
+                }
+            }
+        }
+        if (stack_index == 0xffffffffUL)
+            return;
+        if ((x->objects[aliases[alias_index].obj].flags & OBJ_BIG_DEFAULT) == 0)
+            return;
+
+        found[i].candidate = 1;
+        found[i].api_desc_index = desc_index;
+        found[i].thunk_object = exts[i].obj;
+        found[i].thunk_offset = thunk_base;
+        found[i].import_module = exts[i].mod;
+        found[i].import_ordinal = exts[i].ord;
+        found[i].alias_source_object = aliases[alias_index].obj;
+        found[i].alias_selector_offset = aliases[alias_index].src;
+        found[i].stack_selector_offset = stacks[stack_index].src;
+        found[i].return_object = rets[ret_index].target;
+        found[i].return_offset = rets[ret_index].off;
+
+        ret_used[ret_index] = 1;
+        alias_used[alias_index] = 1;
+        stack_used[stack_index] = 1;
+    }
+
+    for (i = 0; i < ext_count; ++i) {
+        if (!ret_used[i] || !alias_used[i] || !stack_used[i])
+            return;
+    }
+
+    memcpy(x->c386_bridges, found,
+           sizeof(struct C386Far16Bridge) * ext_count);
+    x->c386_bridge_count = ext_count;
+    x->c386_bridges_complete = 1;
+}
+
+/*
+ * M30A intentionally recognizes the exact EMX mixed-mode profile we have in
+ * hand.  EMX is very different from the C/386 migration thunks: object 1 is a
+ * tiny shared 16-bit mode/stack shim and object 2 contains a single generic
+ * EMX_THUNK1 dispatcher used by several wrappers.  Be conservative here: a
+ * different EMX build must be inventoried before it is admitted.
+ */
+static void detect_emx_generic_bridge(struct LxImage *x)
+{
+    static const char *const mods[6] = {
+        "DOSCALLS", "NLS", "QUECALLS", "SESMGR", "KBDCALLS", "VIOCALLS"
+    };
+    U32 i;
+
+    x->emx_bridge_complete = 0;
+    if (x->format != FORMAT_LX || x->file_size != 81982UL ||
+        x->module_flags != 0x40008006UL || x->module_pages != 18UL ||
+        x->entry_object != 2UL || x->entry_eip != 0x139cUL ||
+        x->object_count != 4UL || x->import_module_count != 6UL ||
+        x->import_count != 108UL)
+        return;
+    if (x->objects[0].base != 0x00010000UL || x->objects[0].size != 0x93UL ||
+        x->objects[0].flags != 0x00001005UL ||
+        x->objects[1].base != 0x00020000UL || x->objects[1].size != 0x10eb0UL ||
+        x->objects[1].flags != 0x00002005UL ||
+        x->objects[2].base != 0x00040000UL || x->objects[2].size != 0x47d8UL ||
+        x->objects[2].flags != 0x00003003UL ||
+        x->objects[3].base != 0x00050000UL || x->objects[3].size != 0x2008UL ||
+        x->objects[3].flags != 0x00002023UL)
+        return;
+    for (i = 0; i < 6UL; ++i) {
+        if (strcmp(x->modules[i].name, mods[i]) != 0)
+            return;
+    }
+    if (x->source_records[SRC_SEL16] != 3UL ||
+        x->source_sites[SRC_SEL16] != 6UL ||
+        x->source_records[SRC_PTR1616] != 10UL ||
+        x->source_sites[SRC_PTR1616] != 10UL ||
+        x->source_records[SRC_PTR1632] != 2UL ||
+        x->source_sites[SRC_PTR1632] != 2UL ||
+        x->source_records[SRC_OFF32] != 832UL ||
+        x->source_sites[SRC_OFF32] != 2060UL ||
+        x->source_records[SRC_REL32] != 208UL ||
+        x->source_sites[SRC_REL32] != 381UL ||
+        x->alias_records != 13UL || x->alias_sites != 16UL)
+        return;
+
+    x->emx_bridge_complete = 1;
+}
+
+#ifdef _WIN32
+static DWORD object_protection(U32 flags)
+{
+    int r, w, e;
+    r = (flags & 0x0001UL) != 0;
+    w = (flags & 0x0002UL) != 0;
+    e = (flags & 0x0004UL) != 0;
+    if (e && w) return PAGE_EXECUTE_READWRITE;
+    if (e && r) return PAGE_EXECUTE_READ;
+    if (e) return PAGE_EXECUTE;
+    if (w) return PAGE_READWRITE;
+    if (r) return PAGE_READONLY;
+    return PAGE_NOACCESS;
+}
+
+static int virtual_range_is_free(U32 base, U32 size)
+{
+    U32 cur;
+    U32 end;
+    MEMORY_BASIC_INFORMATION mbi;
+    SIZE_T q;
+    U32 region_end;
+
+    if (size == 0)
+        return 1;
+    if (base > 0xffffffffUL - size)
+        return 0;
+
+    cur = base;
+    end = base + size;
+    while (cur < end) {
+        q = VirtualQuery((LPCVOID)(unsigned long)cur, &mbi, sizeof(mbi));
+        if (q == 0 || mbi.State != MEM_FREE)
+            return 0;
+        region_end = (U32)(unsigned long)mbi.BaseAddress + (U32)mbi.RegionSize;
+        if (region_end <= cur)
+            return 0;
+        if (region_end >= end)
+            return 1;
+        cur = region_end;
+    }
+    return 1;
+}
+
+static void describe_virtual_address(U32 address)
+{
+    MEMORY_BASIC_INFORMATION mbi;
+    SIZE_T q;
+
+    q = VirtualQuery((LPCVOID)(unsigned long)address, &mbi, sizeof(mbi));
+    if (q != 0) {
+        fprintf(stderr,
+                "os2host32: address %08lX: state=%08lX type=%08lX "
+                "base=%p allocbase=%p size=%lu\n",
+                (unsigned long)address,
+                (unsigned long)mbi.State, (unsigned long)mbi.Type,
+                mbi.BaseAddress, mbi.AllocationBase,
+                (unsigned long)mbi.RegionSize);
+    }
+}
+
+static int emx_infer_enabled(void);
+static int image_imports_module(struct LxImage *x, const char *name);
+
+/*
+ * Native Win32 USER/GDI calls run on the current x86 stack.  Small early
+ * OS/2 PM programs commonly declared only a few kilobytes of stack because
+ * Presentation Manager itself did not consume a modern Win32 call chain.
+ * When such a program is hosted directly, USER32/GDI can exhaust that stack
+ * and overwrite data/BSS that shares the same linear object.
+ *
+ * Give qualifying PM executables a larger runtime stack above the original
+ * stack object.  Object sizes, page contents and fixup semantics remain
+ * untouched; only the committed mapping and initial ESP are extended.
+ */
+#define PM_NATIVE_MIN_STACK 0x00040000UL
+
+static U32 pm_runtime_stack_size(struct LxImage *x)
+{
+    U32 i;
+    U32 stack_i;
+    U32 old_esp;
+    U32 wanted;
+    U32 stack_base;
+    U32 stack_end;
+    U32 other_end;
+    struct LxObject *so;
+    struct LxObject *oo;
+
+    if ((x->module_flags & MOD_TYPE_MASK) == MOD_TYPE_DLL)
+        return 0;
+    if (x->stack_object == 0 || x->stack_object > x->object_count)
+        return 0;
+    if (!image_imports_module(x, "PMWIN") &&
+        !image_imports_module(x, "PMGPI"))
+        return 0;
+
+    stack_i = x->stack_object - 1UL;
+    so = &x->objects[stack_i];
+    old_esp = x->stack_esp;
+
+    /* Never move ESP through declared object data.  LINK386 PM programs
+     * normally place the initial stack pointer exactly at object end. */
+    if (old_esp != so->size || old_esp >= PM_NATIVE_MIN_STACK)
+        return 0;
+
+    wanted = PM_NATIVE_MIN_STACK;
+    if (so->base > 0xffffffffUL - wanted)
+        return 0;
+    stack_base = so->base;
+    stack_end = stack_base + wanted;
+
+    /* Do not extend through another LE/LX object. */
+    for (i = 0; i < x->object_count; ++i) {
+        if (i == stack_i)
+            continue;
+        oo = &x->objects[i];
+        if (oo->size == 0)
+            continue;
+        if (oo->base > 0xffffffffUL - oo->size)
+            return 0;
+        other_end = oo->base + oo->size;
+        if (stack_base < other_end && oo->base < stack_end)
+            return 0;
+    }
+
+    x->stack_esp = wanted;
+    if (!g_quiet)
+        printf("M31A PM stack   : promoted object %lu ESP %08lX -> %08lX "
+               "(%lu KB runtime stack span)\n",
+               (unsigned long)x->stack_object,
+               (unsigned long)old_esp,
+               (unsigned long)x->stack_esp,
+               (unsigned long)(x->stack_esp / 1024UL));
+    return wanted;
+}
+
+static int emx_fixed_data_requested(void)
+{
+    const char *p;
+    p = getenv("OS2_EMX_FIXED_DATA");
+    return p != 0 && p[0] != 0 && !(p[0] == '0' && p[1] == 0);
+}
+
+/*
+ * LX iterated pages are a sequence of:
+ *
+ *     U16 repeat_count;
+ *     U16 pattern_length;
+ *     U8  pattern[pattern_length];
+ *
+ * records.  Each pattern is copied repeat_count times.  The page-map
+ * DATA SIZE bounds the encoded stream; the logical page/object remainder
+ * bounds the expansion.  Keep the decoder deliberately strict so malformed
+ * input cannot walk either the executable image or the mapped object.
+ */
+static void expand_lx_iterated_page(struct LxImage *x, U8 *dst, U32 dst_size,
+                                    U32 src, U32 encoded_size)
+{
+    U32 in_pos;
+    U32 out_pos;
+    U32 i;
+    U32 repeats;
+    U32 pattern_len;
+    U32 remaining;
+
+    if (!range_ok(x, src, encoded_size))
+        fail("LX iterated page data outside file");
+
+    in_pos = 0;
+    out_pos = 0;
+    while (out_pos < dst_size) {
+        if (encoded_size - in_pos < 4UL)
+            fail("truncated LX iterated page record");
+        repeats = rd16(x->file + src + in_pos);
+        pattern_len = rd16(x->file + src + in_pos + 2UL);
+        in_pos += 4UL;
+
+        if (repeats == 0 || pattern_len == 0)
+            fail("invalid LX iterated page record");
+        if (pattern_len > encoded_size - in_pos)
+            fail("truncated LX iterated page pattern");
+
+        remaining = dst_size - out_pos;
+        if (repeats > remaining / pattern_len)
+            fail("LX iterated page expands beyond logical page");
+
+        for (i = 0; i < repeats; ++i) {
+            memcpy(dst + out_pos, x->file + src + in_pos,
+                   (size_t)pattern_len);
+            out_pos += pattern_len;
+        }
+        in_pos += pattern_len;
+    }
+
+    if (in_pos != encoded_size)
+        fail("LX iterated page has trailing encoded data");
+}
+
+static void map_objects(struct LxImage *x)
+{
+    U32 i, j, k, map_index, map_off, data_off, data_size, page_flags;
+    U32 min_base, max_end, end, span, actual_addr;
+    U32 alloc_size, other_alloc_size;
+    U32 pm_stack_size;
+    U32 stack_i;
+    U32 packed_cursor;
+    U32 *layout_offsets;
+    U8 *base;
+    U8 *arena;
+    int preferred_ok;
+    int overlapping_layout;
+    int emx_fixed_data;
+    struct LxObject *o;
+    struct LxObject *other;
+
+    pm_stack_size = pm_runtime_stack_size(x);
+    stack_i = x->stack_object ? x->stack_object - 1UL : 0xffffffffUL;
+
+    min_base = 0xffffffffUL;
+    max_end = 0;
+    preferred_ok = 1;
+    overlapping_layout = 0;
+    layout_offsets = NULL;
+    for (i = 0; i < x->object_count; ++i) {
+        o = &x->objects[i];
+        if (o->size == 0)
+            continue;
+        alloc_size = o->size;
+        if (pm_stack_size != 0 && i == stack_i &&
+            pm_stack_size > alloc_size)
+            alloc_size = pm_stack_size;
+        if (o->base < min_base)
+            min_base = o->base;
+        if (o->base > 0xffffffffUL - alloc_size)
+            fail("LX object address range overflows 32 bits");
+        end = o->base + alloc_size;
+        if (end > max_end)
+            max_end = end;
+
+        /*
+         * A literal preferred base of zero cannot be requested with
+         * VirtualAlloc: lpAddress == NULL means "choose an address".
+         * Treat it as relocatable even when the low 64 KB happens to be
+         * reported MEM_FREE on a particular Windows build.
+         */
+        if (o->base == 0 || !virtual_range_is_free(o->base, alloc_size))
+            preferred_ok = 0;
+
+        /*
+         * LX DLLs are allowed to carry zero/duplicate relocation bases.
+         * Those bases are not distinct linear slots; the OS/2 loader picks
+         * actual addresses for the objects.  The old direct-host layout used
+         * (base-min_base) as an arena offset, causing such objects to overlap.
+         * Detect that case and construct a packed relocation layout below.
+         */
+        for (k = 0; k < i; ++k) {
+            other = &x->objects[k];
+            if (other->size == 0)
+                continue;
+            other_alloc_size = other->size;
+            if (pm_stack_size != 0 && k == stack_i &&
+                pm_stack_size > other_alloc_size)
+                other_alloc_size = pm_stack_size;
+            if (other->base > 0xffffffffUL - other_alloc_size)
+                fail("LX object address range overflows 32 bits");
+            if (o->base < other->base + other_alloc_size &&
+                other->base < o->base + alloc_size)
+                overlapping_layout = 1;
+        }
+    }
+
+    if (overlapping_layout) {
+        layout_offsets = (U32 *)calloc((size_t)x->object_count, sizeof(U32));
+        if (!layout_offsets)
+            fail("out of memory building LX relocation layout");
+        packed_cursor = 0;
+        for (i = 0; i < x->object_count; ++i) {
+            o = &x->objects[i];
+            if (o->size == 0)
+                continue;
+            alloc_size = o->size;
+            if (pm_stack_size != 0 && i == stack_i &&
+                pm_stack_size > alloc_size)
+                alloc_size = pm_stack_size;
+            if (packed_cursor > 0xffff0000UL)
+                fail("LX packed relocation layout overflows 32 bits");
+            packed_cursor = (packed_cursor + 0xffffUL) & ~0xffffUL;
+            layout_offsets[i] = packed_cursor;
+            if (alloc_size > 0xffffffffUL - packed_cursor)
+                fail("LX packed relocation layout overflows 32 bits");
+            packed_cursor += alloc_size;
+        }
+        preferred_ok = 0;
+    }
+
+    emx_fixed_data = 0;
+    if (!preferred_ok && x->format == FORMAT_LX &&
+        emx_infer_enabled() && emx_fixed_data_requested() &&
+        image_imports_module(x, "EMX") && x->object_count >= 2UL &&
+        x->objects[1].base == 0x00020000UL) {
+        if (virtual_range_is_free(x->objects[1].base, x->objects[1].size)) {
+            emx_fixed_data = 1;
+            if (!g_quiet)
+                printf("M30M4 DATA island: 00020000 candidate is free before mapping\n");
+        } else if (!g_quiet) {
+            printf("M30M4 DATA island: 00020000 candidate is already occupied; using relocatable DATA\n");
+            describe_virtual_address(x->objects[1].base);
+        }
+    }
+
+    arena = NULL;
+    if (!preferred_ok) {
+        if (min_base == 0xffffffffUL)
+            fail("cannot determine LX relocation span");
+        if (overlapping_layout) {
+            span = packed_cursor;
+            if (span == 0)
+                fail("cannot determine packed LX relocation span");
+        } else {
+            if (max_end <= min_base)
+                fail("cannot determine LX relocation span");
+            span = max_end - min_base;
+        }
+
+        /*
+         * Modern Win32/WOW64 may already have a mapped view at an address
+         * such as 0x00010000.  LX fixups make these flat 32-bit objects
+         * relocatable, so preserve their relative layout in a private arena
+         * instead of requiring the historical preferred addresses.
+         */
+        arena = (U8 *)VirtualAlloc((LPVOID)0x01000000UL, (SIZE_T)span,
+                                   MEM_RESERVE, PAGE_NOACCESS);
+        if (!arena)
+            arena = (U8 *)VirtualAlloc(NULL, (SIZE_T)span,
+                                       MEM_RESERVE, PAGE_NOACCESS);
+        if (!arena)
+            fail("cannot reserve relocated LX object arena");
+        x->mapping_arena = arena;
+        x->mapping_span = span;
+
+        if (!g_quiet) {
+            if (overlapping_layout) {
+                printf("LX object preferred ranges overlap; using packed relocation "
+                       "arena %08lX..%08lX (%lu bytes)\n",
+                       (unsigned long)(U32)(unsigned long)arena,
+                       (unsigned long)((U32)(unsigned long)arena + span),
+                       (unsigned long)span);
+            } else {
+                printf("Preferred LX addresses are occupied; relocating image span "
+                       "%08lX..%08lX to %08lX..%08lX\n",
+                       (unsigned long)min_base, (unsigned long)max_end,
+                       (unsigned long)(U32)(unsigned long)arena,
+                       (unsigned long)((U32)(unsigned long)arena + span));
+            }
+        }
+    }
+
+    for (i = 0; i < x->object_count; ++i) {
+        o = &x->objects[i];
+        if (o->size == 0)
+            continue;
+        alloc_size = o->size;
+        if (pm_stack_size != 0 && i == stack_i &&
+            pm_stack_size > alloc_size)
+            alloc_size = pm_stack_size;
+
+        if (preferred_ok) {
+            actual_addr = o->base;
+            base = (U8 *)VirtualAlloc((LPVOID)(unsigned long)actual_addr,
+                                      (SIZE_T)alloc_size,
+                                      MEM_RESERVE | MEM_COMMIT,
+                                      PAGE_READWRITE);
+        } else if (emx_fixed_data && i == 1UL) {
+            actual_addr = o->base;
+            base = (U8 *)VirtualAlloc((LPVOID)(unsigned long)actual_addr,
+                                      (SIZE_T)alloc_size,
+                                      MEM_RESERVE | MEM_COMMIT,
+                                      PAGE_READWRITE);
+            if (!base || (U32)(unsigned long)base != actual_addr) {
+                if (base)
+                    VirtualFree(base, 0, MEM_RELEASE);
+                emx_fixed_data = 0;
+                if (overlapping_layout)
+                    actual_addr = (U32)(unsigned long)arena + layout_offsets[i];
+                else
+                    actual_addr = (U32)(unsigned long)arena + (o->base - min_base);
+                base = (U8 *)VirtualAlloc((LPVOID)(unsigned long)actual_addr,
+                                          (SIZE_T)alloc_size,
+                                          MEM_COMMIT, PAGE_READWRITE);
+                if (!g_quiet)
+                    printf("M30M3 DATA island: preferred 00020000 unavailable at commit; using relocated DATA\n");
+            } else if (!g_quiet) {
+                printf("M30M3 DATA island: preserving EMX DATA/BSS at %08lX..%08lX\n",
+                       (unsigned long)o->base,
+                       (unsigned long)(o->base + o->size));
+            }
+        } else {
+            if (overlapping_layout)
+                actual_addr = (U32)(unsigned long)arena + layout_offsets[i];
+            else
+                actual_addr = (U32)(unsigned long)arena + (o->base - min_base);
+            base = (U8 *)VirtualAlloc((LPVOID)(unsigned long)actual_addr,
+                                      (SIZE_T)alloc_size,
+                                      MEM_COMMIT, PAGE_READWRITE);
+        }
+
+        if (!base || (U32)(unsigned long)base != actual_addr) {
+            describe_virtual_address(actual_addr);
+            fail("cannot map LX object at selected linear address");
+        }
+        o->mapped = base;
+        memset(base, 0, (size_t)o->size);
+
+        for (j = 0; j < o->page_count; ++j) {
+            U32 src, dst, room;
+            map_index = o->page_index - 1 + j;
+            dst = j * x->page_size;
+            if (dst >= o->size)
+                fail("linear-executable page lies outside object");
+            room = o->size - dst;
+
+            if (x->format == FORMAT_LE) {
+                U32 phys;
+                if (map_index >= x->logical_pages)
+                    fail("bad LE page-map index");
+                page_flags = x->le_pages[map_index].flags;
+                phys = x->le_pages[map_index].physical;
+                if (page_flags == 0) {
+                    data_size = x->page_size;
+                    if (data_size > room)
+                        data_size = room;
+                    if (phys == x->module_pages &&
+                        data_size > x->last_page_size)
+                        data_size = x->last_page_size;
+                    src = x->data_pages + (phys - 1UL) * x->page_size;
+                    if (!range_ok(x, src, data_size))
+                        fail("LE data page outside file");
+                    if (data_size != 0)
+                        memcpy(base + dst, x->file + src, (size_t)data_size);
+                } else if (page_flags == 3) {
+                    /* Explicit LE zero-fill page. */
+                } else {
+                    fail("iterated/range/compressed LE page is not supported yet");
+                }
+            } else {
+                map_off = x->page_map + map_index * 8UL;
+                if (!range_ok(x, map_off, 8)) fail("bad LX page map");
+                data_off = rd32(x->file + map_off);
+                data_size = rd16(x->file + map_off + 4);
+                page_flags = rd16(x->file + map_off + 6);
+                if (page_flags == LX_PAGE_VALID && data_size != 0) {
+                    src = x->data_pages + (data_off << x->page_shift);
+                    if (data_size > room) data_size = room;
+                    if (!range_ok(x, src, data_size))
+                        fail("LX data page outside file");
+                    memcpy(base + dst, x->file + src, (size_t)data_size);
+                } else if (page_flags == LX_PAGE_VALID && data_size == 0) {
+                    /* An empty normal page remains zero-filled. */
+                } else if (page_flags == LX_PAGE_ITERATED) {
+                    U32 logical_size;
+                    if (x->iter_pages == 0)
+                        fail("LX iterated page has no iterated-data section");
+                    src = x->iter_pages + (data_off << x->page_shift);
+                    logical_size = x->page_size;
+                    if (logical_size > room)
+                        logical_size = room;
+                    expand_lx_iterated_page(x, base + dst, logical_size,
+                                            src, data_size);
+                } else if (page_flags == LX_PAGE_ZERO) {
+                    /* Explicit LX zero-fill page. */
+                } else if (page_flags == LX_PAGE_INVALID) {
+                    fail("invalid LX page is not supported on the direct host path");
+                } else if (page_flags == LX_PAGE_COMPRESSED) {
+                    fail("compressed LX page is not supported yet");
+                } else {
+                    fail("unsupported LX page-map flag");
+                }
+            }
+        }
+        /*
+         * M31D: LE resource-only objects are commonly linked at preferred
+         * base 0.  Multiple such objects therefore overlap in the direct
+         * linear mapping arena.  Keep an immutable per-object shadow before
+         * the next object is loaded so the PM resource bridge receives the
+         * bytes belonging to the correct LE object.
+         */
+        {
+            U32 ri;
+            int has_resource;
+            has_resource = 0;
+            for (ri = 0; ri < x->resource_count; ++ri) {
+                if (x->resources[ri].object == i + 1UL) {
+                    has_resource = 1;
+                    break;
+                }
+            }
+            if (has_resource) {
+                o->resource_shadow = (U8 *)malloc((size_t)o->size);
+                if (!o->resource_shadow)
+                    fail("out of memory preserving LE resource object");
+                memcpy(o->resource_shadow, o->mapped, (size_t)o->size);
+            }
+        }
+
+        if (!g_quiet) {
+            if ((U32)(unsigned long)o->mapped == o->base)
+                printf("mapped object %lu at %08lX (%lu bytes)\n",
+                       (unsigned long)(i + 1),
+                       (unsigned long)(U32)(unsigned long)o->mapped,
+                       (unsigned long)o->size);
+            else
+                printf("mapped object %lu preferred=%08lX actual=%08lX (%lu bytes)\n",
+                       (unsigned long)(i + 1), (unsigned long)o->base,
+                       (unsigned long)(U32)(unsigned long)o->mapped,
+                       (unsigned long)o->size);
+        }
+    }
+
+    free(layout_offsets);
+}
+
+static const char *guest_base_name(const char *s)
+{
+    const char *p;
+    const char *base;
+
+    base = s;
+    p = s;
+    while (*p) {
+        if (*p == '\\' || *p == '/')
+            base = p + 1;
+        ++p;
+    }
+    return base;
+}
+
+static int arg_needs_quotes(const char *s)
+{
+    const char *p;
+    if (*s == 0)
+        return 1;
+    for (p = s; *p; ++p) {
+        if (*p == ' ' || *p == '\t')
+            return 1;
+    }
+    return 0;
+}
+
+static U32 environment_block_size(const char *env)
+{
+    const char *p;
+    if (!env)
+        return 0;
+    p = env;
+    while (p[0] != 0 || p[1] != 0)
+        p += strlen(p) + 1;
+    return (U32)(p - env) + 2UL;
+}
+
+/*
+ * Build the process-startup area expected by OS/2 C/386.
+ *
+ * Real OS/2 places the environment strings, fully-qualified program name and
+ * DosExecPgm argument strings together in the process environment segment:
+ *
+ *   NAME=VALUE\0...\0\0
+ *   C:\\path\\program.exe\0       <- program-name (po) area
+ *   program.exe\0arguments\0\0    <- argument (ao) area
+ *
+ * The C/386 startup code is handed a pointer to the ao area.  It walks
+ * backwards from that pointer to recover the preceding program-name string,
+ * so ao must not be an isolated VirtualAlloc block.
+ */
+static U8 *build_os2_startup_area(const char *program,
+                                  const char *arg0_override,
+                                  int argc, char **argv, int first_arg,
+                                  U32 *env_ptr, U32 *arg_ptr,
+                                  U32 *pgm_ptr)
+{
+    const char *arg0;
+    LPCH winenv;
+    U32 env_len;
+    U32 pgm_len;
+    U32 arg0_len;
+    U32 tail_len;
+    U32 total;
+    U32 pos;
+    U32 i;
+    U32 n;
+    int quote;
+    U8 *block;
+    char full[MAX_PATH];
+    DWORD full_len;
+    const char *pgm;
+
+    if (arg0_override != NULL && arg0_override[0] != '\0')
+        arg0 = arg0_override;
+    else
+        arg0 = guest_base_name(program);
+
+    full_len = GetFullPathNameA(program, (DWORD)sizeof(full), full, NULL);
+    if (full_len != 0 && full_len < (DWORD)sizeof(full))
+        pgm = full;
+    else
+        pgm = program;
+
+    winenv = GetEnvironmentStringsA();
+    if (!winenv)
+        fail("GetEnvironmentStringsA failed");
+    env_len = environment_block_size(winenv);
+    if (env_len < 2UL) {
+        FreeEnvironmentStringsA(winenv);
+        fail("invalid Win32 environment block");
+    }
+
+    pgm_len = (U32)strlen(pgm);
+    arg0_len = (U32)strlen(arg0);
+    tail_len = 0;
+    for (i = (U32)first_arg; i < (U32)argc; ++i) {
+        if (i != (U32)first_arg)
+            ++tail_len;
+        tail_len += (U32)strlen(argv[i]);
+        if (arg_needs_quotes(argv[i]))
+            tail_len += 2UL;
+    }
+
+    if (tail_len > 32768UL) {
+        FreeEnvironmentStringsA(winenv);
+        fail("guest command tail is too long");
+    }
+
+    /* environment + po\0 + argv0\0 + tail\0 + final extra NUL */
+    total = env_len + pgm_len + 1UL + arg0_len + 1UL + tail_len + 2UL;
+    block = (U8 *)VirtualAlloc(NULL, (SIZE_T)total,
+                               MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (!block) {
+        FreeEnvironmentStringsA(winenv);
+        fail("cannot allocate OS/2 startup area");
+    }
+
+    memcpy(block, winenv, (size_t)env_len);
+    FreeEnvironmentStringsA(winenv);
+    *env_ptr = (U32)(unsigned long)block;
+
+    pos = env_len;
+    *pgm_ptr = (U32)(unsigned long)(block + pos);
+    memcpy(block + pos, pgm, (size_t)pgm_len);
+    pos += pgm_len;
+    block[pos++] = 0;
+
+    *arg_ptr = (U32)(unsigned long)(block + pos);
+    memcpy(block + pos, arg0, (size_t)arg0_len);
+    pos += arg0_len;
+    block[pos++] = 0;
+
+    for (i = (U32)first_arg; i < (U32)argc; ++i) {
+        if (i != (U32)first_arg)
+            block[pos++] = ' ';
+        quote = arg_needs_quotes(argv[i]);
+        if (quote)
+            block[pos++] = '"';
+        n = (U32)strlen(argv[i]);
+        memcpy(block + pos, argv[i], (size_t)n);
+        pos += n;
+        if (quote)
+            block[pos++] = '"';
+    }
+    block[pos++] = 0;  /* terminate parameter string */
+    block[pos++] = 0;  /* OS/2 argument block extra terminator */
+
+    if (pos != total)
+        fail("internal OS/2 startup-area size mismatch");
+#ifdef _WIN32
+    /* Publish the exact OS/2 command area to DOSCALLS.DosGetInfoBlocks.
+     * EMX builds argc/argv from PIB.pib_pchcmd, not from the entry stub's
+     * stack arguments.  This must therefore be argv0\0tail\0\0 rather
+     * than the Win32 host process command line. */
+    g_main_guest_cmd = (char *)(block + env_len + pgm_len + 1UL);
+    g_main_guest_cmd_len = arg0_len + 1UL + tail_len + 2UL;
+#endif
+    return block;
+}
+
+static void m30m4_dump_fault_context(U32 eip)
+{
+    U32 base, off, start, end, p, shown;
+
+    if (!g_m30m_diag_text || !g_m30m_diag_mark || g_m30m_diag_text_size == 0)
+        return;
+    base = (U32)(unsigned long)g_m30m_diag_text;
+    if (eip < base || eip >= base + g_m30m_diag_text_size)
+        return;
+
+    off = eip - base;
+    start = off > 12UL ? off - 12UL : 0UL;
+    end = off + 20UL;
+    if (end > g_m30m_diag_text_size)
+        end = g_m30m_diag_text_size;
+
+    fprintf(stderr,
+            "  M30M4 TEXT: mapped+%08lX preferred=%08lX bytes %08lX..%08lX\n",
+            (unsigned long)off,
+            (unsigned long)(g_m30m_diag_text_preferred + off),
+            (unsigned long)start, (unsigned long)end);
+    fprintf(stderr, "  M30M4 bytes:");
+    for (p = start; p < end; ++p)
+        fprintf(stderr, " %02X", (unsigned int)g_m30m_diag_text[p]);
+    fprintf(stderr, "\n");
+
+    shown = 0UL;
+    for (p = start; p + 4UL <= end; ++p) {
+        if (g_m30m_diag_mark[p] == 0U)
+            continue;
+        fprintf(stderr,
+                "  M30M4 nearby inferred patch: TEXT+%08lX kind=%s value_now=%08lX\n",
+                (unsigned long)p,
+                g_m30m_diag_mark[p] == 2U ? "table" : "operand",
+                (unsigned long)rd32(g_m30m_diag_text + p));
+        ++shown;
+    }
+    if (shown == 0UL)
+        fprintf(stderr, "  M30M4 nearby inferred patch: none within diagnostic window\n");
+}
+
+static LONG WINAPI guest_exception_filter(EXCEPTION_POINTERS *ep)
+{
+    CONTEXT *c;
+    DWORD code;
+    void *address;
+
+    code = 0;
+    address = 0;
+    c = 0;
+    if (ep) {
+        if (ep->ExceptionRecord) {
+            code = ep->ExceptionRecord->ExceptionCode;
+            address = ep->ExceptionRecord->ExceptionAddress;
+        }
+        c = ep->ContextRecord;
+    }
+
+    fprintf(stderr, "\nos2host32: guest exception %08lX at %08lX\n",
+            (unsigned long)code,
+            (unsigned long)(U32)(unsigned long)address);
+    if (ep && ep->ExceptionRecord &&
+        ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
+        ep->ExceptionRecord->NumberParameters >= 2) {
+        const char *kind;
+        ULONG_PTR op;
+        op = ep->ExceptionRecord->ExceptionInformation[0];
+        kind = op == 0 ? "read" : (op == 1 ? "write" : (op == 8 ? "execute" : "access"));
+        fprintf(stderr, "  access violation: %s at %08lX\n", kind,
+                (unsigned long)(U32)ep->ExceptionRecord->ExceptionInformation[1]);
+    }
+    if (c) {
+        fprintf(stderr,
+                "  EIP=%08lX ESP=%08lX EBP=%08lX EAX=%08lX EBX=%08lX\n",
+                (unsigned long)c->Eip, (unsigned long)c->Esp,
+                (unsigned long)c->Ebp, (unsigned long)c->Eax,
+                (unsigned long)c->Ebx);
+        fprintf(stderr,
+                "  ECX=%08lX EDX=%08lX ESI=%08lX EDI=%08lX EFLAGS=%08lX\n",
+                (unsigned long)c->Ecx, (unsigned long)c->Edx,
+                (unsigned long)c->Esi, (unsigned long)c->Edi,
+                (unsigned long)c->EFlags);
+        m30m4_dump_fault_context((U32)c->Eip);
+    }
+    fflush(stderr);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+static void run_guest(struct LxImage *x, const char *program,
+                      const char *arg0_override,
+                      int argc, char **argv, int first_arg)
+{
+    U32 entry_va;
+    U32 stack_va;
+    U32 cmd_va;
+    U32 env_va;
+    U32 pgm_va;
+    U32 p;
+    U8 *stub;
+    U8 *startup_area;
+    void (__cdecl *start)(void);
+
+    entry_va = (U32)(unsigned long)x->objects[x->entry_object - 1].mapped +
+               x->entry_eip;
+    stack_va = (U32)(unsigned long)x->objects[x->stack_object - 1].mapped +
+               x->stack_esp;
+
+    startup_area = build_os2_startup_area(program, arg0_override,
+                                          argc, argv, first_arg,
+                                          &env_va, &cmd_va, &pgm_va);
+
+    stub = (U8 *)VirtualAlloc(NULL, 64, MEM_RESERVE | MEM_COMMIT,
+                              PAGE_EXECUTE_READWRITE);
+    if (!stub)
+        fail("cannot allocate guest startup bridge");
+
+    p = 0;
+    stub[p++] = 0xbc; wr32(stub + p, stack_va); p += 4;
+    stub[p++] = 0x68; wr32(stub + p, cmd_va); p += 4;
+    stub[p++] = 0x68; wr32(stub + p, env_va); p += 4;
+    stub[p++] = 0x6a; stub[p++] = 0x00;
+    stub[p++] = 0x6a; stub[p++] = 0x00;
+    stub[p++] = 0x6a; stub[p++] = 0x00;
+    stub[p++] = 0x31; stub[p++] = 0xdb;
+    stub[p++] = 0x31; stub[p++] = 0xc9;
+    stub[p++] = 0x31; stub[p++] = 0xd2;
+    stub[p++] = 0x31; stub[p++] = 0xf6;
+    stub[p++] = 0x31; stub[p++] = 0xff;
+    stub[p++] = 0x31; stub[p++] = 0xed;
+    stub[p++] = 0xb8; wr32(stub + p, entry_va); p += 4;
+    stub[p++] = 0xff; stub[p++] = 0xe0;
+
+    FlushInstructionCache(GetCurrentProcess(), stub, (SIZE_T)p);
+    SetUnhandledExceptionFilter(guest_exception_filter);
+
+    if (!g_quiet) {
+        printf("OS/2 startup     : ESP=%08lX ENV=%08lX PGM=%08lX ARG=%08lX\n",
+               (unsigned long)stack_va, (unsigned long)env_va,
+               (unsigned long)pgm_va, (unsigned long)cmd_va);
+        printf("Transfer         : original %s entry %08lX\n",
+               x->format == FORMAT_LE ? "LE" : "LX",
+               (unsigned long)entry_va);
+        printf("---------------- guest begins ----------------\n");
+    }
+    fflush(stdout);
+    fflush(stderr);
+
+    (void)startup_area;
+    start = (void (__cdecl *)(void))stub;
+    start();
+
+    fail("guest returned from its process entry point");
+}
+
+static void protect_objects(struct LxImage *x)
+{
+    U32 i;
+    DWORD oldp;
+    for (i = 0; i < x->object_count; ++i) {
+        if (!x->objects[i].mapped || x->objects[i].size == 0) continue;
+        if (!VirtualProtect(x->objects[i].mapped, (SIZE_T)x->objects[i].size,
+                            object_protection(x->objects[i].flags), &oldp))
+            fail("VirtualProtect failed for LE/LX object");
+    }
+}
+
+static void resolve_imports(struct LxImage *x);
+static void apply_fixups(struct LxImage *x);
+static void install_c386_far16_bridges(struct LxImage *x);
+static void install_emx_generic_bridge(struct LxImage *x);
+
+static int ascii_upper(int c)
+{
+    if (c >= 'a' && c <= 'z')
+        return c - ('a' - 'A');
+    return c;
+}
+
+static int ascii_ieq(const char *a, const char *b)
+{
+    while (*a && *b) {
+        if (ascii_upper((unsigned char)*a) != ascii_upper((unsigned char)*b))
+            return 0;
+        ++a;
+        ++b;
+    }
+    return *a == 0 && *b == 0;
+}
+
+static int module_name_equal(const char *a, const char *b)
+{
+    char aa[80];
+    char bb[80];
+    U32 na, nb;
+
+    na = (U32)strlen(a);
+    nb = (U32)strlen(b);
+    if (na >= sizeof(aa) || nb >= sizeof(bb))
+        return 0;
+    strcpy(aa, a);
+    strcpy(bb, b);
+    if (na > 4 && aa[na - 4] == '.' &&
+        ascii_upper((unsigned char)aa[na - 3]) == 'D' &&
+        ascii_upper((unsigned char)aa[na - 2]) == 'L' &&
+        ascii_upper((unsigned char)aa[na - 1]) == 'L')
+        aa[na - 4] = 0;
+    if (nb > 4 && bb[nb - 4] == '.' &&
+        ascii_upper((unsigned char)bb[nb - 3]) == 'D' &&
+        ascii_upper((unsigned char)bb[nb - 2]) == 'L' &&
+        ascii_upper((unsigned char)bb[nb - 1]) == 'L')
+        bb[nb - 4] = 0;
+    return ascii_ieq(aa, bb);
+}
+
+static int trace_modules(void)
+{
+    const char *v;
+    v = getenv("OS2_TRACE_MODULES");
+    return v != 0 && v[0] != 0 && !(v[0] == '0' && v[1] == 0);
+}
+
+static int is_personality_module(const char *name)
+{
+    static const char *const names[] = {
+        "DOSCALLS", "KBDCALLS", "VIOCALLS", "QUECALLS",
+        "SESMGR", "NLS", "PMWIN", "PMGPI", "PMSHAPI", "PMWP", "HELPMGR"
+    };
+    U32 i;
+    for (i = 0; i < (U32)(sizeof(names) / sizeof(names[0])); ++i) {
+        if (module_name_equal(name, names[i]))
+            return 1;
+    }
+    return 0;
+}
+
+static int file_exists_regular(const char *path)
+{
+    DWORD a;
+    a = GetFileAttributesA(path);
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+static int module_has_dll_suffix(const char *name)
+{
+    U32 n;
+    n = (U32)strlen(name);
+    return n >= 4 && name[n - 4] == '.' &&
+           ascii_upper((unsigned char)name[n - 3]) == 'D' &&
+           ascii_upper((unsigned char)name[n - 2]) == 'L' &&
+           ascii_upper((unsigned char)name[n - 1]) == 'L';
+}
+
+static int next_libpath_element(const char **cursor, char *out, U32 cap)
+{
+    const char *p;
+    U32 n;
+    int quoted;
+
+    p = *cursor;
+    if (!p || !*p)
+        return 0;
+    while (*p == ' ' || *p == '\t' || *p == ';')
+        ++p;
+    if (!*p) {
+        *cursor = p;
+        return 0;
+    }
+    quoted = 0;
+    n = 0;
+    if (*p == '"') {
+        quoted = 1;
+        ++p;
+    }
+    while (*p) {
+        if (quoted) {
+            if (*p == '"') {
+                ++p;
+                break;
+            }
+        } else if (*p == ';') {
+            break;
+        }
+        if (n + 1 >= cap)
+            fail("OS2LIBPATH element is too long");
+        out[n++] = *p++;
+    }
+    out[n] = 0;
+    while (*p && *p != ';')
+        ++p;
+    if (*p == ';')
+        ++p;
+    *cursor = p;
+    while (n != 0 && (out[n - 1] == ' ' || out[n - 1] == '\t'))
+        out[--n] = 0;
+    if (out[0] == 0)
+        strcpy(out, ".");
+    return 1;
+}
+
+static int locate_guest_module(const char *name, char *out, U32 cap)
+{
+    const char *libpath;
+    const char *cur;
+    char elem[260];
+    char leaf[100];
+    U32 need;
+
+    if (strchr(name, '\\') || strchr(name, '/') || strchr(name, ':')) {
+        if (strlen(name) + 5 >= cap)
+            return 0;
+        strcpy(out, name);
+        if (!module_has_dll_suffix(out))
+            strcat(out, ".dll");
+        return file_exists_regular(out);
+    }
+
+    if (strlen(name) + 5 >= sizeof(leaf))
+        return 0;
+    strcpy(leaf, name);
+    if (!module_has_dll_suffix(leaf))
+        strcat(leaf, ".dll");
+
+    libpath = getenv("OS2LIBPATH");
+    if (!libpath || !*libpath)
+        libpath = ".";
+    cur = libpath;
+    while (next_libpath_element(&cur, elem, (U32)sizeof(elem))) {
+        need = (U32)strlen(elem) + 1UL + (U32)strlen(leaf) + 1UL;
+        if (need > cap)
+            continue;
+        strcpy(out, elem);
+        if (out[0] != 0 && out[strlen(out) - 1] != '\\' &&
+            out[strlen(out) - 1] != '/')
+            strcat(out, "\\");
+        strcat(out, leaf);
+        if (file_exists_regular(out))
+            return 1;
+    }
+    return 0;
+}
+
+static U32 name_table_find_ordinal(struct LxImage *x, U32 start, U32 limit,
+                                   const char *wanted)
+{
+    U32 p, n, ord;
+    char name[256];
+
+    if (start == 0 || start >= x->file_size)
+        return 0;
+    if (limit == 0 || limit > x->file_size)
+        limit = x->file_size;
+    p = start;
+    while (p < limit) {
+        n = x->file[p++];
+        if (n == 0)
+            break;
+        if (n >= sizeof(name) || p > limit || n > limit - p ||
+            limit - (p + n) < 2UL)
+            fail("malformed LE/LX export name table");
+        memcpy(name, x->file + p, (size_t)n);
+        name[n] = 0;
+        p += n;
+        ord = rd16(x->file + p);
+        p += 2;
+        if (ascii_ieq(name, wanted))
+            return ord;
+    }
+    return 0;
+}
+
+static U32 guest_export_by_ordinal(struct GuestModule *g, U32 wanted)
+{
+    struct LxImage *x;
+    U32 p, ordinal, i, object, off;
+    U8 count, type, base_type, flags;
+
+    x = &g->image;
+    if (wanted == 0 || x->entry_table == 0 || x->entry_table >= x->file_size)
+        return 0;
+    p = x->entry_table;
+    ordinal = 1;
+    for (;;) {
+        if (!range_ok(x, p, 1))
+            fail("truncated LE/LX entry table");
+        count = x->file[p++];
+        if (count == 0)
+            break;
+        if (!range_ok(x, p, 1))
+            fail("truncated LE/LX entry bundle");
+        type = x->file[p++];
+        if (type & 0x80)
+            fail("typed LE/LX entry bundles are not supported in M29N2a");
+        base_type = type & 0x7f;
+        if (base_type == 0) {
+            if (wanted >= ordinal && wanted < ordinal + (U32)count)
+                return 0;
+            ordinal += count;
+            continue;
+        }
+        if (base_type == 1 || base_type == 2 || base_type == 3) {
+            if (!range_ok(x, p, 2))
+                fail("truncated LE/LX entry bundle object");
+            object = rd16(x->file + p);
+            p += 2;
+            for (i = 0; i < (U32)count; ++i, ++ordinal) {
+                if (!range_ok(x, p, 1))
+                    fail("truncated LE/LX entry flags");
+                flags = x->file[p++];
+                if (base_type == 3) {
+                    if (!range_ok(x, p, 4))
+                        fail("truncated LE/LX 32-bit entry");
+                    off = rd32(x->file + p);
+                    p += 4;
+                } else {
+                    if (!range_ok(x, p, base_type == 2 ? 4UL : 2UL))
+                        fail("truncated LE/LX 16-bit entry");
+                    off = rd16(x->file + p);
+                    p += 2;
+                    if (base_type == 2)
+                        p += 2;
+                }
+                if (ordinal == wanted) {
+                    if ((flags & 1) == 0)
+                        return 0;
+                    if (base_type == 2)
+                        fail("286 call-gate DLL exports are not supported in M29N2a");
+                    if (object == 0 || object > x->object_count)
+                        fail("DLL export references invalid object");
+                    if ((x->objects[object - 1].flags & OBJ_BIG_DEFAULT) == 0)
+                        fail("16-bit DLL export code is not supported in M29N2a");
+                    if (off >= x->objects[object - 1].size)
+                        fail("DLL export offset lies outside object");
+                    if (!x->objects[object - 1].mapped)
+                        fail("DLL export object has not been mapped");
+                    return (U32)(unsigned long)x->objects[object - 1].mapped + off;
+                }
+            }
+            continue;
+        }
+        if (base_type == 4) {
+            if (!range_ok(x, p, 2))
+                fail("truncated LE/LX forwarder bundle");
+            p += 2;
+            for (i = 0; i < (U32)count; ++i, ++ordinal) {
+                if (!range_ok(x, p, 7))
+                    fail("truncated LE/LX forwarder entry");
+                if (ordinal == wanted)
+                    fail("DLL forwarder exports are deferred until a later loader milestone");
+                p += 7;
+            }
+            continue;
+        }
+        fail("unknown LE/LX entry bundle type");
+    }
+    return 0;
+}
+
+static U32 guest_export_by_name(struct GuestModule *g, const char *name)
+{
+    struct LxImage *x;
+    U32 ord, resident_end, nonresident_end;
+
+    x = &g->image;
+    resident_end = x->entry_table;
+    if (resident_end <= x->resident_name_table || resident_end > x->file_size)
+        resident_end = x->file_size;
+    ord = name_table_find_ordinal(x, x->resident_name_table, resident_end, name);
+    if (ord == 0 && x->nonresident_name_table != 0 &&
+        x->nonresident_name_len != 0) {
+        if (x->nonresident_name_table > x->file_size ||
+            x->nonresident_name_len > x->file_size - x->nonresident_name_table)
+            fail("bad non-resident name table");
+        nonresident_end = x->nonresident_name_table + x->nonresident_name_len;
+        ord = name_table_find_ordinal(x, x->nonresident_name_table,
+                                      nonresident_end, name);
+    }
+    if (ord == 0)
+        return 0;
+    return guest_export_by_ordinal(g, ord);
+}
+
+static struct GuestModule *find_guest_module(const char *name)
+{
+    U32 i;
+    for (i = 0; i < g_guest_module_count; ++i) {
+        if (module_name_equal(name, g_guest_modules[i]->request_name))
+            return g_guest_modules[i];
+    }
+    return 0;
+}
+
+static struct GuestModule *find_guest_module_handle(U32 handle)
+{
+    U32 i;
+    for (i = 0; i < g_guest_module_count; ++i) {
+        if (g_guest_modules[i]->handle == handle)
+            return g_guest_modules[i];
+    }
+    return 0;
+}
+
+static void free_guest_image(struct LxImage *x);
+static U32 release_guest_module(struct GuestModule *g);
+
+static HMODULE guest_pmwin_host(struct LxImage *x)
+{
+    U32 i;
+    HMODULE pmwin;
+    if (x) {
+        for (i=0; i<x->import_module_count; ++i) {
+            if (ascii_ieq(x->modules[i].name,"PMWIN") &&
+                x->modules[i].kind == IMPORT_KIND_HOST)
+                return x->modules[i].handle;
+        }
+    }
+    /* Resource-only OS/2 DLLs need not import PMWIN themselves.  If the
+       process already has the PMWIN personality (normal for a PM EXE), use
+       that process-level bridge to publish their RT_* resources too. */
+    pmwin = GetModuleHandleA("PMWIN.dll");
+    return pmwin;
+}
+
+static void publish_guest_pm_resources(struct GuestModule *g)
+{
+    typedef int (__cdecl *PFNREGISTER)(U32,U16,U16,const void *,U32);
+    typedef void (__cdecl *PFNUNREGISTER)(U32);
+    HMODULE pmwin;
+    PFNREGISTER regfn;
+    PFNUNREGISTER unregfn;
+    U32 i, published;
+    struct LxResource *r;
+    struct LxObject *obj;
+    if (!g || g->image.resource_count == 0) return;
+    pmwin=guest_pmwin_host(&g->image);
+    if (!pmwin) return;
+    regfn=(PFNREGISTER)GetProcAddress(pmwin,"OS2PM_RegisterResource");
+    unregfn=(PFNUNREGISTER)GetProcAddress(pmwin,"OS2PM_UnregisterModuleResources");
+    if (!regfn || !unregfn)
+        fail("PMWIN lacks M31E per-module resource bridge");
+    unregfn(g->handle);
+    published=0;
+    for (i=0; i<g->image.resource_count; ++i) {
+        r=&g->image.resources[i];
+        obj=&g->image.objects[r->object-1];
+        if (!obj->mapped) fail("guest DLL resource object is not mapped");
+        if (!regfn(g->handle,r->type,r->name,
+                   (obj->resource_shadow ? obj->resource_shadow : obj->mapped)+r->offset,
+                   r->size))
+            fail("PMWIN resource registry is full");
+        ++published;
+    }
+    if (!g_quiet || trace_modules())
+        printf("GUESTMOD RESOURCES: %s handle=%08lX published=%lu\n",
+               g->request_name,(unsigned long)g->handle,(unsigned long)published);
+}
+
+static void unpublish_guest_pm_resources(struct GuestModule *g)
+{
+    typedef void (__cdecl *PFNUNREGISTER)(U32);
+    HMODULE pmwin;
+    PFNUNREGISTER unregfn;
+    if (!g || g->image.resource_count == 0) return;
+    pmwin=guest_pmwin_host(&g->image);
+    if (!pmwin) return;
+    unregfn=(PFNUNREGISTER)GetProcAddress(pmwin,"OS2PM_UnregisterModuleResources");
+    if (unregfn) unregfn(g->handle);
+}
+
+/* M29N2b.2: invoke the 32-bit OS/2 DLL init/term entry point. */
+static U32 call_guest_dll_entry(struct GuestModule *g, U32 flag)
+{
+    U32 entry_va;
+    U32 p;
+    U32 result;
+    U8 *stub;
+    U32 (__cdecl *callstub)(void);
+
+    if (!g || g->image.entry_object == 0)
+        return 1UL;
+    if (g->image.entry_object > g->image.object_count)
+        fail("guest DLL lifecycle entry has invalid object");
+    if ((g->image.objects[g->image.entry_object - 1].flags & OBJ_BIG_DEFAULT) == 0)
+        fail("16-bit guest DLL init/term entry is not supported yet");
+
+    entry_va = (U32)(unsigned long)
+               g->image.objects[g->image.entry_object - 1].mapped +
+               g->image.entry_eip;
+
+    /* Save/restore ESP around the guest call.  This makes the bridge tolerant
+     * of both caller-clean and callee-clean 32-bit historical conventions. */
+    stub = (U8 *)VirtualAlloc(NULL, 64, MEM_RESERVE | MEM_COMMIT,
+                              PAGE_EXECUTE_READWRITE);
+    if (!stub)
+        fail("cannot allocate guest DLL lifecycle bridge");
+    p = 0;
+    stub[p++] = 0x55;                         /* push ebp */
+    stub[p++] = 0x89; stub[p++] = 0xe5;       /* mov ebp,esp */
+    /* The recovered 1989/early-1990 SDK still contains the older
+     * INITINSTANCE startup ABI.  Such DLLs have an INIT entry but no TERM
+     * flag, and receive InitLibrary(hPDLL, hmod): the module handle is the
+     * second argument.  Later OS/2 2.x DllInitTerm modules use
+     * DllInitTerm(hmod, flag), which is the ABI proven by M29N2b.2. */
+    if (flag == 0UL &&
+        (g->image.module_flags & MOD_INIT_INSTANCE) != 0 &&
+        (g->image.module_flags & MOD_TERM_INSTANCE) == 0) {
+        stub[p++] = 0x68; wr32(stub + p, g->handle); p += 4; /* arg2 hmod */
+        stub[p++] = 0x68; wr32(stub + p, 0UL); p += 4;       /* arg1 hPDLL */
+    } else {
+        stub[p++] = 0x68; wr32(stub + p, flag); p += 4;
+        stub[p++] = 0x68; wr32(stub + p, g->handle); p += 4;
+    }
+    stub[p++] = 0xb8; wr32(stub + p, entry_va); p += 4;
+    stub[p++] = 0xff; stub[p++] = 0xd0;       /* call eax */
+    stub[p++] = 0x89; stub[p++] = 0xec;       /* mov esp,ebp */
+    stub[p++] = 0x5d;                         /* pop ebp */
+    stub[p++] = 0xc3;                         /* ret */
+    FlushInstructionCache(GetCurrentProcess(), stub, (SIZE_T)p);
+
+    if (!g_quiet || trace_modules()) {
+        printf("GUESTMOD %sCALL: %s handle=%08lX entry=%08lX scope=%s abi=%s\n",
+               flag == 0 ? "INIT" : "TERM", g->request_name,
+               (unsigned long)g->handle, (unsigned long)entry_va,
+               flag == 0 ?
+                 ((g->image.module_flags & MOD_INIT_INSTANCE) ? "instance" : "global") :
+                 ((g->image.module_flags & MOD_TERM_INSTANCE) ? "instance" : "global"),
+               (flag == 0UL &&
+                (g->image.module_flags & MOD_INIT_INSTANCE) != 0 &&
+                (g->image.module_flags & MOD_TERM_INSTANCE) == 0) ?
+                   "legacy-initinstance" : "dllinitterm");
+        fflush(stdout);
+    }
+
+    callstub = (U32 (__cdecl *)(void))stub;
+    result = callstub();
+    VirtualFree(stub, 0, MEM_RELEASE);
+
+    if (!g_quiet || trace_modules()) {
+        printf("GUESTMOD %sRET: %s handle=%08lX result=%08lX\n",
+               flag == 0 ? "INIT" : "TERM", g->request_name,
+               (unsigned long)g->handle, (unsigned long)result);
+        fflush(stdout);
+    }
+    return result;
+}
+
+static int initialize_guest_module(struct GuestModule *g)
+{
+    U32 result;
+    if (!g || g->image.entry_object == 0)
+        return 1;
+    result = call_guest_dll_entry(g, 0UL);
+    if (result == 0)
+        return 0;
+    g->init_called = 1;
+    g->init_order = g_next_guest_init_order++;
+    if (g_next_guest_init_order == 0)
+        g_next_guest_init_order = 1UL;
+    return 1;
+}
+
+static void terminate_guest_module(struct GuestModule *g)
+{
+    if (!g || !g->init_called || g->term_called || g->image.entry_object == 0)
+        return;
+    /* Honor the LE lifecycle flags.  Old INITINSTANCE-only DLLs such as
+     * OPENDLG do not have a DllInitTerm-style termination callback. */
+    if ((g->image.module_flags & MOD_TERM_INSTANCE) == 0) {
+        /* INITINSTANCE-only prerelease DLLs such as OPENDLG have no TERM
+           callback.  Mark the lifecycle complete anyway so
+           OS2HostModuleTerminateAll() does not select the same module
+           forever during process exit. */
+        g->term_called = 1;
+        if (!g_quiet || trace_modules()) {
+            printf("GUESTMOD TERMSKIP: %s handle=%08lX (no TERM flag)\n",
+                   g->request_name, (unsigned long)g->handle);
+            fflush(stdout);
+        }
+        return;
+    }
+    g->term_called = 1;
+    (void)call_guest_dll_entry(g, 1UL);
+}
+
+static void unregister_guest_module(struct GuestModule *g)
+{
+    U32 i, j;
+    for (i = 0; i < g_guest_module_count; ++i) {
+        if (g_guest_modules[i] == g) {
+            for (j = i + 1; j < g_guest_module_count; ++j)
+                g_guest_modules[j - 1] = g_guest_modules[j];
+            --g_guest_module_count;
+            g_guest_modules[g_guest_module_count] = 0;
+            return;
+        }
+    }
+}
+
+static struct GuestModule *load_guest_module(const char *name)
+{
+    struct GuestModule *g;
+    char path[260];
+
+    g = find_guest_module(name);
+    if (g) {
+        ++g->refcount;
+        if (!g_quiet || trace_modules())
+            printf("GUESTMOD ACQUIRE: %s handle=%08lX refs=%lu\n",
+                   g->request_name, (unsigned long)g->handle,
+                   (unsigned long)g->refcount);
+        return g;
+    }
+    if (g_guest_module_count >= MAX_GUEST_MODULES)
+        fail("too many guest LE/LX DLL modules");
+    if (!locate_guest_module(name, path, (U32)sizeof(path))) {
+        fprintf(stderr,
+                "os2host32: guest module %s not found on OS2LIBPATH=[%s]\n",
+                name, getenv("OS2LIBPATH") ? getenv("OS2LIBPATH") : ".");
+        exit(1);
+    }
+
+    g = (struct GuestModule *)calloc(1, sizeof(*g));
+    if (!g)
+        fail("out of memory allocating guest module");
+    if (strlen(name) >= sizeof(g->request_name) || strlen(path) >= sizeof(g->path))
+        fail("guest module name/path is too long");
+    strcpy(g->request_name, name);
+    strcpy(g->path, path);
+    g->state = 1;
+    g->handle = g_next_guest_module_handle++;
+    if (g_next_guest_module_handle == 0)
+        g_next_guest_module_handle = 0x00010000UL;
+    g->refcount = 1;
+    g_guest_modules[g_guest_module_count++] = g;
+
+    if (!g_quiet || trace_modules())
+        printf("GUESTMOD LOAD: %s -> %s handle=%08lX refs=1\n",
+               name, path, (unsigned long)g->handle);
+
+    load_file(&g->image, path);
+    parse_image(&g->image);
+    if ((g->image.module_flags & MOD_TYPE_MASK) != MOD_TYPE_DLL) {
+        fprintf(stderr, "os2host32: %s is not an OS/2 library module\n", path);
+        exit(1);
+    }
+    scan_fixups(&g->image);
+    if (!g->image.direct32_fixups &&
+        !(g->image.c386_bridges_complete && g->image.c386_bridge_count != 0) &&
+        !g->image.emx_bridge_complete) {
+        fprintf(stderr,
+                "os2host32: guest DLL %s needs unsupported fixup/mixed-mode machinery\n",
+                path);
+        exit(1);
+    }
+    map_objects(&g->image);
+    resolve_imports(&g->image);
+    apply_fixups(&g->image);
+    publish_guest_pm_resources(g);
+    if (g->image.c386_bridges_complete && g->image.c386_bridge_count != 0)
+        install_c386_far16_bridges(&g->image);
+    if (g->image.emx_bridge_complete)
+        install_emx_generic_bridge(&g->image);
+    protect_objects(&g->image);
+
+    if (!initialize_guest_module(g)) {
+        U32 i;
+        struct GuestModule *child;
+        if (!g_quiet || trace_modules())
+            printf("GUESTMOD INITFAIL: %s handle=%08lX\n",
+                   g->request_name, (unsigned long)g->handle);
+        g_last_guest_load_error = O2_ERROR_INIT_ROUTINE_FAILED;
+        g->state = 3;
+        unpublish_guest_pm_resources(g);
+        for (i = 0; i < g->image.import_module_count; ++i) {
+            if (g->image.modules[i].kind == IMPORT_KIND_GUEST) {
+                child = g->image.modules[i].guest;
+                g->image.modules[i].guest = 0;
+                g->image.modules[i].kind = IMPORT_KIND_NONE;
+                if (child && child->state != 3)
+                    release_guest_module(child);
+            }
+        }
+        free_guest_image(&g->image);
+        unregister_guest_module(g);
+        free(g);
+        return 0;
+    }
+    g_last_guest_load_error = O2_NO_ERROR;
+    g->state = 2;
+    if (!g_quiet || trace_modules())
+        printf("GUESTMOD READY: %s handle=%08lX refs=%lu objects=%lu imports=%lu named=%lu\n",
+               name, (unsigned long)g->handle, (unsigned long)g->refcount,
+               (unsigned long)g->image.object_count,
+               (unsigned long)g->image.import_count,
+               (unsigned long)g->image.name_import_count);
+    return g;
+}
+
+static void free_guest_image(struct LxImage *x)
+{
+    U32 i;
+
+    for (i = 0; i < x->object_count; ++i) {
+        if (x->objects[i].resource_shadow) {
+            free(x->objects[i].resource_shadow);
+            x->objects[i].resource_shadow = 0;
+        }
+    }
+
+    for (i = 0; i < x->c386_bridge_count; ++i) {
+        if (x->c386_bridges[i].native_stub) {
+            VirtualFree(x->c386_bridges[i].native_stub, 0, MEM_RELEASE);
+            x->c386_bridges[i].native_stub = 0;
+        }
+    }
+    if (x->emx_thunk_stub) {
+        VirtualFree(x->emx_thunk_stub, 0, MEM_RELEASE);
+        x->emx_thunk_stub = 0;
+    }
+    for (i = 0; i < x->import_count; ++i) {
+        if (x->emx_import_traps[i]) {
+            VirtualFree(x->emx_import_traps[i], 0, MEM_RELEASE);
+            x->emx_import_traps[i] = 0;
+        }
+    }
+    if (x->mapping_arena) {
+        U32 arena_lo, arena_hi, obj_addr;
+        arena_lo = (U32)(unsigned long)x->mapping_arena;
+        arena_hi = arena_lo + x->mapping_span;
+        for (i = 0; i < x->object_count; ++i) {
+            if (!x->objects[i].mapped)
+                continue;
+            obj_addr = (U32)(unsigned long)x->objects[i].mapped;
+            if (obj_addr < arena_lo || obj_addr >= arena_hi)
+                VirtualFree(x->objects[i].mapped, 0, MEM_RELEASE);
+            x->objects[i].mapped = 0;
+        }
+        VirtualFree(x->mapping_arena, 0, MEM_RELEASE);
+        x->mapping_arena = 0;
+        x->mapping_span = 0;
+    } else {
+        for (i = 0; i < x->object_count; ++i) {
+            if (x->objects[i].mapped) {
+                VirtualFree(x->objects[i].mapped, 0, MEM_RELEASE);
+                x->objects[i].mapped = 0;
+            }
+        }
+    }
+    for (i = 0; i < x->import_module_count; ++i) {
+        if (x->modules[i].kind == IMPORT_KIND_HOST && x->modules[i].handle) {
+            FreeLibrary(x->modules[i].handle);
+            x->modules[i].handle = 0;
+        }
+    }
+    free(x->le_pages);
+    x->le_pages = 0;
+    free(x->le_owner);
+    x->le_owner = 0;
+    free(x->file);
+    x->file = 0;
+}
+
+static U32 release_guest_module(struct GuestModule *g)
+{
+    U32 i, j;
+    struct GuestModule *child;
+
+    if (!g || g->refcount == 0)
+        return O2_ERROR_INVALID_HANDLE;
+    --g->refcount;
+    if (!g_quiet || trace_modules())
+        printf("GUESTMOD RELEASE: %s handle=%08lX refs=%lu\n",
+               g->request_name, (unsigned long)g->handle,
+               (unsigned long)g->refcount);
+    if (g->refcount != 0)
+        return O2_NO_ERROR;
+
+    g->state = 3;
+    terminate_guest_module(g);
+    unpublish_guest_pm_resources(g);
+    for (i = 0; i < g->image.import_module_count; ++i) {
+        if (g->image.modules[i].kind == IMPORT_KIND_GUEST) {
+            child = g->image.modules[i].guest;
+            g->image.modules[i].guest = 0;
+            g->image.modules[i].kind = IMPORT_KIND_NONE;
+            if (child && child->state != 3)
+                release_guest_module(child);
+        }
+    }
+
+    if (!g_quiet || trace_modules())
+        printf("GUESTMOD UNLOAD: %s handle=%08lX\n",
+               g->request_name, (unsigned long)g->handle);
+    free_guest_image(&g->image);
+
+    (void)i;
+    (void)j;
+    unregister_guest_module(g);
+    free(g);
+    return O2_NO_ERROR;
+}
+
+/*
+ * M29N2b.1 bridge exported by OS2HOST32.EXE.  DOSCALLS.318/.319/.321/.322
+ * use these entry points so the public OS/2 module APIs operate on the same
+ * in-process module graph used by static LE/LX import resolution.
+ */
+__declspec(dllexport) U32 __cdecl OS2HostModuleLoad(const char *name,
+                                                    U32 *phmod,
+                                                    char *bad_name,
+                                                    U32 bad_name_len)
+{
+    struct GuestModule *g;
+    char path[260];
+
+    if (!name || !*name || !phmod)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (!find_guest_module(name) &&
+        !locate_guest_module(name, path, (U32)sizeof(path))) {
+        if (bad_name && bad_name_len != 0) {
+            strncpy(bad_name, name, (size_t)(bad_name_len - 1));
+            bad_name[bad_name_len - 1] = 0;
+        }
+        return O2_ERROR_MOD_NOT_FOUND;
+    }
+    g = load_guest_module(name);
+    if (!g)
+        return g_last_guest_load_error != O2_NO_ERROR ?
+               g_last_guest_load_error : O2_ERROR_MOD_NOT_FOUND;
+    *phmod = g->handle;
+    if (bad_name && bad_name_len != 0)
+        bad_name[0] = 0;
+    return O2_NO_ERROR;
+}
+
+__declspec(dllexport) U32 __cdecl OS2HostModuleQueryHandle(const char *name,
+                                                           U32 *phmod)
+{
+    struct GuestModule *g;
+    if (!name || !*name || !phmod)
+        return O2_ERROR_INVALID_PARAMETER;
+    g = find_guest_module(name);
+    if (!g || g->state == 3)
+        return O2_ERROR_MOD_NOT_FOUND;
+    *phmod = g->handle;
+    return O2_NO_ERROR;
+}
+
+__declspec(dllexport) U32 __cdecl OS2HostQueryMainStack(U32 *plow, U32 *phigh)
+{
+    if (!plow || !phigh)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (g_main_guest_stack_low == 0 ||
+        g_main_guest_stack_high <= g_main_guest_stack_low)
+        return O2_ERROR_INVALID_PARAMETER;
+    *plow = g_main_guest_stack_low;
+    *phigh = g_main_guest_stack_high;
+    return O2_NO_ERROR;
+}
+
+/* M30M2: publish the OS/2 PIB command block including its embedded NUL. */
+__declspec(dllexport) U32 __cdecl OS2HostQueryMainCommand(char **ppcmd,
+                                                          U32 *pcb)
+{
+    if (!ppcmd || !pcb)
+        return O2_ERROR_INVALID_PARAMETER;
+    if (!g_main_guest_cmd || g_main_guest_cmd_len < 3UL) {
+        *ppcmd = NULL;
+        *pcb = 0;
+        return O2_ERROR_INVALID_PARAMETER;
+    }
+    *ppcmd = g_main_guest_cmd;
+    *pcb = g_main_guest_cmd_len;
+    return O2_NO_ERROR;
+}
+
+__declspec(dllexport) U32 __cdecl OS2HostModuleQueryName(U32 hmod,
+                                                         U32 cb,
+                                                         char *buffer)
+{
+    struct GuestModule *g;
+    const char *src;
+    U32 need;
+
+    if (!buffer || cb == 0)
+        return O2_ERROR_INVALID_PARAMETER;
+
+    if (hmod == 1UL) {
+        src = g_main_guest_program;
+    } else {
+        g = find_guest_module_handle(hmod);
+        if (!g || g->state == 3)
+            return O2_ERROR_INVALID_HANDLE;
+        src = g->path;
+    }
+    if (!src || !*src)
+        return O2_ERROR_INVALID_HANDLE;
+
+    need = (U32)strlen(src) + 1UL;
+    if (need > cb) {
+        buffer[0] = 0;
+        return O2_ERROR_BUFFER_OVERFLOW;
+    }
+    memcpy(buffer, src, (size_t)need);
+    if (!g_quiet || trace_modules())
+        printf("GUESTMOD QUERYNAME: handle=%08lX -> %s\n",
+               (unsigned long)hmod, buffer);
+    return O2_NO_ERROR;
+}
+
+__declspec(dllexport) U32 __cdecl OS2HostModuleQueryProc(U32 hmod,
+                                                         U32 ordinal,
+                                                         const char *name,
+                                                         U32 *paddr)
+{
+    struct GuestModule *g;
+    U32 addr;
+
+    if (!paddr || (ordinal == 0 && (!name || !*name)))
+        return O2_ERROR_INVALID_PARAMETER;
+    g = find_guest_module_handle(hmod);
+    if (!g || g->state == 3)
+        return O2_ERROR_INVALID_HANDLE;
+    if (ordinal != 0)
+        addr = guest_export_by_ordinal(g, ordinal);
+    else
+        addr = guest_export_by_name(g, name);
+    if (addr == 0)
+        return O2_ERROR_PROC_NOT_FOUND;
+    *paddr = addr;
+    if (!g_quiet || trace_modules()) {
+        if (ordinal != 0)
+            printf("GUESTMOD QUERYPROC: handle=%08lX ordinal=%lu -> %08lX\n",
+                   (unsigned long)hmod, (unsigned long)ordinal,
+                   (unsigned long)addr);
+        else
+            printf("GUESTMOD QUERYPROC: handle=%08lX name=%s -> %08lX\n",
+                   (unsigned long)hmod, name, (unsigned long)addr);
+    }
+    return O2_NO_ERROR;
+}
+
+__declspec(dllexport) U32 __cdecl OS2HostModuleFree(U32 hmod)
+{
+    struct GuestModule *g;
+    g = find_guest_module_handle(hmod);
+    if (!g || g->state == 3)
+        return O2_ERROR_INVALID_HANDLE;
+    return release_guest_module(g);
+}
+
+__declspec(dllexport) void __cdecl OS2HostModuleTerminateAll(void)
+{
+    struct GuestModule *g;
+    U32 i;
+    U32 best_order;
+
+    if (g_guest_process_exit)
+        return;
+    g_guest_process_exit = 1;
+
+    /* Terminate in reverse successful initialization order while all guest
+     * images are still mapped.  A parent TERM routine may therefore continue
+     * to call an imported child DLL.  ExitProcess tears the mappings down. */
+    for (;;) {
+        g = 0;
+        best_order = 0;
+        for (i = 0; i < g_guest_module_count; ++i) {
+            if (g_guest_modules[i]->init_called &&
+                !g_guest_modules[i]->term_called &&
+                g_guest_modules[i]->init_order >= best_order) {
+                g = g_guest_modules[i];
+                best_order = g->init_order;
+            }
+        }
+        if (!g)
+            break;
+        terminate_guest_module(g);
+    }
+}
+
+static void ensure_import_module(struct LxImage *x, U32 m)
+{
+    char dllname[80];
+
+    if (x->modules[m].kind != IMPORT_KIND_NONE)
+        return;
+    if (is_personality_module(x->modules[m].name)) {
+        if (strlen(x->modules[m].name) + 5 >= sizeof(dllname))
+            fail("LE/LX import module name is too long");
+        sprintf(dllname, "%s.dll", x->modules[m].name);
+        x->modules[m].handle = LoadLibraryA(dllname);
+        if (!x->modules[m].handle) {
+            fprintf(stderr, "os2host32: cannot load compatibility module %s\n",
+                    dllname);
+            exit(1);
+        }
+        x->modules[m].kind = IMPORT_KIND_HOST;
+        if (!g_quiet)
+            printf("loaded %-12s at %08lX\n", dllname,
+                   (unsigned long)(U32)(unsigned long)x->modules[m].handle);
+    } else {
+        x->modules[m].guest = load_guest_module(x->modules[m].name);
+        if (!x->modules[m].guest) {
+            fprintf(stderr, "os2host32: initialization failed for guest module %s\n",
+                    x->modules[m].name);
+            exit(1);
+        }
+        x->modules[m].kind = IMPORT_KIND_GUEST;
+    }
+}
+
+static U32 resolve_module_ordinal(struct LxImage *x, U32 m, U32 ordinal)
+{
+    FARPROC fp;
+    U32 addr;
+
+    ensure_import_module(x, m);
+    if (x->modules[m].kind == IMPORT_KIND_HOST) {
+        fp = GetProcAddress(x->modules[m].handle, (LPCSTR)(unsigned long)ordinal);
+        return fp ? (U32)(unsigned long)fp : 0;
+    }
+    if (x->modules[m].kind == IMPORT_KIND_TRAP)
+        return 0;
+    addr = guest_export_by_ordinal(x->modules[m].guest, ordinal);
+    if ((!g_quiet || trace_modules()) && addr != 0)
+        printf("GUESTMOD EXPORT: %s.%lu -> %08lX\n",
+               x->modules[m].name, (unsigned long)ordinal,
+               (unsigned long)addr);
+    return addr;
+}
+
+static U32 resolve_module_name(struct LxImage *x, U32 m, const char *name)
+{
+    FARPROC fp;
+    U32 addr;
+
+    ensure_import_module(x, m);
+    if (x->modules[m].kind == IMPORT_KIND_HOST) {
+        fp = GetProcAddress(x->modules[m].handle, name);
+        return fp ? (U32)(unsigned long)fp : 0;
+    }
+    addr = guest_export_by_name(x->modules[m].guest, name);
+    if ((!g_quiet || trace_modules()) && addr != 0)
+        printf("GUESTMOD EXPORT: %s.%s -> %08lX\n",
+               x->modules[m].name, name, (unsigned long)addr);
+    return addr;
+}
+
+static void __cdecl emx_unresolved_import(const char *module, U32 ordinal)
+{
+    fprintf(stderr,
+            "os2host32: M30 EMX reached unresolved import %s.%lu\n",
+            module, (unsigned long)ordinal);
+    fprintf(stderr,
+            "os2host32: this import was deferred at load time so EMX could expose the next API actually used\n");
+    ExitProcess(1);
+}
+
+static U32 make_emx_import_trap(struct LxImage *x, U32 import_index_value)
+{
+    U8 *stub;
+    U32 p;
+    U32 module;
+    U32 ordinal;
+
+    if (import_index_value >= x->import_count)
+        fail("bad M30 EMX import trap index");
+    if (x->emx_import_traps[import_index_value])
+        return (U32)(unsigned long)x->emx_import_traps[import_index_value];
+    module = x->imports[import_index_value].module;
+    ordinal = x->imports[import_index_value].ordinal;
+    stub = (U8 *)VirtualAlloc(NULL, 32, MEM_RESERVE | MEM_COMMIT,
+                              PAGE_EXECUTE_READWRITE);
+    if (!stub)
+        fail("cannot allocate M30 EMX import trap");
+    p = 0;
+    stub[p++] = 0x68; wr32(stub + p, ordinal); p += 4;
+    stub[p++] = 0x68;
+    wr32(stub + p, (U32)(unsigned long)x->modules[module].name); p += 4;
+    stub[p++] = 0xb8;
+    wr32(stub + p, (U32)(unsigned long)emx_unresolved_import); p += 4;
+    stub[p++] = 0xff; stub[p++] = 0xd0;
+    stub[p++] = 0xcc;
+    FlushInstructionCache(GetCurrentProcess(), stub, (SIZE_T)p);
+    x->emx_import_traps[import_index_value] = stub;
+    if (!g_quiet)
+        printf("deferred %-12s.%lu -> M30 trap %08lX (%lu site%s)\n",
+               x->modules[module].name, (unsigned long)ordinal,
+               (unsigned long)(U32)(unsigned long)stub,
+               (unsigned long)x->imports[import_index_value].sites,
+               x->imports[import_index_value].sites == 1 ? "" : "s");
+    return (U32)(unsigned long)stub;
+}
+
+static void publish_main_pm_resources(struct LxImage *x)
+{
+#ifdef _WIN32
+    typedef void (__cdecl *PFNUNREGISTER)(U32);
+    typedef int (__cdecl *PFNREGISTER)(U32, U16, U16, const void *, U32);
+    HMODULE pmwin;
+    PFNUNREGISTER unregfn;
+    PFNREGISTER regfn;
+    U32 i, m, published;
+    struct LxResource *r;
+    struct LxObject *obj;
+
+    if (x->resource_count == 0)
+        return;
+    pmwin = NULL;
+    for (m = 0; m < x->import_module_count; ++m) {
+        if (strcmp(x->modules[m].name, "PMWIN") == 0 &&
+            x->modules[m].kind == IMPORT_KIND_HOST) {
+            pmwin = x->modules[m].handle;
+            break;
+        }
+    }
+    if (!pmwin)
+        return;
+
+    unregfn = (PFNUNREGISTER)GetProcAddress(pmwin, "OS2PM_UnregisterModuleResources");
+    regfn = (PFNREGISTER)GetProcAddress(pmwin, "OS2PM_RegisterResource");
+    if (!unregfn || !regfn)
+        fail("PMWIN lacks M31E per-module resource bridge");
+
+    /* Guest DLL imports are resolved (and initialized) while resolving the
+       executable's imports, before main resources are published.  Remove
+       only the executable's old resource namespace here so guest-DLL
+       resources survive and WinLoadString/WinDlgBox can address them by the
+       DLL's synthetic HMODULE. */
+    unregfn(0UL);
+    published = 0;
+    for (i = 0; i < x->resource_count; ++i) {
+        r = &x->resources[i];
+        obj = &x->objects[r->object - 1];
+        if (!obj->mapped)
+            fail("resource object is not mapped");
+        if (!regfn(0UL, r->type, r->name,
+                   (obj->resource_shadow ? obj->resource_shadow : obj->mapped) + r->offset,
+                   r->size))
+            fail("PMWIN resource registry is full");
+        ++published;
+    }
+    if (!g_quiet)
+        printf("PM resources     : published %lu main-module resource%s\n",
+               (unsigned long)published, published == 1 ? "" : "s");
+#else
+    (void)x;
+#endif
+}
+
+static void resolve_imports(struct LxImage *x)
+{
+    U32 i, m, addr;
+    char namebuf[256];
+
+    for (i = 0; i < x->import_count; ++i) {
+        m = x->imports[i].module;
+        addr = resolve_module_ordinal(x, m, x->imports[i].ordinal);
+        if (addr == 0 && x->emx_bridge_complete)
+            addr = make_emx_import_trap(x, i);
+        if (addr == 0) {
+            fprintf(stderr, "os2host32: %s ordinal %lu is not exported\n",
+                    x->modules[m].name,
+                    (unsigned long)x->imports[i].ordinal);
+            exit(1);
+        }
+        x->imports[i].address = addr;
+        if (!g_quiet)
+            printf("resolved %-12s.%lu -> %08lX  (%lu site%s)\n",
+                   x->modules[m].name, (unsigned long)x->imports[i].ordinal,
+                   (unsigned long)addr,
+                   (unsigned long)x->imports[i].sites,
+                   x->imports[i].sites == 1 ? "" : "s");
+    }
+
+    for (i = 0; i < x->name_import_count; ++i) {
+        m = x->name_imports[i].module;
+        import_name_at(x, x->name_imports[i].name_offset,
+                       namebuf, (U32)sizeof(namebuf));
+        addr = resolve_module_name(x, m, namebuf);
+        if (addr == 0) {
+            fprintf(stderr, "os2host32: %s name %s is not exported\n",
+                    x->modules[m].name, namebuf);
+            exit(1);
+        }
+        x->name_imports[i].address = addr;
+        if (!g_quiet)
+            printf("resolved %-12s.%s -> %08lX  (%lu site%s)\n",
+                   x->modules[m].name, namebuf, (unsigned long)addr,
+                   (unsigned long)x->name_imports[i].sites,
+                   x->name_imports[i].sites == 1 ? "" : "s");
+    }
+}
+
+/*
+ * Replace the compiler-generated 32->16 transition helper with a native
+ * 32-bit bridge.  The original tiny 16-bit object remains mapped and parsed
+ * but is never entered.
+ *
+ * M29E makes the bridge descriptor-driven.  Each descriptor lists the Pascal
+ * frame widths in memory order, so the same code generator handles the proven
+ * 2-byte, 8-byte and 12-byte frames without per-API machine-code branches.
+ *
+ * DosFlatToSel leaves each packed pointer as a virtual token carrying the
+ * original flat address.  Since this helper is patched before any LSS/far
+ * transition, the native compatibility DLL can dereference those tokens as
+ * ordinary Win32 pointers.
+ */
+static void install_one_c386_far16_bridge(struct LxImage *x,
+                                             struct C386Far16Bridge *b)
+{
+    struct LxObject *o;
+    struct LxObject *to;
+    U8 *code;
+    U8 *thunk;
+    U8 *helper;
+    U8 *stub;
+    U32 sel, ss_sel, search_lo, i, helper_off;
+    U32 idx, host, p, stub_va, helper_va, rel;
+    U32 frame_off, pushed_bytes, ai;
+    U8 width;
+    const struct C386Far16ApiDesc *desc;
+    static const U8 prologue[10] = {
+        0x55, 0x8b, 0xec, 0x83, 0xec, 0x04, 0x53, 0x57, 0x56, 0x06
+    };
+    static const U8 lss_sp[5] = {
+        0x66, 0x0f, 0xb2, 0x24, 0x24
+    };
+
+    if (!b->candidate)
+        return;
+    if (b->alias_source_object >= x->object_count ||
+        b->return_object >= x->object_count ||
+        b->thunk_object >= x->object_count)
+        fail("C/386 far16 bridge has invalid object references");
+    if (b->alias_source_object != b->return_object)
+        fail("C/386 far16 bridge returns to a different 32-bit object");
+
+    o = &x->objects[b->alias_source_object];
+    to = &x->objects[b->thunk_object];
+    if (!o->mapped || !to->mapped)
+        fail("C/386 far16 bridge object is not mapped");
+    code = o->mapped;
+    thunk = to->mapped;
+    sel = b->alias_selector_offset;
+    ss_sel = b->stack_selector_offset;
+
+    /* Validate the tiny 16-bit fragment before treating it as metadata. */
+    if (b->thunk_offset + 14UL > to->size)
+        fail("C/386 far16 thunk fragment lies outside 16-bit object");
+    if (thunk[b->thunk_offset] != 0x9a ||
+        thunk[b->thunk_offset + 5UL] != 0x66 ||
+        thunk[b->thunk_offset + 6UL] != 0x67 ||
+        thunk[b->thunk_offset + 7UL] != 0xea)
+        fail("C/386 far16 14-byte thunk signature was not recognized");
+
+    if (sel < 9UL || sel + 2UL > o->size)
+        fail("C/386 far16 alias selector lies outside 32-bit helper");
+    if (b->return_offset != sel + 2UL)
+        fail("C/386 far16 return continuation does not follow alias jump");
+    if (code[sel - 4UL] != 0x66 || code[sel - 3UL] != 0xea)
+        fail("C/386 far16 alias fixup is not attached to expected far jump");
+    if ((U32)rd16(code + sel - 2UL) != b->thunk_offset)
+        fail("C/386 far16 alias jump points at a different thunk fragment");
+    if (memcmp(code + sel - 9UL, lss_sp, sizeof(lss_sp)) != 0)
+        fail("C/386 far16 helper is missing expected LSS SP transition");
+
+    if (ss_sel < 2UL || ss_sel + 2UL > o->size ||
+        code[ss_sel - 2UL] != 0x66 || code[ss_sel - 1UL] != 0x3d)
+        fail("C/386 far16 helper is missing expected SS selector comparison");
+
+    search_lo = sel > 192UL ? sel - 192UL : 0UL;
+    helper_off = 0xffffffffUL;
+    i = search_lo;
+    while (i + (U32)sizeof(prologue) <= sel) {
+        if (memcmp(code + i, prologue, sizeof(prologue)) == 0)
+            helper_off = i;
+        ++i;
+    }
+    if (helper_off == 0xffffffffUL)
+        fail("C/386 far16 transition helper prologue was not recognized");
+    if (ss_sel <= helper_off || ss_sel >= sel)
+        fail("C/386 far16 stack selector is outside transition helper");
+
+    idx = import_index(x, b->import_module, b->import_ordinal);
+    host = x->imports[idx].address;
+    if (host == 0)
+        fail("C/386 far16 target import was not resolved");
+
+    if (b->api_desc_index == C386_FAR16_DESC_NONE ||
+        b->api_desc_index >= C386_FAR16_API_COUNT)
+        fail("C/386 far16 bridge has no API descriptor");
+    desc = &c386_far16_apis[b->api_desc_index];
+
+    stub = (U8 *)VirtualAlloc(NULL, 128, MEM_RESERVE | MEM_COMMIT,
+                              PAGE_EXECUTE_READWRITE);
+    if (!stub)
+        fail("cannot allocate C/386 far16 native bridge");
+
+    p = 0;
+    stub[p++] = 0x8b; stub[p++] = 0xd4;       /* mov edx,esp */
+    frame_off = 4UL;
+    pushed_bytes = 0UL;
+    for (ai = 0; ai < (U32)desc->arg_count; ++ai) {
+        width = desc->arg_width[ai];
+        if (frame_off > 127UL)
+            fail("C/386 far16 descriptor frame offset is too large");
+        if (width == 2) {
+            stub[p++] = 0x0f; stub[p++] = 0xb7; stub[p++] = 0x42;
+            stub[p++] = (U8)frame_off;
+        } else if (width == 4) {
+            stub[p++] = 0x8b; stub[p++] = 0x42;
+            stub[p++] = (U8)frame_off;
+        } else {
+            fail("C/386 far16 descriptor has unsupported argument width");
+        }
+        stub[p++] = 0x50;                     /* push eax */
+        frame_off += (U32)width;
+        pushed_bytes += 4UL;
+    }
+
+    stub[p++] = 0xb8; wr32(stub + p, host); p += 4;
+    stub[p++] = 0xff; stub[p++] = 0xd0;       /* call eax */
+    if (pushed_bytes != 0) {
+        if (pushed_bytes > 127UL)
+            fail("C/386 far16 native cdecl cleanup is too large");
+        stub[p++] = 0x83; stub[p++] = 0xc4; stub[p++] = (U8)pushed_bytes;
+    }
+    if (frame_off - 4UL > 0xffffUL)
+        fail("C/386 far16 Pascal frame is too large");
+    stub[p++] = 0xc2;
+    stub[p++] = (U8)((frame_off - 4UL) & 0xffUL);
+    stub[p++] = (U8)(((frame_off - 4UL) >> 8) & 0xffUL);
+
+    helper = code + helper_off;
+    helper_va = (U32)(unsigned long)helper;
+    stub_va = (U32)(unsigned long)stub;
+    rel = stub_va - (helper_va + 5UL);
+    helper[0] = 0xe9;
+    wr32(helper + 1, rel);
+
+    FlushInstructionCache(GetCurrentProcess(), stub, (SIZE_T)p);
+    FlushInstructionCache(GetCurrentProcess(), helper, 5);
+
+    b->helper_offset = helper_off;
+    b->native_stub = stub;
+    b->validated = 1;
+
+    if (!g_quiet) {
+        printf("C/386 far16     : %s.%lu %s thunk object %lu+%04lX recognized\n",
+               x->modules[b->import_module].name,
+               (unsigned long)b->import_ordinal, desc->name,
+               (unsigned long)(b->thunk_object + 1UL),
+               (unsigned long)b->thunk_offset);
+        printf("C/386 bridge    : helper %08lX -> native stub %08lX -> %s.%lu %s %08lX (frame=%lu)\n",
+               (unsigned long)helper_va, (unsigned long)stub_va,
+               x->modules[b->import_module].name,
+               (unsigned long)b->import_ordinal, desc->name,
+               (unsigned long)host,
+               (unsigned long)(frame_off - 4UL));
+    }
+}
+
+static void install_c386_far16_bridges(struct LxImage *x)
+{
+    U32 i;
+    if (!x->c386_bridges_complete)
+        return;
+    for (i = 0; i < x->c386_bridge_count; ++i)
+        install_one_c386_far16_bridge(x, &x->c386_bridges[i]);
+}
+
+static void __cdecl emx_unknown_thunk(U32 block, U32 target)
+{
+    fprintf(stderr,
+            "os2host32: M30 EMX_THUNK1 received an unrecognized target %08lX (block=%08lX)\n",
+            (unsigned long)target, (unsigned long)block);
+    ExitProcess(1);
+}
+
+static void install_emx_generic_bridge(struct LxImage *x)
+{
+    struct LxObject *o;
+    U8 *code;
+    U8 *stub;
+    U32 p, i, ai, idx, host, frame_off, pushed_bytes;
+    U32 dispatch_patch[EMX_FAR16_API_COUNT];
+    U32 case_off[EMX_FAR16_API_COUNT];
+    U32 helper_va, stub_va, rel;
+    U8 width;
+    const struct C386Far16ApiDesc *desc;
+
+    if (!x->emx_bridge_complete)
+        return;
+    if (x->object_count < 2UL || !x->objects[1].mapped)
+        fail("M30 EMX code object is not mapped");
+    o = &x->objects[1];
+    if (o->size <= 0x10cdfUL)
+        fail("M30 EMX code object is too small");
+    code = o->mapped;
+
+    /* Fail closed if this is not the helper body fingerprinted by M30A. */
+    if (code[0x10c58] != 0x8b || code[0x10c59] != 0x44 ||
+        code[0x10c5a] != 0x24 || code[0x10c5b] != 0x04 ||
+        code[0x10c5c] != 0xe9 ||
+        code[0x10c64] != 0x8b || code[0x10c65] != 0x44 ||
+        code[0x10c66] != 0x24 || code[0x10c67] != 0x04 ||
+        code[0x10c68] != 0xe9 ||
+        code[0x10c70] != 0x55 || code[0x10c71] != 0x8b ||
+        code[0x10c72] != 0xec)
+        fail("M30 EMX helper fingerprint changed");
+
+    /* Flat Win32 pointers are the token: no selector conversion is needed. */
+    code[0x10c5c] = 0xc3;  /* EMX_32TO16: mov eax,[esp+4] ; ret */
+    code[0x10c68] = 0xc3;  /* EMX_16TO32: mov eax,[esp+4] ; ret */
+
+    /*
+     * OS/2 keeps PTIB2 at FS:[0x0c], whose first dword is the thread ID.
+     * Win32 owns FS for its TEB.  This M30 bridge is intentionally single-
+     * threaded, so give EMX the historical main-thread ID 1 at the four
+     * places that dereference the OS/2 TIB.  Merely saving the FS selector
+     * for the bypassed 16-bit shim is harmless and is left untouched.
+     */
+    if (code[0x00ed] != 0x64 || code[0x00ee] != 0x8b ||
+        code[0x014c] != 0x64 || code[0x0170] != 0x64 ||
+        code[0x0180] != 0x64)
+        fail("M30 EMX FS/TIB fingerprint changed");
+    code[0x00ed] = 0xbe; wr32(code + 0x00ee, 1UL);
+    code[0x00f2] = 0x90; code[0x00f3] = 0x90;
+    code[0x00f4] = 0x90; code[0x00f5] = 0x90;
+    code[0x014c] = 0xb8; wr32(code + 0x014d, 1UL);
+    code[0x0151] = 0x90; code[0x0152] = 0x90; code[0x0153] = 0x90;
+    code[0x0170] = 0xb8; wr32(code + 0x0171, 1UL);
+    code[0x0175] = 0x90; code[0x0176] = 0x90; code[0x0177] = 0x90;
+    code[0x0180] = 0xb8; wr32(code + 0x0181, 1UL);
+    code[0x0185] = 0xc3; code[0x0186] = 0x90; code[0x0187] = 0x90;
+    code[0x0188] = 0x90;
+
+    stub = (U8 *)VirtualAlloc(NULL, 2048, MEM_RESERVE | MEM_COMMIT,
+                              PAGE_EXECUTE_READWRITE);
+    if (!stub)
+        fail("cannot allocate M30 EMX generic thunk bridge");
+    p = 0;
+
+    /* Dispatch on the native target pointer written into each wrapper's
+     * original PTR16:16 fixup slot by apply_fixups(). */
+    for (i = 0; i < EMX_FAR16_API_COUNT; ++i) {
+        desc = &emx_far16_apis[i];
+        for (idx = 0; idx < x->import_count; ++idx) {
+            if (x->imports[idx].ordinal == desc->ordinal &&
+                strcmp(x->modules[x->imports[idx].module].name,
+                       desc->module) == 0)
+                break;
+        }
+        if (idx == x->import_count)
+            fail("M30 EMX far16 target import is absent");
+        host = x->imports[idx].address;
+        stub[p++] = 0x81; stub[p++] = 0x7c; stub[p++] = 0x24; stub[p++] = 0x08;
+        wr32(stub + p, host); p += 4;       /* cmp dword [esp+8],host */
+        stub[p++] = 0x0f; stub[p++] = 0x84; /* je rel32 */
+        dispatch_patch[i] = p;
+        wr32(stub + p, 0); p += 4;
+    }
+
+    /* Unexpected target: report it instead of entering 16-bit code. */
+    stub[p++] = 0xff; stub[p++] = 0x74; stub[p++] = 0x24; stub[p++] = 0x08;
+    stub[p++] = 0xff; stub[p++] = 0x74; stub[p++] = 0x24; stub[p++] = 0x08;
+    stub[p++] = 0xb8;
+    wr32(stub + p, (U32)(unsigned long)emx_unknown_thunk); p += 4;
+    stub[p++] = 0xff; stub[p++] = 0xd0;
+    stub[p++] = 0xcc;
+
+    for (i = 0; i < EMX_FAR16_API_COUNT; ++i) {
+        desc = &emx_far16_apis[i];
+        case_off[i] = p;
+        stub[p++] = 0x8b; stub[p++] = 0x54; stub[p++] = 0x24; stub[p++] = 0x04;
+        frame_off = 4UL;                    /* skip packed byte count */
+        pushed_bytes = 0UL;
+        for (ai = 0; ai < (U32)desc->arg_count; ++ai) {
+            width = desc->arg_width[ai];
+            if (frame_off > 127UL)
+                fail("M30 EMX packed frame is too large");
+            if (width == 2) {
+                stub[p++] = 0x0f; stub[p++] = 0xb7; stub[p++] = 0x42;
+                stub[p++] = (U8)frame_off;
+            } else if (width == 4) {
+                stub[p++] = 0x8b; stub[p++] = 0x42; stub[p++] = (U8)frame_off;
+            } else {
+                fail("M30 EMX descriptor has unsupported argument width");
+            }
+            stub[p++] = 0x50;
+            frame_off += (U32)width;
+            pushed_bytes += 4UL;
+        }
+        for (idx = 0; idx < x->import_count; ++idx) {
+            if (x->imports[idx].ordinal == desc->ordinal &&
+                strcmp(x->modules[x->imports[idx].module].name,
+                       desc->module) == 0)
+                break;
+        }
+        if (idx == x->import_count)
+            fail("M30 EMX far16 target vanished");
+        host = x->imports[idx].address;
+        stub[p++] = 0xb8; wr32(stub + p, host); p += 4;
+        stub[p++] = 0xff; stub[p++] = 0xd0;
+        if (pushed_bytes != 0) {
+            stub[p++] = 0x83; stub[p++] = 0xc4; stub[p++] = (U8)pushed_bytes;
+        }
+        stub[p++] = 0xc3;
+    }
+
+    for (i = 0; i < EMX_FAR16_API_COUNT; ++i) {
+        rel = case_off[i] - (dispatch_patch[i] + 4UL);
+        wr32(stub + dispatch_patch[i], rel);
+    }
+
+    helper_va = (U32)(unsigned long)(code + 0x10c70UL);
+    stub_va = (U32)(unsigned long)stub;
+    rel = stub_va - (helper_va + 5UL);
+    code[0x10c70] = 0xe9;
+    wr32(code + 0x10c71, rel);
+
+    x->emx_thunk_stub = stub;
+    FlushInstructionCache(GetCurrentProcess(), stub, (SIZE_T)p);
+    FlushInstructionCache(GetCurrentProcess(), code + 0x00ed, 0xa0);
+    FlushInstructionCache(GetCurrentProcess(), code + 0x10c58, 0x20);
+
+    if (!g_quiet) {
+        printf("M30 EMX bridge   : EMX_32TO16/16TO32 are flat-pointer identities\n");
+        printf("M30 EMX bridge   : OS/2 FS/TIB main-thread references virtualized as TID 1\n");
+        printf("M30 EMX bridge   : EMX_THUNK1 %08lX -> native dispatcher %08lX (%lu far16 APIs)\n",
+               (unsigned long)helper_va, (unsigned long)stub_va,
+               (unsigned long)EMX_FAR16_API_COUNT);
+    }
+}
+
+
+/*
+ * M30M: infer the absolute internal relocation sites that old emxbind dropped.
+ *
+ * Classic EMX bound LX executables carry their TEXT/DATA/BSS contents but, as
+ * demonstrated by the M30K..M30L research branch, they may carry no usable LX
+ * internal fixups for the a.out absolute relocations.  Modern WOW64 cannot be
+ * relied on to reproduce the original low OS/2 address space, so M30M starts a
+ * sidecarless recovery path.
+ *
+ * This is deliberately conservative and opt-in.  Set OS2_EMX_INFER_RELOCS=1.
+ * The recovery pass only considers 32-bit values that point into the original
+ * EMX TEXT or DATA/BSS objects, then accepts them when either:
+ *
+ *   - they occur at a recognizable i386 imm32/disp32 operand site;
+ *   - they form an aligned run of at least two pointer-looking dwords in TEXT
+ *     (jump/function-pointer tables); or
+ *   - they are an aligned pointer-looking dword in the DATA/BSS object.
+ *
+ * A literal equal to the old TEXT base in an isolated TEXT instruction is
+ * treated as ambiguous rather than patched.  EMX code often uses 0x10000 as a
+ * size constant, and the lost relocation information is exactly what used to
+ * distinguish that constant from a pointer.
+ */
+static int emx_infer_mode(void)
+{
+    const char *p;
+    p = getenv("OS2_EMX_INFER_RELOCS");
+    if (p == 0 || p[0] == 0 || (p[0] == '0' && p[1] == 0))
+        return 0;
+    if (strcmp(p, "audit") == 0 || strcmp(p, "AUDIT") == 0)
+        return 2;
+    return 1;
+}
+
+static int emx_infer_enabled(void)
+{
+    return emx_infer_mode() != 0;
+}
+
+static int emx_old_value_is_internal(struct LxImage *x, U32 v)
+{
+    U32 i, lo, hi;
+    if (x->object_count < 2)
+        return 0;
+    for (i = 0; i < 2UL; ++i) {
+        lo = x->objects[i].base;
+        if (x->objects[i].size > 0xffffffffUL - lo)
+            continue;
+        hi = lo + x->objects[i].size;
+        /* End pointers are valid a.out relocation results too. */
+        if (v >= lo && v <= hi)
+            return 1;
+    }
+    return 0;
+}
+
+static int emx_internal_target_delta(struct LxImage *x, U32 value, U32 *delta)
+{
+    U32 i, lo, hi;
+    for (i = 0; i < 2UL && i < x->object_count; ++i) {
+        lo = x->objects[i].base;
+        if (x->objects[i].size > 0xffffffffUL - lo)
+            continue;
+        hi = lo + x->objects[i].size;
+        if (value >= lo && value <= hi) {
+            if (!x->objects[i].mapped)
+                return 0;
+            *delta = (U32)(unsigned long)x->objects[i].mapped - lo;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int emx_value_needs_relocation(struct LxImage *x, U32 value, U32 *delta)
+{
+    if (!emx_internal_target_delta(x, value, delta))
+        return 0;
+    return *delta != 0UL;
+}
+
+static int emx_onebyte_modrm_opcode(U8 op)
+{
+    U8 lo;
+    lo = (U8)(op & 7U);
+    if (op <= 0x3bU && lo <= 3U)
+        return 1;
+    if (op == 0x62U || op == 0x63U || op == 0x69U || op == 0x6bU)
+        return 1;
+    if (op >= 0x80U && op <= 0x8fU)
+        return 1;
+    if (op == 0xc0U || op == 0xc1U || op == 0xc6U || op == 0xc7U)
+        return 1;
+    if (op >= 0xd0U && op <= 0xd3U)
+        return 1;
+    if (op >= 0xd8U && op <= 0xdfU)
+        return 1;
+    if (op == 0xf6U || op == 0xf7U || op == 0xfeU || op == 0xffU)
+        return 1;
+    return 0;
+}
+
+static int emx_twobyte_modrm_opcode(U8 op)
+{
+    if (op >= 0x80U && op <= 0x8fU)
+        return 0; /* Jcc rel32 */
+    switch (op) {
+    case 0x05: case 0x06: case 0x07: case 0x08: case 0x09: case 0x0b:
+    case 0x30: case 0x31: case 0x32: case 0x33: case 0x34: case 0x35:
+    case 0x77: case 0xa0: case 0xa1: case 0xa2: case 0xa8: case 0xa9:
+    case 0xaa:
+        return 0;
+    }
+    return 1;
+}
+
+static int emx_modrm_has_disp32(U8 modrm, int have_sib, U8 sib)
+{
+    U8 mod, rm;
+    mod = (U8)(modrm >> 6);
+    rm = (U8)(modrm & 7U);
+    if (mod == 2U)
+        return 1;
+    if (mod == 0U) {
+        if (rm == 5U)
+            return 1;
+        if (rm == 4U && have_sib && (sib & 7U) == 5U)
+            return 1;
+    }
+    return 0;
+}
+
+static int emx_pointer_imm_opcode(U8 op)
+{
+    if (op == 0x68U || (op >= 0xa0U && op <= 0xa3U) ||
+        (op >= 0xb8U && op <= 0xbfU))
+        return 1;
+    /* EAX imm32 arithmetic/compare forms seen in the old EMX libraries.
+     * 0x2d (SUB EAX,imm32) is intentionally omitted: in the retained hello
+     * oracle it produced a false positive inside non-code bytes. */
+    if (op == 0x05U || op == 0x0dU || op == 0x15U || op == 0x1dU ||
+        op == 0x25U || op == 0x35U || op == 0x3dU)
+        return 1;
+    return 0;
+}
+
+static int emx_c7_immediate_site(const U8 *text, U32 size, U32 site)
+{
+    U32 start, s, q;
+    U8 m, mod, rm, reg, sib, base;
+
+    start = site > 8UL ? site - 8UL : 0UL;
+    for (s = start; s < site; ++s) {
+        if (text[s] != 0xc7U || s + 1UL >= size)
+            continue;
+        m = text[s + 1UL];
+        mod = (U8)(m >> 6);
+        rm = (U8)(m & 7U);
+        reg = (U8)((m >> 3) & 7U);
+        if (reg != 0U)
+            continue;
+        q = s + 2UL;
+        base = 0xffU;
+        if (mod != 3U && rm == 4U) {
+            if (q >= size)
+                continue;
+            sib = text[q++];
+            base = (U8)(sib & 7U);
+        }
+        if (mod == 0U) {
+            if (rm == 5U || (rm == 4U && base == 5U))
+                q += 4UL;
+        } else if (mod == 1U) {
+            q += 1UL;
+        } else if (mod == 2U) {
+            q += 4UL;
+        }
+        if (q == site)
+            return 1;
+    }
+    return 0;
+}
+
+static int emx_text_operand_site(const U8 *text, U32 size, U32 site)
+{
+    U8 op, modrm, sib;
+
+    if (site >= 1UL && emx_pointer_imm_opcode(text[site - 1UL]))
+        return 1;
+
+    /* one-byte opcode + ModR/M + disp32 */
+    if (site >= 2UL) {
+        op = text[site - 2UL];
+        modrm = text[site - 1UL];
+        if (emx_onebyte_modrm_opcode(op) && (modrm & 7U) != 4U &&
+            emx_modrm_has_disp32(modrm, 0, 0))
+            return 1;
+    }
+
+    /* one-byte opcode + ModR/M + SIB + disp32 */
+    if (site >= 3UL) {
+        op = text[site - 3UL];
+        modrm = text[site - 2UL];
+        sib = text[site - 1UL];
+        if (emx_onebyte_modrm_opcode(op) && (modrm & 7U) == 4U &&
+            emx_modrm_has_disp32(modrm, 1, sib))
+            return 1;
+    }
+
+    /* 0F xx + ModR/M [+ SIB] + disp32 */
+    if (site >= 3UL && text[site - 3UL] == 0x0fU) {
+        op = text[site - 2UL];
+        modrm = text[site - 1UL];
+        if (emx_twobyte_modrm_opcode(op) && (modrm & 7U) != 4U &&
+            emx_modrm_has_disp32(modrm, 0, 0))
+            return 1;
+    }
+    if (site >= 4UL && text[site - 4UL] == 0x0fU) {
+        op = text[site - 3UL];
+        modrm = text[site - 2UL];
+        sib = text[site - 1UL];
+        if (emx_twobyte_modrm_opcode(op) && (modrm & 7U) == 4U &&
+            emx_modrm_has_disp32(modrm, 1, sib))
+            return 1;
+    }
+
+    if (emx_c7_immediate_site(text, size, site))
+        return 1;
+    return 0;
+}
+
+static int emx_text_site_is_isolated_text_base_literal(struct LxImage *x,
+                                                        const U8 *text,
+                                                        U32 site, U32 value)
+{
+    U8 op;
+    if (value != x->objects[0].base)
+        return 0;
+    if (site == 0)
+        return 0;
+    op = text[site - 1UL];
+    if (op == 0x68U || (op >= 0xb8U && op <= 0xbfU))
+        return 1;
+    if (emx_c7_immediate_site(text, x->objects[0].size, site))
+        return 1;
+    return 0;
+}
+
+static void apply_emx_inferred_relocs(struct LxImage *x)
+{
+    U8 *text, *data, *mark;
+    U32 text_size, data_size, p, q, value, delta_text, delta_data, target_delta;
+    U32 run_start, run_count, code_count, table_count, data_count;
+    U32 ambiguous, raw_candidates, applied, selected;
+    int mode;
+
+    mode = emx_infer_mode();
+    if (mode == 0)
+        return;
+    if (x->format != FORMAT_LX || !image_imports_module(x, "EMX"))
+        return;
+    if (x->object_count < 2UL || !x->objects[0].mapped || !x->objects[1].mapped)
+        fail("M30M EMX inference needs mapped TEXT and DATA objects");
+
+    delta_text = (U32)(unsigned long)x->objects[0].mapped - x->objects[0].base;
+    delta_data = (U32)(unsigned long)x->objects[1].mapped - x->objects[1].base;
+    if (delta_text == 0UL && delta_data == 0UL) {
+        if (!g_quiet)
+            printf("M30M EMX infer   : preferred addresses already exact; no recovery needed\n");
+        return;
+    }
+    text = x->objects[0].mapped;
+    data = x->objects[1].mapped;
+    text_size = x->objects[0].size;
+    data_size = x->objects[1].size;
+    mark = (U8 *)calloc((size_t)(text_size ? text_size : 1UL), 1);
+    if (!mark)
+        fail("M30M out of memory building inferred relocation map");
+
+    code_count = table_count = data_count = ambiguous = 0;
+    raw_candidates = applied = selected = 0;
+
+    /* First mark recognizable i386 address-bearing operands in TEXT. */
+    for (p = 0; p + 4UL <= text_size; ++p) {
+        value = rd32(text + p);
+        if (!emx_old_value_is_internal(x, value))
+            continue;
+        ++raw_candidates;
+        if (!emx_value_needs_relocation(x, value, &target_delta))
+            continue;
+        if (!emx_text_operand_site(text, text_size, p))
+            continue;
+        if (emx_text_site_is_isolated_text_base_literal(x, text, p, value)) {
+            ++ambiguous;
+            continue;
+        }
+        mark[p] = 1U;
+        ++code_count;
+    }
+
+    /* Then recover aligned pointer/jump tables embedded in the TEXT object.
+     * Isolated aligned pointer-looking dwords are not trusted: normal machine
+     * code can accidentally form one when read on a four-byte boundary. */
+    p = 0UL;
+    while (p + 4UL <= text_size) {
+        value = rd32(text + p);
+        if ((p & 3UL) != 0UL || mark[p] != 0U ||
+            !emx_value_needs_relocation(x, value, &target_delta)) {
+            ++p;
+            continue;
+        }
+        run_start = p;
+        run_count = 0UL;
+        q = p;
+        while (q + 4UL <= text_size && (q & 3UL) == 0UL &&
+               mark[q] == 0U) {
+            value = rd32(text + q);
+            if (!emx_value_needs_relocation(x, value, &target_delta))
+                break;
+            ++run_count;
+            q += 4UL;
+        }
+        if (run_count >= 2UL) {
+            for (q = run_start; q < run_start + run_count * 4UL; q += 4UL) {
+                mark[q] = 2U;
+                ++table_count;
+            }
+        }
+        p = run_start + (run_count ? run_count * 4UL : 4UL);
+    }
+
+    /* Patch accepted TEXT sites. */
+    for (p = 0; p + 4UL <= text_size; ++p) {
+        if (mark[p] == 0U)
+            continue;
+        value = rd32(text + p);
+        if (!emx_value_needs_relocation(x, value, &target_delta))
+            continue;
+        ++selected;
+        if (mode == 1) {
+            wr32(text + p, value + target_delta);
+            ++applied;
+        }
+    }
+
+    /* DATA/BSS object: old EMX/linker pointer cells are naturally aligned.
+     * The BSS portion is zero-filled and therefore contributes no candidates. */
+    for (p = 0; p + 4UL <= data_size; p += 4UL) {
+        value = rd32(data + p);
+        if (!emx_value_needs_relocation(x, value, &target_delta))
+            continue;
+        ++data_count;
+        ++selected;
+        if (mode == 1) {
+            wr32(data + p, value + target_delta);
+            ++applied;
+        }
+    }
+
+    if (mode == 1)
+        FlushInstructionCache(GetCurrentProcess(), text, (SIZE_T)text_size);
+
+    if (!g_quiet) {
+        printf("M30M EMX infer   : mode=%s deltaT=%08lX deltaD=%08lX code=%lu tables=%lu data=%lu selected=%lu applied=%lu ambiguous=%lu raw=%lu\n",
+               mode == 2 ? "audit" : "patch",
+               (unsigned long)delta_text,
+               (unsigned long)delta_data,
+               (unsigned long)code_count,
+               (unsigned long)table_count,
+               (unsigned long)data_count,
+               (unsigned long)selected,
+               (unsigned long)applied,
+               (unsigned long)ambiguous,
+               (unsigned long)raw_candidates);
+        printf("M30M EMX infer   : bound LX only; no a.out sidecar was consulted\n");
+        if (mode == 2)
+            printf("M30M EMX infer   : AUDIT ONLY - guest bytes were not modified\n");
+        if (ambiguous != 0UL)
+            printf("M30M EMX infer   : %lu TEXT-base literal(s) deliberately left unchanged\n",
+                   (unsigned long)ambiguous);
+    }
+
+    /* M30M4: preserve the accepted TEXT-site map for crash diagnostics.
+     * This is diagnostic state only; it does not influence execution. */
+    if (g_m30m_diag_mark) {
+        free(g_m30m_diag_mark);
+        g_m30m_diag_mark = NULL;
+    }
+    g_m30m_diag_mark = (U8 *)malloc((size_t)(text_size ? text_size : 1UL));
+    if (g_m30m_diag_mark) {
+        memcpy(g_m30m_diag_mark, mark, (size_t)text_size);
+        g_m30m_diag_text = text;
+        g_m30m_diag_text_size = text_size;
+        g_m30m_diag_text_preferred = x->objects[0].base;
+    } else {
+        g_m30m_diag_text = NULL;
+        g_m30m_diag_text_size = 0;
+        g_m30m_diag_text_preferred = 0;
+    }
+
+    free(mark);
+}
+
+/*
+ * M30C: classic EMX executables are produced by emxbind from an i386 a.out
+ * image.  The LX wrapper deliberately contains few/no internal fixups because
+ * the original a.out relocation tables describe references inside TEXT/DATA/
+ * BSS instead.  Modern Win32 often cannot map the LX at its historical low
+ * preferred addresses (0x10000/0x20000), so those retained absolute a.out
+ * references must be rebased when the LX objects move.
+ *
+ * For the first proof pass we consume the unbound a.out image as a sidecar.
+ * Set OS2_EMX_AOUT_SIDECAR=1 and place it beside foo.exe as "foo".  A non-1
+ * value is treated as an explicit sidecar path.  This is intentionally opt-in
+ * until we teach emxbind to carry/synthesize equivalent LX relocation data.
+ */
+#define AOUT_OMAGIC 0x0107UL
+#define AOUT_ZMAGIC 0x010bUL
+#define AOUT_MID_I386 100UL
+#define AOUT_N_ABS  0x02UL
+#define AOUT_N_TEXT 0x04UL
+#define AOUT_N_DATA 0x06UL
+#define AOUT_N_BSS  0x08UL
+
+static int image_imports_module(struct LxImage *x, const char *name)
+{
+    U32 i;
+    for (i = 0; i < x->import_module_count; ++i) {
+        if (module_name_equal(x->modules[i].name, name))
+            return 1;
+    }
+    return 0;
+}
+
+static int blob_range_ok(U32 size, U32 off, U32 len)
+{
+    if (off > size) return 0;
+    if (len > size - off) return 0;
+    return 1;
+}
+
+static void make_emx_aout_sidecar_path(const char *program,
+                                       const char *mode,
+                                       char *out, U32 cap)
+{
+    U32 n;
+
+    if (mode != 0 && mode[0] != 0 &&
+        !(mode[0] == '1' && mode[1] == 0)) {
+        if (strlen(mode) >= cap)
+            fail("M30C EMX a.out sidecar path is too long");
+        strcpy(out, mode);
+        return;
+    }
+
+    if (strlen(program) >= cap)
+        fail("M30C EMX program path is too long");
+    strcpy(out, program);
+    n = (U32)strlen(out);
+    if (n >= 4 && out[n - 4] == '.' &&
+        ascii_upper((unsigned char)out[n - 3]) == 'E' &&
+        ascii_upper((unsigned char)out[n - 2]) == 'X' &&
+        ascii_upper((unsigned char)out[n - 1]) == 'E') {
+        out[n - 4] = 0;
+    } else {
+        if (n + 5 >= cap)
+            fail("M30C EMX sidecar path is too long");
+        strcat(out, ".aout");
+    }
+}
+
+static U8 *read_whole_blob(const char *path, U32 *size_out)
+{
+    FILE *f;
+    long n;
+    U8 *p;
+
+    f = fopen(path, "rb");
+    if (!f)
+        return 0;
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return 0;
+    }
+    n = ftell(f);
+    if (n < 0 || (unsigned long)n > 0xffffffffUL) {
+        fclose(f);
+        return 0;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return 0;
+    }
+    p = (U8 *)malloc((size_t)n);
+    if (!p) {
+        fclose(f);
+        fail("out of memory reading M30C EMX a.out sidecar");
+    }
+    if (n != 0 && fread(p, 1, (size_t)n, f) != (size_t)n) {
+        free(p);
+        fclose(f);
+        fail("short read from M30C EMX a.out sidecar");
+    }
+    fclose(f);
+    *size_out = (U32)n;
+    return p;
+}
+
+static void apply_one_aout_reloc_table(U8 *blob, U32 blob_size,
+                                       U32 table_off, U32 table_size,
+                                       U8 *source, U32 source_size,
+                                       U32 delta,
+                                       U32 *applied,
+                                       U32 *skip_pcrel,
+                                       U32 *skip_external,
+                                       U32 *skip_abs,
+                                       U32 *first_old,
+                                       U32 *first_new,
+                                       int *saw_first)
+{
+    U32 p;
+
+    if ((table_size & 7UL) != 0)
+        fail("M30C EMX a.out relocation table size is not a multiple of 8");
+    if (!blob_range_ok(blob_size, table_off, table_size))
+        fail("M30C EMX a.out relocation table lies outside sidecar");
+
+    for (p = 0; p < table_size; p += 8) {
+        U32 addr, info, sym, pcrel, length, ext, oldv, newv;
+        addr = rd32(blob + table_off + p);
+        info = rd32(blob + table_off + p + 4);
+        sym = info & 0x00ffffffUL;
+        pcrel = (info >> 24) & 1UL;
+        length = (info >> 25) & 3UL;
+        ext = (info >> 27) & 1UL;
+
+        if (length != 2)
+            fail("M30C EMX a.out contains a non-32-bit relocation");
+        if (addr > source_size || 4UL > source_size - addr)
+            fail("M30C EMX a.out relocation source lies outside LX section");
+
+        if (ext) {
+            ++*skip_external;
+            continue;
+        }
+        if (pcrel) {
+            ++*skip_pcrel;
+            continue;
+        }
+        if (sym == AOUT_N_ABS) {
+            ++*skip_abs;
+            continue;
+        }
+        if (sym != AOUT_N_TEXT && sym != AOUT_N_DATA && sym != AOUT_N_BSS)
+            fail("M30C EMX a.out has an unknown internal relocation section");
+
+        oldv = rd32(source + addr);
+        newv = oldv + delta;
+        wr32(source + addr, newv);
+        ++*applied;
+
+        /* The canonical EMX entry stub has its DATA relocation at text+1. */
+        if (!*saw_first && addr == 1UL) {
+            *first_old = oldv;
+            *first_new = newv;
+            *saw_first = 1;
+        }
+    }
+}
+
+static void apply_emx_aout_sidecar_relocs(struct LxImage *x,
+                                          const char *program)
+{
+    const char *mode;
+    char path[260];
+    U8 *blob;
+    U32 size, info, magic, mid;
+    U32 a_text, a_data, a_bss, a_syms, a_entry, a_trsize, a_drsize;
+    U32 textoff, dataoff, treloff, dreloff;
+    U32 delta_text, delta_data;
+    U32 applied, skip_pcrel, skip_external, skip_abs;
+    U32 first_old, first_new;
+    int saw_first;
+
+    mode = getenv("OS2_EMX_AOUT_SIDECAR");
+    if (emx_infer_enabled()) {
+        if (mode != 0 && mode[0] != 0 && !(mode[0] == '0' && mode[1] == 0) && !g_quiet)
+            printf("M30M EMX infer   : ignoring a.out sidecar because inference is enabled\n");
+        return;
+    }
+    if (mode == 0 || mode[0] == 0 || (mode[0] == '0' && mode[1] == 0))
+        return;
+    if (x->format != FORMAT_LX || !image_imports_module(x, "EMX"))
+        return;
+    if (x->object_count < 2 || !x->objects[0].mapped || !x->objects[1].mapped)
+        fail("M30C EMX a.out rebasing needs mapped TEXT and DATA objects");
+
+    make_emx_aout_sidecar_path(program, mode, path, (U32)sizeof(path));
+    blob = read_whole_blob(path, &size);
+    if (!blob) {
+        fprintf(stderr, "os2host32: M30C cannot open EMX a.out sidecar %s\n", path);
+        exit(1);
+    }
+    if (!blob_range_ok(size, 0, 32)) {
+        free(blob);
+        fail("M30C EMX a.out sidecar is smaller than an exec header");
+    }
+
+    info = rd32(blob + 0);
+    magic = info & 0xffffUL;
+    mid = (info >> 16) & 0xffUL;
+    a_text = rd32(blob + 4);
+    a_data = rd32(blob + 8);
+    a_bss = rd32(blob + 12);
+    a_syms = rd32(blob + 16);
+    a_entry = rd32(blob + 20);
+    a_trsize = rd32(blob + 24);
+    a_drsize = rd32(blob + 28);
+    (void)a_syms;
+
+    if (mid != AOUT_MID_I386 ||
+        (magic != AOUT_ZMAGIC && magic != AOUT_OMAGIC)) {
+        free(blob);
+        fail("M30C EMX sidecar is not an i386 OMAGIC/ZMAGIC a.out image");
+    }
+    textoff = (magic == AOUT_ZMAGIC) ? 1024UL : 32UL;
+    if (a_text > 0xffffffffUL - textoff) {
+        free(blob);
+        fail("M30C EMX a.out text offset overflows");
+    }
+    dataoff = textoff + a_text;
+    if (a_data > 0xffffffffUL - dataoff) {
+        free(blob);
+        fail("M30C EMX a.out data offset overflows");
+    }
+    treloff = dataoff + a_data;
+    if (a_trsize > 0xffffffffUL - treloff) {
+        free(blob);
+        fail("M30C EMX a.out text relocation offset overflows");
+    }
+    dreloff = treloff + a_trsize;
+
+    if (a_text != x->objects[0].size ||
+        a_data > 0xffffffffUL - a_bss ||
+        a_data + a_bss != x->objects[1].size ||
+        a_entry != x->objects[0].base) {
+        fprintf(stderr,
+                "os2host32: M30C sidecar/LX mismatch: a.out text=%08lX data+bss=%08lX entry=%08lX; LX obj1=%08lX obj2=%08lX base1=%08lX\n",
+                (unsigned long)a_text,
+                (unsigned long)(a_data + a_bss),
+                (unsigned long)a_entry,
+                (unsigned long)x->objects[0].size,
+                (unsigned long)x->objects[1].size,
+                (unsigned long)x->objects[0].base);
+        free(blob);
+        fail("M30C EMX a.out sidecar does not match bound LX layout");
+    }
+
+    delta_text = (U32)(unsigned long)x->objects[0].mapped - x->objects[0].base;
+    delta_data = (U32)(unsigned long)x->objects[1].mapped - x->objects[1].base;
+    if (delta_text != delta_data) {
+        free(blob);
+        fail("M30C EMX TEXT and DATA objects did not move by the same delta");
+    }
+
+    applied = skip_pcrel = skip_external = skip_abs = 0;
+    first_old = first_new = 0;
+    saw_first = 0;
+
+    apply_one_aout_reloc_table(blob, size, treloff, a_trsize,
+                               x->objects[0].mapped, a_text, delta_text,
+                               &applied, &skip_pcrel, &skip_external, &skip_abs,
+                               &first_old, &first_new, &saw_first);
+    apply_one_aout_reloc_table(blob, size, dreloff, a_drsize,
+                               x->objects[1].mapped, a_data, delta_text,
+                               &applied, &skip_pcrel, &skip_external, &skip_abs,
+                               &first_old, &first_new, &saw_first);
+
+    FlushInstructionCache(GetCurrentProcess(), x->objects[0].mapped,
+                          (SIZE_T)x->objects[0].size);
+
+    if (!g_quiet) {
+        printf("M30C EMX a.out   : %s %s text=%08lX data=%08lX bss=%08lX relocs=%lu+%lu\n",
+               path, magic == AOUT_ZMAGIC ? "ZMAGIC" : "OMAGIC",
+               (unsigned long)a_text, (unsigned long)a_data,
+               (unsigned long)a_bss,
+               (unsigned long)(a_trsize / 8UL),
+               (unsigned long)(a_drsize / 8UL));
+        printf("M30C EMX rebase : delta=%08lX applied=%lu pcrel=%lu external=%lu abs=%lu\n",
+               (unsigned long)delta_text,
+               (unsigned long)applied,
+               (unsigned long)skip_pcrel,
+               (unsigned long)skip_external,
+               (unsigned long)skip_abs);
+        if (saw_first)
+            printf("M30C EMX entry  : first DATA operand %08lX -> %08lX\n",
+                   (unsigned long)first_old, (unsigned long)first_new);
+    }
+
+    free(blob);
+}
+
+static void apply_fixups(struct LxImage *x)
+{
+    U32 page, start, endoff, p, end, q, first, target, target_off;
+    U32 count, i, idx, src_obj_index, source_off, src_va, dst_va, width;
+    U8 type, flags, kind, st;
+    S16 source;
+    struct LxObject *src_obj;
+    struct LxObject *dst_obj;
+
+    for (page = 1; page <= x->module_pages; ++page) {
+        start  = rd32(x->file + x->fixup_page_table + (page - 1) * 4UL);
+        endoff = rd32(x->file + x->fixup_page_table + page * 4UL);
+        p = x->fixup_record_table + start;
+        end = x->fixup_record_table + endoff;
+
+        while (p < end) {
+            type = x->file[p++];
+            flags = x->file[p++];
+            st = type & SRC_MASK;
+            kind = flags & TGT_MASK;
+            width = source_width(st);
+            if (width == 0)
+                fail("unsupported LX source type slipped through validation");
+            if (flags & TGT_CHAIN)
+                fail("chained LX fixup slipped through validation");
+
+            if (type & SRC_LIST) {
+                count = x->file[p++];
+                source = 0;
+            } else {
+                count = 1;
+                source = rds16(x->file + p);
+                p += 2;
+            }
+
+            q = p;
+            first = skip_objmod(x, &q, flags, end);
+            target = 0;
+            target_off = 0;
+
+            if (kind == TGT_INTERNAL) {
+                target = first;
+                if (st != SRC_SEL16) {
+                    if (flags & TGT_OFF32) {
+                        target_off = rd32(x->file + q);
+                        q += 4;
+                    } else {
+                        target_off = rd16(x->file + q);
+                        q += 2;
+                    }
+                }
+            } else if (kind == TGT_EXT_ORD) {
+                if (flags & TGT_ORD8) {
+                    target = x->file[q++];
+                } else if (flags & TGT_OFF32) {
+                    target = rd32(x->file + q);
+                    q += 4;
+                } else {
+                    target = rd16(x->file + q);
+                    q += 2;
+                }
+            } else if (kind == TGT_EXT_NAME) {
+                if (flags & TGT_OFF32) {
+                    target = rd32(x->file + q);
+                    q += 4;
+                } else {
+                    target = rd16(x->file + q);
+                    q += 2;
+                }
+            } else {
+                fail("unsupported LX fixup slipped through validation");
+            }
+
+            if (flags & TGT_ADDITIVE)
+                fail("additive LX fixup slipped through validation");
+
+            p = q;
+            for (i = 0; i < count; ++i) {
+                if (type & SRC_LIST) {
+                    source = rds16(x->file + p);
+                    p += 2;
+                }
+                source_off = source_object_offset_width(x, page, source, width,
+                                                        &src_obj_index);
+                src_obj = &x->objects[src_obj_index];
+                if (!src_obj->mapped)
+                    fail("LX source object is not mapped");
+                src_va = (U32)(unsigned long)src_obj->mapped + source_off;
+
+                if (kind == TGT_INTERNAL && st == SRC_OFF32 &&
+                    (type & SRC_ALIAS) == 0) {
+                    dst_obj = &x->objects[target - 1];
+                    if (!dst_obj->mapped)
+                        fail("LX target object is not mapped");
+                    /*
+                     * Do not range-check target_off against the target object's
+                     * declared size.  Microsoft LINK386 emits legal biased
+                     * address constants for indexed references.  WMCHAR has a
+                     * source-list fixup to object 2 + FFFFF9F0 (-0610), while
+                     * the stored preferred value is 0001F9F0.  The biased
+                     * value itself is not dereferenced; an index brings the
+                     * effective address back into object 2.
+                     *
+                     * Internal flat OFF32 relocation is therefore 32-bit
+                     * address arithmetic, not an object-bound pointer check.
+                     * Unsigned wrap here deliberately preserves LINK386's
+                     * negative/bias encoding when the object is rebased.
+                     */
+                    dst_va = (U32)((U32)(unsigned long)dst_obj->mapped +
+                                   target_off);
+                    if ((getenv("OS2_TRACE_FIXUPS") != NULL ||
+                         getenv("OS2_PM_TRACE") != NULL) &&
+                        x->format == FORMAT_LE && target == 2UL &&
+                        (target_off == 0x000002ecUL ||
+                         target_off == 0x000003d4UL ||
+                         target_off == 0x000008e8UL ||
+                         target_off == 0x00000910UL ||
+                         target_off == 0x00000912UL ||
+                         target_off == 0x00000bd4UL ||
+                         (target_off >= 0x00000bd8UL &&
+                          target_off <= 0x00000bdeUL))) {
+                        printf("M31A FIXUP      : page=%lu srcobj=%lu srcoff=%08lX "
+                               "target=%08lX old=%08lX new=%08lX\n",
+                               (unsigned long)page,
+                               (unsigned long)(src_obj_index + 1UL),
+                               (unsigned long)source_off,
+                               (unsigned long)target_off,
+                               (unsigned long)rd32(src_obj->mapped + source_off),
+                               (unsigned long)dst_va);
+                    }
+                    wr32(src_obj->mapped + source_off, dst_va);
+                    if ((getenv("OS2_TRACE_FIXUPS") != NULL ||
+                         getenv("OS2_PM_TRACE") != NULL) &&
+                        x->format == FORMAT_LE && target == 2UL &&
+                        (target_off == 0x000002ecUL ||
+                         target_off == 0x000003d4UL ||
+                         target_off == 0x000008e8UL ||
+                         target_off == 0x00000910UL ||
+                         target_off == 0x00000912UL ||
+                         target_off == 0x00000bd4UL ||
+                         (target_off >= 0x00000bd8UL &&
+                          target_off <= 0x00000bdeUL))) {
+                        printf("M31A FIXUP done : page=%lu srcobj=%lu srcoff=%08lX "
+                               "target=%08lX mem=%08lX\n",
+                               (unsigned long)page,
+                               (unsigned long)(src_obj_index + 1UL),
+                               (unsigned long)source_off,
+                               (unsigned long)target_off,
+                               (unsigned long)rd32(src_obj->mapped + source_off));
+                    }
+                } else if (kind == TGT_EXT_ORD && st == SRC_REL32 &&
+                           (type & SRC_ALIAS) == 0) {
+                    idx = import_index(x, first - 1, target);
+                    dst_va = x->imports[idx].address;
+                    wr32(src_obj->mapped + source_off,
+                         dst_va - (src_va + 4UL));
+                } else if (kind == TGT_EXT_NAME && st == SRC_REL32 &&
+                           (type & SRC_ALIAS) == 0) {
+                    for (idx = 0; idx < x->name_import_count; ++idx) {
+                        if (x->name_imports[idx].module == first - 1 &&
+                            x->name_imports[idx].name_offset == target)
+                            break;
+                    }
+                    if (idx == x->name_import_count)
+                        fail("internal error: missing LX named import");
+                    dst_va = x->name_imports[idx].address;
+                    wr32(src_obj->mapped + source_off,
+                         dst_va - (src_va + 4UL));
+                } else if (x->emx_bridge_complete &&
+                           kind == TGT_EXT_ORD && st == SRC_PTR1616 &&
+                           (type & SRC_ALIAS) != 0 &&
+                           (src_obj->flags & OBJ_BIG_DEFAULT) != 0) {
+                    /* EMX wrappers push this four-byte slot as their second
+                     * EMX_THUNK1 argument.  Replace sel:off with the native
+                     * target token consumed by our dispatcher. */
+                    idx = import_index(x, first - 1, target);
+                    wr32(src_obj->mapped + source_off, x->imports[idx].address);
+                } else if (x->c386_bridges_complete &&
+                           x->c386_bridge_count != 0) {
+                    /*
+                     * M29F exhaustively paired every non-flat migration record
+                     * into a recognized C/386 bridge.  The 16-bit thunk object
+                     * remains metadata and none of these selectors/far pointers
+                     * are materialized as real Win32 segment state.
+                     */
+                } else if (x->emx_bridge_complete) {
+                    /* The exact M30A profile proves the remaining SEL16 and
+                     * PTR16:* records belong to EMX's now-bypassed 16-bit shim. */
+                } else {
+                    fail("non-flat LX fixup has no native execution bridge");
+                }
+            }
+        }
+    }
+    FlushInstructionCache(GetCurrentProcess(), 0, 0);
+}
+#endif
+
+static void print_fixup_summary(struct LxImage *x)
+{
+    U32 i;
+    char namebuf[128];
+    printf("Fixup scan      : %lu internal records / %lu sites, %lu external sites\n",
+           (unsigned long)x->internal_fixups,
+           (unsigned long)x->internal_sites,
+           (unsigned long)x->external_fixups);
+    printf("Source fixups   :\n");
+    for (i = 0; i <= SRC_REL32; ++i) {
+        if (x->source_records[i] != 0) {
+            printf("  %-9s %lu record%s / %lu site%s\n",
+                   source_type_name((U8)i),
+                   (unsigned long)x->source_records[i],
+                   x->source_records[i] == 1 ? "" : "s",
+                   (unsigned long)x->source_sites[i],
+                   x->source_sites[i] == 1 ? "" : "s");
+        }
+    }
+    if (x->alias_records != 0)
+        printf("Alias fixups    : %lu records / %lu sites\n",
+               (unsigned long)x->alias_records,
+               (unsigned long)x->alias_sites);
+    printf("Ordinal imports (%lu):\n", (unsigned long)x->import_count);
+    for (i = 0; i < x->import_count; ++i) {
+        printf("  %s.%lu (%lu site%s)\n",
+               x->modules[x->imports[i].module].name,
+               (unsigned long)x->imports[i].ordinal,
+               (unsigned long)x->imports[i].sites,
+               x->imports[i].sites == 1 ? "" : "s");
+    }
+    if (x->name_import_count != 0) {
+        printf("Named imports   (%lu):\n", (unsigned long)x->name_import_count);
+        for (i = 0; i < x->name_import_count; ++i) {
+            printf("  %s.%s (%lu site%s)\n",
+                   x->modules[x->name_imports[i].module].name,
+                   import_name_at(x, x->name_imports[i].name_offset,
+                                  namebuf, (U32)sizeof(namebuf)),
+                   (unsigned long)x->name_imports[i].sites,
+                   x->name_imports[i].sites == 1 ? "" : "s");
+        }
+    }
+    printf("Execution model : %s\n",
+           x->has_16bit_objects ?
+           "contains 16-bit LE/LX objects/selectors" :
+           (x->format == FORMAT_LE ? "flat 32-bit LE objects" :
+                                     "flat 32-bit LX objects"));
+    if (x->direct32_fixups) {
+        printf("Direct host path: supported\n");
+    } else if (x->c386_bridges_complete && x->c386_bridge_count != 0) {
+        if (x->c386_bridge_count == 1) {
+            const struct C386Far16Bridge *b = &x->c386_bridges[0];
+            printf("C/386 far16     : recognized %s.%lu %s migration thunk\n",
+                   x->modules[b->import_module].name,
+                   (unsigned long)b->import_ordinal,
+                   c386_far16_apis[b->api_desc_index].name);
+        } else {
+            printf("C/386 far16     : recognized %lu migration thunks\n",
+                   (unsigned long)x->c386_bridge_count);
+            for (i = 0; i < x->c386_bridge_count; ++i) {
+                const struct C386Far16Bridge *b = &x->c386_bridges[i];
+                printf("  %s.%lu %-16s thunk object %lu+%04lX\n",
+                       x->modules[b->import_module].name,
+                       (unsigned long)b->import_ordinal,
+                       c386_far16_apis[b->api_desc_index].name,
+                       (unsigned long)(b->thunk_object + 1UL),
+                       (unsigned long)b->thunk_offset);
+            }
+        }
+        printf("Direct host path: supported via native far16 bridges\n");
+    } else if (x->emx_bridge_complete) {
+        printf("M30 EMX bridge   : recognized exact generic 32/16 thunk profile\n");
+        printf("Direct host path: supported via native EMX generic bridge\n");
+    } else {
+        printf("Direct host path: needs additional execution machinery\n");
+    }
+}
+
+static void usage(void)
+{
+    fprintf(stderr,
+            "usage: os2host32 [--info|--scan|--map|--fixups] program.exe\n"
+            "       os2host32 --run [--argv0 name] program.exe [guest arguments ...]\n"
+            "       os2host32 --run-quiet [--argv0 name] program.exe [guest arguments ...]\n");
+    exit(2);
+}
+
+int main(int argc, char **argv)
+{
+    struct LxImage x;
+    const char *mode;
+    const char *name;
+    const char *arg0_override;
+    int first_arg;
+
+    arg0_override = NULL;
+    first_arg = 3;
+    if (argc == 2) {
+        mode = "--info";
+        name = argv[1];
+    } else if (argc >= 3) {
+        mode = argv[1];
+        if ((strcmp(mode, "--run") == 0 ||
+             strcmp(mode, "--run-quiet") == 0) &&
+            strcmp(argv[2], "--argv0") == 0 && argc < 5) {
+            usage();
+            return 2;
+        }
+        if ((strcmp(mode, "--run") == 0 ||
+             strcmp(mode, "--run-quiet") == 0) &&
+            argc >= 5 && strcmp(argv[2], "--argv0") == 0) {
+            arg0_override = argv[3];
+            name = argv[4];
+            first_arg = 5;
+        } else {
+            name = argv[2];
+        }
+        if (strcmp(mode, "--run") != 0 &&
+            strcmp(mode, "--run-quiet") != 0 && argc != 3) {
+            usage();
+            return 2;
+        }
+    } else {
+        usage();
+        return 2;
+    }
+
+    if (strcmp(mode, "--run-quiet") == 0)
+        g_quiet = 1;
+
+#ifdef _WIN32
+    /* Guest DLL initialization may query PIB.pib_hmte before run_guest(). */
+    if (strlen(name) >= sizeof(g_main_guest_program))
+        fail("guest program path is too long");
+    strcpy(g_main_guest_program, name);
+#endif
+    load_file(&x, name);
+    parse_image(&x);
+    if (!g_quiet)
+        print_info(&x);
+
+    if (strcmp(mode, "--info") == 0) {
+        free(x.file);
+        return 0;
+    }
+
+    if (strcmp(mode, "--scan") == 0) {
+        scan_fixups(&x);
+        print_fixup_summary(&x);
+        free(x.file);
+        return 0;
+    }
+
+    if (strcmp(mode, "--map") == 0) {
+#ifdef _WIN32
+        map_objects(&x);
+        protect_objects(&x);
+        printf("%s objects mapped; guest was NOT executed.\n",
+               x.format == FORMAT_LE ? "LE" : "LX");
+        free(x.file);
+        return 0;
+#else
+        fail("--map is available only in a 32-bit Win32 build");
+#endif
+    }
+
+    if (strcmp(mode, "--fixups") == 0) {
+        scan_fixups(&x);
+        print_fixup_summary(&x);
+        if (!x.direct32_fixups &&
+            !(x.c386_bridges_complete && x.c386_bridge_count != 0) &&
+            !x.emx_bridge_complete) {
+            fprintf(stderr,
+                    "os2host32: image is not in the current executable subset; use --scan for inventory\n");
+            free(x.file);
+            return 3;
+        }
+#ifdef _WIN32
+        map_objects(&x);
+        g_main_guest_stack_low =
+            (U32)(unsigned long)x.objects[x.stack_object - 1].mapped;
+        g_main_guest_stack_high =
+            g_main_guest_stack_low + x.stack_esp;
+        if (!g_quiet)
+            printf("M30D TIB stack   : %08lX..%08lX (%lu KB)\n",
+                   (unsigned long)g_main_guest_stack_low,
+                   (unsigned long)g_main_guest_stack_high,
+                   (unsigned long)((g_main_guest_stack_high -
+                                    g_main_guest_stack_low) / 1024UL));
+        resolve_imports(&x);
+        apply_fixups(&x);
+        publish_main_pm_resources(&x);
+        apply_emx_inferred_relocs(&x);
+        apply_emx_aout_sidecar_relocs(&x, name);
+        if (x.c386_bridges_complete && x.c386_bridge_count != 0)
+            install_c386_far16_bridges(&x);
+        if (x.emx_bridge_complete)
+            install_emx_generic_bridge(&x);
+        protect_objects(&x);
+        printf("%s fixups/imports applied successfully%s; guest was NOT executed.\n",
+               x.format == FORMAT_LE ? "LE" : "LX",
+               (x.c386_bridges_complete && x.c386_bridge_count != 0) ? " with C/386 far16 bridges" :
+               (x.emx_bridge_complete ? " with M30 EMX generic bridge" : ""));
+        printf("Ready to transfer to %08lX with LX stack %08lX.\n",
+               (unsigned long)((U32)(unsigned long)x.objects[x.entry_object - 1].mapped +
+                               x.entry_eip),
+               (unsigned long)((U32)(unsigned long)x.objects[x.stack_object - 1].mapped +
+                               x.stack_esp));
+        free(x.file);
+        return 0;
+#else
+        fail("--fixups is available only in a 32-bit Win32 build");
+#endif
+    }
+
+    if (strcmp(mode, "--run") == 0 ||
+        strcmp(mode, "--run-quiet") == 0) {
+        scan_fixups(&x);
+        if (!g_quiet)
+            print_fixup_summary(&x);
+        if (!x.direct32_fixups &&
+            !(x.c386_bridges_complete && x.c386_bridge_count != 0) &&
+            !x.emx_bridge_complete) {
+            fprintf(stderr,
+                    "os2host32: mixed LE/LX image has no recognized native bridge; guest was NOT executed\n");
+            free(x.file);
+            return 3;
+        }
+#ifdef _WIN32
+        map_objects(&x);
+        g_main_guest_stack_low =
+            (U32)(unsigned long)x.objects[x.stack_object - 1].mapped;
+        g_main_guest_stack_high =
+            g_main_guest_stack_low + x.stack_esp;
+        if (!g_quiet)
+            printf("M30D TIB stack   : %08lX..%08lX (%lu KB)\n",
+                   (unsigned long)g_main_guest_stack_low,
+                   (unsigned long)g_main_guest_stack_high,
+                   (unsigned long)((g_main_guest_stack_high -
+                                    g_main_guest_stack_low) / 1024UL));
+        resolve_imports(&x);
+        apply_fixups(&x);
+        publish_main_pm_resources(&x);
+        apply_emx_inferred_relocs(&x);
+        apply_emx_aout_sidecar_relocs(&x, name);
+        if (x.c386_bridges_complete && x.c386_bridge_count != 0)
+            install_c386_far16_bridges(&x);
+        if (x.emx_bridge_complete)
+            install_emx_generic_bridge(&x);
+        protect_objects(&x);
+        run_guest(&x, name, arg0_override, argc, argv, first_arg);
+        return 1;
+#else
+        fail("--run is available only in a 32-bit Win32 build");
+#endif
+    }
+
+    usage();
+    return 2;
+}

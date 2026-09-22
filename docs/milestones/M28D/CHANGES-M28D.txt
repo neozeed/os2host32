@@ -1,0 +1,24 @@
+Milestone 28D
+--------------
+* Move CMD pipeline creation/execution/waiting off direct Win32 APIs.
+* CMD now uses CmdO2CreatePipe -> DosCreatePipe, redirects HFILE 0/1 through
+  CmdO2Std*, launches both sides with DosExecPgm(EXEC_ASYNCRESULT), and
+  collects them with DosWaitChild.
+* Add 32-bit DOSCALLS DosWaitChild export at ordinal 280, verified against the
+  supplied OS2386.LIB import library.
+* Extend DOSCALLS DosExecPgm to EXEC_ASYNC and EXEC_ASYNCRESULT.  Async-result
+  children are retained in a small process table until DosWaitChild collects
+  their termination/result codes.
+* Keep one explicit bootstrap exception in DOSCALLS: cmd32os2.exe is a native
+  PE today, so DOSCALLS can launch that shell worker directly.  When CMD is LX
+  the same DosExecPgm path naturally goes through OS2HOST32 instead.
+* Strengthen native std-handle bridging: DOSCALLS owns the Win32 standard
+  HANDLE, while the CRT fd receives a separate duplicate.  Save/restore now
+  preserves both views without aliasing ownership.
+* Add CmdO2QueryProgramPath so pipeline code no longer calls
+  GetModuleFileNameA directly.
+* Add genuine LX async-child.exe and direct EXEC_ASYNCRESULT/DosWaitChild
+  smoke coverage.
+* Add examples/m28d-pipe-test.cmd plus build-pipe-fixtures.cmd for the
+  emit-test.exe/upper-test.exe two-stage, nested three-stage, and builtin-to-LX
+  pipeline regressions.

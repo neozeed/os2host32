@@ -1,0 +1,34 @@
+--- r12-fix2/whp_os2_v2_hi.c
++++ milestone1/whp_os2_v2_hi.c
+@@ -2642,7 +2642,7 @@
+         return 1;
+     }
+ 
+-    fprintf(stderr, "WHP OS/2 V2 R12 Sarien integration - LE/LX loader + threads + events + guest DLLs + file I/O\n");
++    fprintf(stderr, "WHP OS/2 V2 Milestone 1 (R12 fix 2) - LE/LX loader + threads + events + guest DLLs + file I/O\n");
+     fprintf(stderr, "v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);
+@@ -2811,7 +2811,7 @@
+     rc = run_guest(&rt, entry, esp);
+     fprintf(stderr, "---------------- guest ended -----------------\n");
+     if (rc == 0)
+-        fprintf(stderr, "PASS: untouched OS/2 LE executed under WHP and exited rc=0\n");
++        fprintf(stderr, "PASS: untouched OS/2 LE/LX executed under WHP and exited rc=0\n");
+     else
+         fprintf(stderr, "V2 DLL/threading attempt stopped/returned rc=%d\n", rc);
+     goto cleanup;
+--- r12-fix2/README-V2-SARIEN-R12.txt
++++ milestone1/README-V2-SARIEN-R12.txt
+@@ -25,7 +25,10 @@
+ borders/caption, bottom-origin placement, size-only/move-only calls, default
+ mode, client handles and adjustment failures. Existing scheduler/PM/GPI
+ checks pass in the same run; see validation/r12-geometry-fix.*.
+-Real Windows rendering of fix 2 remains to be confirmed by the user.
++CONFIRMED on Windows by the user, 2026-09-20: complete status bar and right
++edge visible; trace reports client=320x200, native frame=336x239, exit rc=0.
++See MILESTONE1.md for the final status; later prospective wording in this
++historical release note describes the original validation stage.
+ 
+ R12 FIX 1 - Sarien's uninitialized find count
+ The supplied live trace showed the first DOSCALLS.264 returning 87, followed

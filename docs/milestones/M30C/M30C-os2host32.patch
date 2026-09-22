@@ -1,0 +1,319 @@
+--- ../m30b_pkg/m30b/os2host32.c	2026-09-17 13:32:59.000000000 +0000
++++ os2host32.c	2026-09-17 17:37:02.484439726 +0000
+@@ -3210,6 +3210,300 @@
+     }
+ }
+ 
++/*
++ * M30C: classic EMX executables are produced by emxbind from an i386 a.out
++ * image.  The LX wrapper deliberately contains few/no internal fixups because
++ * the original a.out relocation tables describe references inside TEXT/DATA/
++ * BSS instead.  Modern Win32 often cannot map the LX at its historical low
++ * preferred addresses (0x10000/0x20000), so those retained absolute a.out
++ * references must be rebased when the LX objects move.
++ *
++ * For the first proof pass we consume the unbound a.out image as a sidecar.
++ * Set OS2_EMX_AOUT_SIDECAR=1 and place it beside foo.exe as "foo".  A non-1
++ * value is treated as an explicit sidecar path.  This is intentionally opt-in
++ * until we teach emxbind to carry/synthesize equivalent LX relocation data.
++ */
++#define AOUT_OMAGIC 0x0107UL
++#define AOUT_ZMAGIC 0x010bUL
++#define AOUT_MID_I386 100UL
++#define AOUT_N_ABS  0x02UL
++#define AOUT_N_TEXT 0x04UL
++#define AOUT_N_DATA 0x06UL
++#define AOUT_N_BSS  0x08UL
++
++static int image_imports_module(struct LxImage *x, const char *name)
++{
++    U32 i;
++    for (i = 0; i < x->import_module_count; ++i) {
++        if (module_name_equal(x->modules[i].name, name))
++            return 1;
++    }
++    return 0;
++}
++
++static int blob_range_ok(U32 size, U32 off, U32 len)
++{
++    if (off > size) return 0;
++    if (len > size - off) return 0;
++    return 1;
++}
++
++static void make_emx_aout_sidecar_path(const char *program,
++                                       const char *mode,
++                                       char *out, U32 cap)
++{
++    U32 n;
++
++    if (mode != 0 && mode[0] != 0 &&
++        !(mode[0] == '1' && mode[1] == 0)) {
++        if (strlen(mode) >= cap)
++            fail("M30C EMX a.out sidecar path is too long");
++        strcpy(out, mode);
++        return;
++    }
++
++    if (strlen(program) >= cap)
++        fail("M30C EMX program path is too long");
++    strcpy(out, program);
++    n = (U32)strlen(out);
++    if (n >= 4 && out[n - 4] == '.' &&
++        ascii_upper((unsigned char)out[n - 3]) == 'E' &&
++        ascii_upper((unsigned char)out[n - 2]) == 'X' &&
++        ascii_upper((unsigned char)out[n - 1]) == 'E') {
++        out[n - 4] = 0;
++    } else {
++        if (n + 5 >= cap)
++            fail("M30C EMX sidecar path is too long");
++        strcat(out, ".aout");
++    }
++}
++
++static U8 *read_whole_blob(const char *path, U32 *size_out)
++{
++    FILE *f;
++    long n;
++    U8 *p;
++
++    f = fopen(path, "rb");
++    if (!f)
++        return 0;
++    if (fseek(f, 0, SEEK_END) != 0) {
++        fclose(f);
++        return 0;
++    }
++    n = ftell(f);
++    if (n < 0 || (unsigned long)n > 0xffffffffUL) {
++        fclose(f);
++        return 0;
++    }
++    if (fseek(f, 0, SEEK_SET) != 0) {
++        fclose(f);
++        return 0;
++    }
++    p = (U8 *)malloc((size_t)n);
++    if (!p) {
++        fclose(f);
++        fail("out of memory reading M30C EMX a.out sidecar");
++    }
++    if (n != 0 && fread(p, 1, (size_t)n, f) != (size_t)n) {
++        free(p);
++        fclose(f);
++        fail("short read from M30C EMX a.out sidecar");
++    }
++    fclose(f);
++    *size_out = (U32)n;
++    return p;
++}
++
++static void apply_one_aout_reloc_table(U8 *blob, U32 blob_size,
++                                       U32 table_off, U32 table_size,
++                                       U8 *source, U32 source_size,
++                                       U32 delta,
++                                       U32 *applied,
++                                       U32 *skip_pcrel,
++                                       U32 *skip_external,
++                                       U32 *skip_abs,
++                                       U32 *first_old,
++                                       U32 *first_new,
++                                       int *saw_first)
++{
++    U32 p;
++
++    if ((table_size & 7UL) != 0)
++        fail("M30C EMX a.out relocation table size is not a multiple of 8");
++    if (!blob_range_ok(blob_size, table_off, table_size))
++        fail("M30C EMX a.out relocation table lies outside sidecar");
++
++    for (p = 0; p < table_size; p += 8) {
++        U32 addr, info, sym, pcrel, length, ext, oldv, newv;
++        addr = rd32(blob + table_off + p);
++        info = rd32(blob + table_off + p + 4);
++        sym = info & 0x00ffffffUL;
++        pcrel = (info >> 24) & 1UL;
++        length = (info >> 25) & 3UL;
++        ext = (info >> 27) & 1UL;
++
++        if (length != 2)
++            fail("M30C EMX a.out contains a non-32-bit relocation");
++        if (addr > source_size || 4UL > source_size - addr)
++            fail("M30C EMX a.out relocation source lies outside LX section");
++
++        if (ext) {
++            ++*skip_external;
++            continue;
++        }
++        if (pcrel) {
++            ++*skip_pcrel;
++            continue;
++        }
++        if (sym == AOUT_N_ABS) {
++            ++*skip_abs;
++            continue;
++        }
++        if (sym != AOUT_N_TEXT && sym != AOUT_N_DATA && sym != AOUT_N_BSS)
++            fail("M30C EMX a.out has an unknown internal relocation section");
++
++        oldv = rd32(source + addr);
++        newv = oldv + delta;
++        wr32(source + addr, newv);
++        ++*applied;
++
++        /* The canonical EMX entry stub has its DATA relocation at text+1. */
++        if (!*saw_first && addr == 1UL) {
++            *first_old = oldv;
++            *first_new = newv;
++            *saw_first = 1;
++        }
++    }
++}
++
++static void apply_emx_aout_sidecar_relocs(struct LxImage *x,
++                                          const char *program)
++{
++    const char *mode;
++    char path[260];
++    U8 *blob;
++    U32 size, info, magic, mid;
++    U32 a_text, a_data, a_bss, a_syms, a_entry, a_trsize, a_drsize;
++    U32 textoff, dataoff, treloff, dreloff;
++    U32 delta_text, delta_data;
++    U32 applied, skip_pcrel, skip_external, skip_abs;
++    U32 first_old, first_new;
++    int saw_first;
++
++    mode = getenv("OS2_EMX_AOUT_SIDECAR");
++    if (mode == 0 || mode[0] == 0 || (mode[0] == '0' && mode[1] == 0))
++        return;
++    if (x->format != FORMAT_LX || !image_imports_module(x, "EMX"))
++        return;
++    if (x->object_count < 2 || !x->objects[0].mapped || !x->objects[1].mapped)
++        fail("M30C EMX a.out rebasing needs mapped TEXT and DATA objects");
++
++    make_emx_aout_sidecar_path(program, mode, path, (U32)sizeof(path));
++    blob = read_whole_blob(path, &size);
++    if (!blob) {
++        fprintf(stderr, "os2host32: M30C cannot open EMX a.out sidecar %s\n", path);
++        exit(1);
++    }
++    if (!blob_range_ok(size, 0, 32)) {
++        free(blob);
++        fail("M30C EMX a.out sidecar is smaller than an exec header");
++    }
++
++    info = rd32(blob + 0);
++    magic = info & 0xffffUL;
++    mid = (info >> 16) & 0xffUL;
++    a_text = rd32(blob + 4);
++    a_data = rd32(blob + 8);
++    a_bss = rd32(blob + 12);
++    a_syms = rd32(blob + 16);
++    a_entry = rd32(blob + 20);
++    a_trsize = rd32(blob + 24);
++    a_drsize = rd32(blob + 28);
++    (void)a_syms;
++
++    if (mid != AOUT_MID_I386 ||
++        (magic != AOUT_ZMAGIC && magic != AOUT_OMAGIC)) {
++        free(blob);
++        fail("M30C EMX sidecar is not an i386 OMAGIC/ZMAGIC a.out image");
++    }
++    textoff = (magic == AOUT_ZMAGIC) ? 1024UL : 32UL;
++    if (a_text > 0xffffffffUL - textoff) {
++        free(blob);
++        fail("M30C EMX a.out text offset overflows");
++    }
++    dataoff = textoff + a_text;
++    if (a_data > 0xffffffffUL - dataoff) {
++        free(blob);
++        fail("M30C EMX a.out data offset overflows");
++    }
++    treloff = dataoff + a_data;
++    if (a_trsize > 0xffffffffUL - treloff) {
++        free(blob);
++        fail("M30C EMX a.out text relocation offset overflows");
++    }
++    dreloff = treloff + a_trsize;
++
++    if (a_text != x->objects[0].size ||
++        a_data > 0xffffffffUL - a_bss ||
++        a_data + a_bss != x->objects[1].size ||
++        a_entry != x->objects[0].base) {
++        fprintf(stderr,
++                "os2host32: M30C sidecar/LX mismatch: a.out text=%08lX data+bss=%08lX entry=%08lX; LX obj1=%08lX obj2=%08lX base1=%08lX\n",
++                (unsigned long)a_text,
++                (unsigned long)(a_data + a_bss),
++                (unsigned long)a_entry,
++                (unsigned long)x->objects[0].size,
++                (unsigned long)x->objects[1].size,
++                (unsigned long)x->objects[0].base);
++        free(blob);
++        fail("M30C EMX a.out sidecar does not match bound LX layout");
++    }
++
++    delta_text = (U32)(unsigned long)x->objects[0].mapped - x->objects[0].base;
++    delta_data = (U32)(unsigned long)x->objects[1].mapped - x->objects[1].base;
++    if (delta_text != delta_data) {
++        free(blob);
++        fail("M30C EMX TEXT and DATA objects did not move by the same delta");
++    }
++
++    applied = skip_pcrel = skip_external = skip_abs = 0;
++    first_old = first_new = 0;
++    saw_first = 0;
++
++    apply_one_aout_reloc_table(blob, size, treloff, a_trsize,
++                               x->objects[0].mapped, a_text, delta_text,
++                               &applied, &skip_pcrel, &skip_external, &skip_abs,
++                               &first_old, &first_new, &saw_first);
++    apply_one_aout_reloc_table(blob, size, dreloff, a_drsize,
++                               x->objects[1].mapped, a_data, delta_text,
++                               &applied, &skip_pcrel, &skip_external, &skip_abs,
++                               &first_old, &first_new, &saw_first);
++
++    FlushInstructionCache(GetCurrentProcess(), x->objects[0].mapped,
++                          (SIZE_T)x->objects[0].size);
++
++    if (!g_quiet) {
++        printf("M30C EMX a.out   : %s %s text=%08lX data=%08lX bss=%08lX relocs=%lu+%lu\n",
++               path, magic == AOUT_ZMAGIC ? "ZMAGIC" : "OMAGIC",
++               (unsigned long)a_text, (unsigned long)a_data,
++               (unsigned long)a_bss,
++               (unsigned long)(a_trsize / 8UL),
++               (unsigned long)(a_drsize / 8UL));
++        printf("M30C EMX rebase : delta=%08lX applied=%lu pcrel=%lu external=%lu abs=%lu\n",
++               (unsigned long)delta_text,
++               (unsigned long)applied,
++               (unsigned long)skip_pcrel,
++               (unsigned long)skip_external,
++               (unsigned long)skip_abs);
++        if (saw_first)
++            printf("M30C EMX entry  : first DATA operand %08lX -> %08lX\n",
++                   (unsigned long)first_old, (unsigned long)first_new);
++    }
++
++    free(blob);
++}
++
+ static void apply_fixups(struct LxImage *x)
+ {
+     U32 page, start, endoff, p, end, q, first, target, target_off;
+@@ -3537,6 +3831,7 @@
+         map_objects(&x);
+         resolve_imports(&x);
+         apply_fixups(&x);
++        apply_emx_aout_sidecar_relocs(&x, name);
+         if (x.c386_bridges_complete && x.c386_bridge_count != 0)
+             install_c386_far16_bridges(&x);
+         if (x.emx_bridge_complete)
+@@ -3575,6 +3870,7 @@
+         map_objects(&x);
+         resolve_imports(&x);
+         apply_fixups(&x);
++        apply_emx_aout_sidecar_relocs(&x, name);
+         if (x.c386_bridges_complete && x.c386_bridge_count != 0)
+             install_c386_far16_bridges(&x);
+         if (x.emx_bridge_complete)

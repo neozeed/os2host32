@@ -1,0 +1,44 @@
+CMD32 TAB COMPLETION R1
+=======================
+
+Base: M31G R19 + STARTUP/history/COPY/PS-KILL/PMAUTO R2 QoL tree.
+
+Interactive CMD32 filename completion is now available on Tab:
+
+  del t<Tab>
+
+Completion is filesystem-based and case-insensitive through the existing
+CmdO2FindFirst/CmdO2FindNext OS/2 boundary.  It works with the current
+directory and explicit path prefixes such as C:\OS2\DE<Tab>.
+
+Behavior:
+  * no matches: ring the console bell and leave the line unchanged
+  * one match: complete the name; append "\\" for a directory
+  * multiple matches: extend to the longest common prefix, ring the bell,
+    immediately print every matching basename, then redraw the prompt with
+    the partially-completed command still live/editable
+  * '*' and '?' already present in the token are not expanded by Tab R1
+
+Example with TABLE1, TABLE2, TABLE3:
+
+  [C:\TEMP>]del t<Tab>
+  TABLE1
+  TABLE2
+  TABLE3
+  [C:\TEMP>]del table
+
+The full command remains editable with the existing history/Left/Right/
+Home/End/Backspace/Delete editor.  The completion scratch buffers are static
+rather than C/386 stack allocations.
+
+R1 intentionally does not yet synthesize quotes around filenames containing
+spaces, nor does it complete builtin names, switches, or environment values.
+Existing quoted prefixes are searched, but the user remains responsible for
+closing the quote.
+
+Regression:
+  make cmd32-tabcomp-check
+
+The host-core test verifies the requested TABLE1/TABLE2/TABLE3 -> TABLE common
+prefix behavior, path-prefix preservation, unique-directory trailing slash,
+and the no-match case.

@@ -1,0 +1,14 @@
+M29N2b.2
+=========
+
+* Added 32-bit guest LE/LX DLL initialization and termination entry calls.
+* Dependencies initialize before importers.
+* Final DosFreeModule terminates an importer before releasing/terminating its
+  dependencies, so parent TERM code may continue to call child DLL exports.
+* Added reverse successful-init-order termination on process DosExit.
+* Added ERROR_INIT_ROUTINE_FAILED (295) propagation and failed-init rollback.
+* Added OS2HostModuleTerminateAll private host bridge used by DOSCALLS DosExit.
+* Added build-time m29n2b2-setentry helper for CRT-free lifecycle fixtures.
+* Added M29N2C -> M29N2D positive lifecycle graph and M29N2F failed-init DLL.
+* Added dynamic, static/process-exit, and shell lifecycle regressions.
+* Still deliberately limited to flat 32-bit guest DLL lifecycle entrypoints.

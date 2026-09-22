@@ -1,0 +1,526 @@
+--- a/whp_os2_v2_hi.c
++++ b/whp_os2_v2_hi.c
+@@ -77,6 +77,7 @@
+ #define MAX_NAME_IMPORTS    512u
+ #define MAX_MODULES         32u
+ #define MAX_GUEST_MODULES   16u
++#define MAX_FILES           128u
+ #define MAX_ALLOCS          256u
+ #define MAX_THREADS         32u
+ #define MAX_EVENT_SEMS      64u
+@@ -266,6 +267,8 @@
+     WHV_PARTITION_HANDLE partition;
+     uint8_t *ram;
+     struct GuestAlloc allocs[MAX_ALLOCS];
++    HANDLE files[MAX_FILES];
++    int std_closed[3];
+     uint32_t alloc_next;
+ 
+     struct GuestThread threads[MAX_THREADS];
+@@ -1025,23 +1028,23 @@
+     parse_objects(&x, &rt, (x.module_flags & MOD_TYPE_MASK) != MOD_TYPE_DLL);
+     parse_import_modules(&x);
+     scan_fixups(&x);
+-    printf("%s loader check: %u pages, %u objects\n", x.is_lx ? "LX" : "LE", x.num_pages, x.num_objects);
++    fprintf(stderr, "%s loader check: %u pages, %u objects\n", x.is_lx ? "LX" : "LE", x.num_pages, x.num_objects);
+     for (i = 0; i < x.num_objects; ++i)
+-        printf("object %u: guest=%08X size=%08X pages=%u @%u\n", i + 1u,
++        fprintf(stderr, "object %u: guest=%08X size=%08X pages=%u @%u\n", i + 1u,
+                x.objects[i].mapped_addr, x.objects[i].size, x.objects[i].mapsize, x.objects[i].mapidx);
+-    printf("fixups: %u internal records / %u sites; %u external sites\n",
++    fprintf(stderr, "fixups: %u internal records / %u sites; %u external sites\n",
+            x.internal_records, x.internal_sites, x.external_sites);
+     for (i = 0; i < x.nimports; ++i) {
+-        printf("  %s.%u (%u sites)\n", x.modules[x.imports[i].module].name,
++        fprintf(stderr, "  %s.%u (%u sites)\n", x.modules[x.imports[i].module].name,
+                x.imports[i].ordinal, x.imports[i].sites);
+         x.imports[i].address = GUEST_STUB_BASE + i * 8u;
+     }
+     for (i = 0; i < x.nname_imports; ++i)
+         x.name_imports[i].address = GUEST_STUB_BASE + (x.nimports + i) * 8u;
+     apply_fixups(&x, rt.ram);
+-    printf("PASS: page mapping and fixup application; %u ordinal + %u named imports.\n",
++    fprintf(stderr, "PASS: page mapping and fixup application; %u ordinal + %u named imports.\n",
+            x.nimports, x.nname_imports);
+-    printf("CHECK ONLY: import addresses are placeholders; no guest code executed.\n");
++    fprintf(stderr, "CHECK ONLY: import addresses are placeholders; no guest code executed.\n");
+     free(x.owner); free(x.pages); free(x.file); free(rt.ram);
+     return 0;
+ }
+@@ -1296,7 +1299,7 @@
+         const char *mod = x->modules[i].name;
+         if (_stricmp(mod, "PMWIN") == 0 || _stricmp(mod, "PMGPI") == 0 ||
+             _stricmp(mod, "QUECALLS") == 0) {
+-            fprintf(stderr, "v2: %s requires %s: personality not implemented in V2 R4.\n",
++            fprintf(stderr, "v2: %s requires %s: personality not implemented in V2 R5.\n",
+                     owner, mod);
+             fatal("use --check for phase-1 loader validation; guest was not started");
+         }
+@@ -1315,7 +1318,7 @@
+             fatal("guest DLL ordinal import resolution failed");
+         }
+         x->imports[i].address = addr;
+-        printf("v2: resolve %-12s .%-4u -> %08X  (%u site%s) [%s]\n",
++        fprintf(stderr, "v2: resolve %-12s .%-4u -> %08X  (%u site%s) [%s]\n",
+                mod, x->imports[i].ordinal, addr, x->imports[i].sites,
+                x->imports[i].sites == 1 ? "" : "s", owner);
+     }
+@@ -1336,7 +1339,7 @@
+             fatal("guest DLL named import resolution failed");
+         }
+         x->name_imports[i].address = addr;
+-        printf("v2: resolve %-12s .%-20s -> %08X  (%u site%s) [%s]\n",
++        fprintf(stderr, "v2: resolve %-12s .%-20s -> %08X  (%u site%s) [%s]\n",
+                mod, proc, addr, x->name_imports[i].sites,
+                x->name_imports[i].sites == 1 ? "" : "s", owner);
+     }
+@@ -1385,7 +1388,7 @@
+     if ((g->image.module_flags & MOD_TYPE_MASK) != MOD_TYPE_DLL)
+         fatal("imported guest module is not an OS/2 DLL");
+ 
+-    printf("v2: GUESTDLL LOAD   %-12s -> %s handle=%08X\n",
++    fprintf(stderr, "v2: GUESTDLL LOAD   %-12s -> %s handle=%08X\n",
+            name, path, g->handle);
+     parse_objects(&g->image, rt, 0);
+     parse_import_modules(&g->image);
+@@ -1395,12 +1398,12 @@
+     g->state = 2;
+ 
+     for (i = 0; i < g->image.num_objects; ++i) {
+-        printf("v2: GUESTDLL object %-2u %-12s pref=%08X guest=%08X size=%08X flags=%08X\n",
++        fprintf(stderr, "v2: GUESTDLL object %-2u %-12s pref=%08X guest=%08X size=%08X flags=%08X\n",
+                i + 1u, g->request_name, g->image.objects[i].addr,
+                g->image.objects[i].mapped_addr, g->image.objects[i].size,
+                g->image.objects[i].flags);
+     }
+-    printf("v2: GUESTDLL READY  %-12s imports=%u+%u sites=%u\n",
++    fprintf(stderr, "v2: GUESTDLL READY  %-12s imports=%u+%u sites=%u\n",
+            g->request_name, g->image.nimports, g->image.nname_imports,
+            g->image.external_sites);
+     return g;
+@@ -1556,13 +1559,7 @@
+     return 0;
+ }
+ 
+-static HANDLE os2_handle(uint32_t hfile)
+-{
+-    if (hfile == 0) return GetStdHandle(STD_INPUT_HANDLE);
+-    if (hfile == 1) return GetStdHandle(STD_OUTPUT_HANDLE);
+-    if (hfile == 2) return GetStdHandle(STD_ERROR_HANDLE);
+-    return INVALID_HANDLE_VALUE;
+-}
++#include "v2_fileio.h"
+ 
+ static uint32_t alloc_guest(struct Runtime *rt, uint32_t size)
+ {
+@@ -1710,7 +1707,7 @@
+         t->wait_tid = 0;
+         t->wait_ptid = 0;
+         t->state = THREAD_RUNNABLE;
+-        printf("v2: thread %u awakened by completion of TID %u\n",
++        fprintf(stderr, "v2: thread %u awakened by completion of TID %u\n",
+                t->tid, dead_tid);
+     }
+ }
+@@ -1757,7 +1754,7 @@
+         t->wait_deadline_ms = 0;
+         set_saved_thread_rc(t, OS2_NO_ERROR);
+         t->state = THREAD_RUNNABLE;
+-        printf("v2: thread %u awakened by event semaphore %08X\n",
++        fprintf(stderr, "v2: thread %u awakened by event semaphore %08X\n",
+                t->tid, hev);
+     }
+ }
+@@ -1775,7 +1772,7 @@
+             continue;
+         if (t->wait_deadline_ms > now)
+             continue;
+-        printf("v2: thread %u event wait timed out (hev=%08X)\n",
++        fprintf(stderr, "v2: thread %u event wait timed out (hev=%08X)\n",
+                t->tid, t->wait_event);
+         t->wait_event = 0;
+         t->wait_deadline_ms = 0;
+@@ -1886,7 +1883,7 @@
+     t->state = (flags & 1u) ? THREAD_SUSPENDED : THREAD_RUNNABLE;
+     guest_put_u32(rt, ptid, tid);
+ 
+-    printf("v2:              -> TID %u EIP=%08X stack=%08X..%08X ESP=%08X state=%s\n",
++    fprintf(stderr, "v2:              -> TID %u EIP=%08X stack=%08X..%08X ESP=%08X state=%s\n",
+            tid, entry, stack_base, stack_base + stack_bytes, sp,
+            thread_state_name(t->state));
+     return OS2_NO_ERROR;
+@@ -1936,6 +1933,14 @@
+ static const char *dos_name(uint32_t ordinal)
+ {
+     switch (ordinal) {
++    case 223: return "DosQueryPathInfo";
++    case 230: return "DosGetDateTime";
++    case 257: return "DosClose";
++    case 259: return "DosDelete";
++    case 272: return "DosSetFileSize";
++    case 273: return "DosOpen";
++    case 279: return "DosQueryFileInfo";
++    case 281: return "DosRead";
+     case 224: return "DosQueryHType";
+     case 234: return "DosExit";
+     case 256: return "DosSetFilePtr";
+@@ -1971,11 +1976,18 @@
+     a5 = guest_range(esp + 20u, 4) ? guest_u32(rt, esp + 20u) : 0u;
+ 
+     switch (ordinal) {
++    case 223: case 230: case 257: case 259:
++    case 272: case 273: case 279: case 281:
++    {
++        uint32_t file_rc = dispatch_fileio(rt, ordinal, esp);
++        fprintf(stderr, "v2: DOSCALLS.%u -> rc=%u\n", ordinal, file_rc);
++        return file_rc;
++    }
+     case 224: /* DosQueryHType(HFILE, PULONG type, PULONG attr) */
+-        printf("v2: DOSCALLS.224 DosQueryHType(%u,%08X,%08X)\n", a1, a2, a3);
++        fprintf(stderr, "v2: DOSCALLS.224 DosQueryHType(%u,%08X,%08X)\n", a1, a2, a3);
+         if (!guest_range(a2, 4) || !guest_range(a3, 4))
+             return OS2_ERROR_INVALID_PARAMETER;
+-        h = os2_handle(a1);
++        h = os2_handle(rt, a1);
+         if (h == INVALID_HANDLE_VALUE)
+             return OS2_ERROR_INVALID_HANDLE;
+         ft = GetFileType(h);
+@@ -1984,12 +1996,12 @@
+         return OS2_NO_ERROR;
+ 
+     case 234: /* DosExit(action,result), does not return */
+-        printf("v2: DOSCALLS.234 DosExit(action=%u,result=%u)\n", a1, a2);
++        fprintf(stderr, "v2: DOSCALLS.234 DosExit(action=%u,result=%u)\n", a1, a2);
+         if (a1 == EXIT_THREAD) {
+             struct GuestThread *cur = current_guest_thread(rt);
+             if (!cur)
+                 return OS2_ERROR_INVALID_FUNCTION;
+-            printf("v2: thread %u exited rc=%u\n", cur->tid, a2);
++            fprintf(stderr, "v2: thread %u exited rc=%u\n", cur->tid, a2);
+             cur->state = THREAD_DEAD;
+             wake_thread_waiters(rt, cur->tid);
+             rt->current_thread_exited = 1;
+@@ -2003,11 +2015,11 @@
+         return OS2_NO_ERROR;
+ 
+     case 256: /* DosSetFilePtr(HFILE,LONG,method,PULONG) */
+-        printf("v2: DOSCALLS.256 DosSetFilePtr(%u,%ld,%u,%08X)\n",
++        fprintf(stderr, "v2: DOSCALLS.256 DosSetFilePtr(%u,%ld,%u,%08X)\n",
+                a1, (long)(int32_t)a2, a3, a4);
+         if (!guest_range(a4, 4))
+             return OS2_ERROR_INVALID_PARAMETER;
+-        h = os2_handle(a1);
++        h = os2_handle(rt, a1);
+         if (h == INVALID_HANDLE_VALUE)
+             return OS2_ERROR_INVALID_HANDLE;
+         method = (a3 == 0u) ? FILE_BEGIN : (a3 == 1u ? FILE_CURRENT : (a3 == 2u ? FILE_END : 0xffffffffu));
+@@ -2021,14 +2033,14 @@
+         return OS2_NO_ERROR;
+ 
+     case 282: /* DosWrite(HFILE,buffer,count,PULONG actual) */
+-        printf("v2: DOSCALLS.282 DosWrite(%u,%08X,%u,%08X)\n", a1, a2, a3, a4);
+-        if (!guest_range(a4, 4) || (a3 != 0 && !guest_range(a2, a3)))
++        fprintf(stderr, "v2: DOSCALLS.282 DosWrite(%u,%08X,%u,%08X)\n", a1, a2, a3, a4);
++        if (!file_buffer(a4, 4) || (a3 != 0 && !file_buffer(a2, a3)))
+             return OS2_ERROR_INVALID_PARAMETER;
+-        h = os2_handle(a1);
++        h = os2_handle(rt, a1);
+         if (h == INVALID_HANDLE_VALUE)
+             return OS2_ERROR_INVALID_HANDLE;
+         done = 0;
+-        if (!WriteFile(h, rt->ram + a2, (DWORD)a3, &done, NULL)) {
++        if (!WriteFile(h, a3 ? rt->ram + a2 : rt->ram, (DWORD)a3, &done, NULL)) {
+             e = GetLastError();
+             guest_put_u32(rt, a4, (uint32_t)done);
+             return (uint32_t)e;
+@@ -2039,7 +2051,7 @@
+     case 299: /* prerelease C/386 ABI: ppBase,size,flags,reserved */
+     {
+         uint32_t base;
+-        printf("v2: DOSCALLS.299 DosAllocMem(pp=%08X,size=%u,flags=%08X,res=%08X)\n",
++        fprintf(stderr, "v2: DOSCALLS.299 DosAllocMem(pp=%08X,size=%u,flags=%08X,res=%08X)\n",
+                a1, a2, a3, a4);
+         if (!guest_range(a1, 4) || a2 == 0)
+             return OS2_ERROR_INVALID_PARAMETER;
+@@ -2047,12 +2059,12 @@
+         if (!base)
+             return OS2_ERROR_NOT_ENOUGH_MEMORY;
+         guest_put_u32(rt, a1, base);
+-        printf("v2:              -> guest %08X\n", base);
++        fprintf(stderr, "v2:              -> guest %08X\n", base);
+         return OS2_NO_ERROR;
+     }
+ 
+     case 304: /* DosFreeMem(base) */
+-        printf("v2: DOSCALLS.304 DosFreeMem(%08X)\n", a1);
++        fprintf(stderr, "v2: DOSCALLS.304 DosFreeMem(%08X)\n", a1);
+         ga = find_alloc(rt, a1);
+         if (!ga || !ga->used)
+             return OS2_ERROR_INVALID_PARAMETER;
+@@ -2060,7 +2072,7 @@
+         return OS2_NO_ERROR;
+ 
+     case 305: /* DosSetMem(base,size,flags) */
+-        printf("v2: DOSCALLS.305 DosSetMem(%08X,%u,%08X)\n", a1, a2, a3);
++        fprintf(stderr, "v2: DOSCALLS.305 DosSetMem(%08X,%u,%08X)\n", a1, a2, a3);
+         if (a1 == 0 || a2 == 0 || !guest_range(a1, a2))
+             return OS2_ERROR_INVALID_PARAMETER;
+         /* RAM is already host-backed. The first prototype accepts protection/
+@@ -2068,7 +2080,7 @@
+         return OS2_NO_ERROR;
+ 
+     case 311: /* DosCreateThread(PTID,PFNTHREAD,param,flags,stackSize) */
+-        printf("v2: DOSCALLS.311 DosCreateThread(ptid=%08X,fn=%08X,param=%08X,flags=%08X,stack=%u)\n",
++        fprintf(stderr, "v2: DOSCALLS.311 DosCreateThread(ptid=%08X,fn=%08X,param=%08X,flags=%08X,stack=%u)\n",
+                a1, a2, a3, a4, a5);
+         return create_guest_thread(rt, a1, a2, a3, a4, a5);
+ 
+@@ -2078,7 +2090,7 @@
+         struct GuestEventSem *sem;
+         char name[EVENT_NAME_MAX + 1];
+         int have_name;
+-        printf("v2: DOSCALLS.324 DosCreateEventSem(name=%08X,phev=%08X,flags=%08X,initial=%u)\n",
++        fprintf(stderr, "v2: DOSCALLS.324 DosCreateEventSem(name=%08X,phev=%08X,flags=%08X,initial=%u)\n",
+                a1, a2, a3, a4);
+         if (!guest_range(a2, 4))
+             return OS2_ERROR_INVALID_PARAMETER;
+@@ -2111,7 +2123,7 @@
+         if (have_name)
+             strcpy(sem->name, name);
+         guest_put_u32(rt, a2, event_make_handle(free_slot, sem->generation));
+-        printf("v2:              -> HEV %08X post_count=%u%s%s\n",
++        fprintf(stderr, "v2:              -> HEV %08X post_count=%u%s%s\n",
+                event_make_handle(free_slot, sem->generation), sem->post_count,
+                have_name ? " name=" : "", have_name ? sem->name : "");
+         return OS2_NO_ERROR;
+@@ -2122,7 +2134,7 @@
+         uint32_t i, hev;
+         struct GuestEventSem *sem;
+         char name[EVENT_NAME_MAX + 1];
+-        printf("v2: DOSCALLS.325 DosOpenEventSem(name=%08X,phev=%08X)\n", a1, a2);
++        fprintf(stderr, "v2: DOSCALLS.325 DosOpenEventSem(name=%08X,phev=%08X)\n", a1, a2);
+         if (!guest_range(a2, 4))
+             return OS2_ERROR_INVALID_PARAMETER;
+         if (a1 != 0) {
+@@ -2134,7 +2146,7 @@
+                     sem->refs++;
+                     hev = event_make_handle(i, sem->generation);
+                     guest_put_u32(rt, a2, hev);
+-                    printf("v2:              -> HEV %08X refs=%u\n", hev, sem->refs);
++                    fprintf(stderr, "v2:              -> HEV %08X refs=%u\n", hev, sem->refs);
+                     return OS2_NO_ERROR;
+                 }
+             }
+@@ -2145,14 +2157,14 @@
+         if (!sem)
+             return OS2_ERROR_INVALID_HANDLE;
+         sem->refs++;
+-        printf("v2:              -> HEV %08X refs=%u\n", hev, sem->refs);
++        fprintf(stderr, "v2:              -> HEV %08X refs=%u\n", hev, sem->refs);
+         return OS2_NO_ERROR;
+     }
+ 
+     case 326: /* DosCloseEventSem(hev) */
+     {
+         struct GuestEventSem *sem;
+-        printf("v2: DOSCALLS.326 DosCloseEventSem(%08X)\n", a1);
++        fprintf(stderr, "v2: DOSCALLS.326 DosCloseEventSem(%08X)\n", a1);
+         sem = event_from_handle(rt, a1, NULL);
+         if (!sem)
+             return OS2_ERROR_INVALID_HANDLE;
+@@ -2171,7 +2183,7 @@
+     {
+         struct GuestEventSem *sem;
+         uint32_t old_count;
+-        printf("v2: DOSCALLS.327 DosResetEventSem(%08X,%08X)\n", a1, a2);
++        fprintf(stderr, "v2: DOSCALLS.327 DosResetEventSem(%08X,%08X)\n", a1, a2);
+         if (!guest_range(a2, 4))
+             return OS2_ERROR_INVALID_PARAMETER;
+         sem = event_from_handle(rt, a1, NULL);
+@@ -2189,13 +2201,13 @@
+     {
+         struct GuestEventSem *sem;
+         int already_posted;
+-        printf("v2: DOSCALLS.328 DosPostEventSem(%08X)\n", a1);
++        fprintf(stderr, "v2: DOSCALLS.328 DosPostEventSem(%08X)\n", a1);
+         sem = event_from_handle(rt, a1, NULL);
+         if (!sem)
+             return OS2_ERROR_INVALID_HANDLE;
+         already_posted = (sem->post_count != 0);
+         sem->post_count++;
+-        printf("v2:              -> post_count=%u%s\n", sem->post_count,
++        fprintf(stderr, "v2:              -> post_count=%u%s\n", sem->post_count,
+                already_posted ? " (already posted)" : "");
+         wake_event_waiters(rt, a1);
+         return already_posted ? OS2_ERROR_ALREADY_POSTED : OS2_NO_ERROR;
+@@ -2205,7 +2217,7 @@
+     {
+         struct GuestEventSem *sem;
+         struct GuestThread *cur;
+-        printf("v2: DOSCALLS.329 DosWaitEventSem(%08X,%u%s)\n", a1, a2,
++        fprintf(stderr, "v2: DOSCALLS.329 DosWaitEventSem(%08X,%u%s)\n", a1, a2,
+                a2 == SEM_INDEFINITE_WAIT ? " [indefinite]" : "");
+         sem = event_from_handle(rt, a1, NULL);
+         if (!sem)
+@@ -2222,7 +2234,7 @@
+                                 (GetTickCount64() + (uint64_t)a2);
+         cur->state = THREAD_WAIT_EVENT;
+         rt->switch_requested = 1;
+-        printf("v2: thread %u waiting on event semaphore %08X%s\n",
++        fprintf(stderr, "v2: thread %u waiting on event semaphore %08X%s\n",
+                cur->tid, a1, a2 == SEM_INDEFINITE_WAIT ? " indefinitely" : "");
+         return OS2_NO_ERROR;
+     }
+@@ -2230,7 +2242,7 @@
+     case 330: /* DosQueryEventSem(hev,PULONG postCount) */
+     {
+         struct GuestEventSem *sem;
+-        printf("v2: DOSCALLS.330 DosQueryEventSem(%08X,%08X)\n", a1, a2);
++        fprintf(stderr, "v2: DOSCALLS.330 DosQueryEventSem(%08X,%08X)\n", a1, a2);
+         if (!guest_range(a2, 4))
+             return OS2_ERROR_INVALID_PARAMETER;
+         sem = event_from_handle(rt, a1, NULL);
+@@ -2243,7 +2255,7 @@
+     case 348: /* DosQuerySysInfo(first,last,buffer,cb) */
+     {
+         uint32_t n, i, out;
+-        printf("v2: DOSCALLS.348 DosQuerySysInfo(%u,%u,%08X,%u)\n", a1, a2, a3, a4);
++        fprintf(stderr, "v2: DOSCALLS.348 DosQuerySysInfo(%u,%u,%08X,%u)\n", a1, a2, a3, a4);
+         if (a1 == 0 || a2 < a1)
+             return OS2_ERROR_INVALID_PARAMETER;
+         n = a2 - a1 + 1u;
+@@ -2270,7 +2282,7 @@
+         uint32_t target_tid;
+         struct GuestThread *target;
+         struct GuestThread *cur;
+-        printf("v2: DOSCALLS.349 DosWaitThread(ptid=%08X,option=%u)\n", a1, a2);
++        fprintf(stderr, "v2: DOSCALLS.349 DosWaitThread(ptid=%08X,option=%u)\n", a1, a2);
+         if (!guest_range(a1, 4) || (a2 != DCWW_WAIT && a2 != DCWW_NOWAIT))
+             return OS2_ERROR_INVALID_PARAMETER;
+         target_tid = guest_u32(rt, a1);
+@@ -2308,7 +2320,7 @@
+         cur->wait_ptid = a1;
+         cur->state = THREAD_WAIT_THREAD;
+         rt->switch_requested = 1;
+-        printf("v2: thread %u waiting for %s%u\n", cur->tid,
++        fprintf(stderr, "v2: thread %u waiting for %s%u\n", cur->tid,
+                target_tid ? "TID " : "any TID", target_tid);
+         return OS2_NO_ERROR;
+     }
+@@ -2357,7 +2369,7 @@
+     }
+     rt->current_thread = next;
+     t->state = THREAD_RUNNING;
+-    printf("v2: scheduler -> TID %u EIP=%08X ESP=%08X\n",
++    fprintf(stderr, "v2: scheduler -> TID %u EIP=%08X ESP=%08X\n",
+            t->tid, (uint32_t)t->regs[0].Reg64, (uint32_t)t->regs[1].Reg64);
+     return 0;
+ }
+@@ -2435,7 +2447,7 @@
+                     fprintf(stderr, "v2: thread-return hypercall without current thread\n");
+                     return 1;
+                 }
+-                printf("v2: runtime: TID %u returned from thread entry\n", cur->tid);
++                fprintf(stderr, "v2: runtime: TID %u returned from thread entry\n", cur->tid);
+                 cur->state = THREAD_DEAD;
+                 wake_thread_waiters(rt, cur->tid);
+                 rt->current_thread_exited = 1;
+@@ -2448,7 +2460,7 @@
+             }
+ 
+             if (rt->process_exited) {
+-                printf("v2: guest process exited rc=%u\n", rt->process_rc);
++                fprintf(stderr, "v2: guest process exited rc=%u\n", rt->process_rc);
+                 return (int)rt->process_rc;
+             }
+ 
+@@ -2543,8 +2555,8 @@
+         return 1;
+     }
+ 
+-    printf("WHP OS/2 V2 R4 - LE/LX loader + threads + events + guest DLLs\n");
+-    printf("v2: input %s (%u bytes)\n", argv[1], x.file_size);
++    fprintf(stderr, "WHP OS/2 V2 R5b ABI8 - LE/LX loader + threads + events + guest DLLs + file I/O\n");
++    fprintf(stderr, "v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);
+     if (FAILED(hr)) goto whp_fail_create;
+@@ -2592,35 +2604,35 @@
+ 
+     memcpy(rt.ram + GUEST_GDT, gdt, sizeof(gdt));
+ 
+-    printf("v2: %s header       = %08X\n", x.is_lx ? "LX" : "LE", x.le);
+-    printf("v2: physical pages  = %u\n", x.num_pages);
+-    printf("v2: entry           = object %u + %08X -> %08X\n",
++    fprintf(stderr, "v2: %s header       = %08X\n", x.is_lx ? "LX" : "LE", x.le);
++    fprintf(stderr, "v2: physical pages  = %u\n", x.num_pages);
++    fprintf(stderr, "v2: entry           = object %u + %08X -> %08X\n",
+            x.entry_object, x.entry_offset, entry);
+-    printf("v2: stack           = object %u + %08X -> %08X (initial ESP %08X)\n",
++    fprintf(stderr, "v2: stack           = object %u + %08X -> %08X (initial ESP %08X)\n",
+            x.stack_object, x.stack_offset, stack_top, esp);
+     for (i = 0; i < x.num_objects; ++i) {
+-        printf("v2: object %-2u      = pref %08X guest %08X size=%08X flags=%08X pages=%u @%u\n",
++        fprintf(stderr, "v2: object %-2u      = pref %08X guest %08X size=%08X flags=%08X pages=%u @%u\n",
+                i + 1u, x.objects[i].addr, x.objects[i].mapped_addr, x.objects[i].size,
+                x.objects[i].flags, x.objects[i].mapsize, x.objects[i].mapidx);
+     }
+-    printf("v2: imports          = %u ordinal + %u named / %u sites\n",
++    fprintf(stderr, "v2: imports          = %u ordinal + %u named / %u sites\n",
+            x.nimports, x.nname_imports, x.external_sites);
+     for (i = 0; i < x.nimports; ++i) {
+-        printf("v2:   %-12s .%-4u -> %08X (%u site%s)\n",
++        fprintf(stderr, "v2:   %-12s .%-4u -> %08X (%u site%s)\n",
+                x.modules[x.imports[i].module].name,
+                x.imports[i].ordinal, x.imports[i].address,
+                x.imports[i].sites, x.imports[i].sites == 1 ? "" : "s");
+     }
+     for (i = 0; i < x.nname_imports; ++i) {
+         char nbuf[256];
+-        printf("v2:   %-12s .%-20s -> %08X (%u site%s)\n",
++        fprintf(stderr, "v2:   %-12s .%-20s -> %08X (%u site%s)\n",
+                x.modules[x.name_imports[i].module].name,
+                import_name_at(&x, x.name_imports[i].name_offset, nbuf, sizeof(nbuf)),
+                x.name_imports[i].address, x.name_imports[i].sites,
+                x.name_imports[i].sites == 1 ? "" : "s");
+     }
+-    printf("v2: internal fixups  = %u records\n", x.internal_records);
+-    printf("v2: startup          = ENV=%08X PGM=%08X ARG=%08X\n", env_va, pgm_va, arg_va);
++    fprintf(stderr, "v2: internal fixups  = %u records\n", x.internal_records);
++    fprintf(stderr, "v2: startup          = ENV=%08X PGM=%08X ARG=%08X\n", env_va, pgm_va, arg_va);
+ 
+     hr = WHvMapGpaRange(rt.partition, rt.ram, 0, RAM_SIZE,
+         (WHV_MAP_GPA_RANGE_FLAGS)(WHvMapGpaRangeFlagRead |
+@@ -2696,17 +2708,17 @@
+         failed("save initial guest thread context", hr);
+         goto cleanup;
+     }
+-    printf("v2: scheduler        = TID 1 active; thread-return stub=%08X\n",
++    fprintf(stderr, "v2: scheduler        = TID 1 active; thread-return stub=%08X\n",
+            GUEST_THREAD_EXIT_STUB);
+ 
+-    printf("---------------- guest begins ----------------\n");
++    fprintf(stderr, "---------------- guest begins ----------------\n");
+     fflush(stdout);
+     rc = run_guest(&rt, entry, esp);
+-    printf("---------------- guest ended -----------------\n");
++    fprintf(stderr, "---------------- guest ended -----------------\n");
+     if (rc == 0)
+-        printf("PASS: untouched OS/2 LE executed under WHP and exited rc=0\n");
++        fprintf(stderr, "PASS: untouched OS/2 LE executed under WHP and exited rc=0\n");
+     else
+-        printf("V2 DLL/threading attempt stopped/returned rc=%d\n", rc);
++        fprintf(stderr, "V2 DLL/threading attempt stopped/returned rc=%d\n", rc);
+     goto cleanup;
+ 
+ whp_fail_create:
+@@ -2720,6 +2732,9 @@
+     goto cleanup;
+ 
+ cleanup:
++    for (i = 3; i < MAX_FILES; ++i) {
++        if (rt.files[i]) CloseHandle(rt.files[i]);
++    }
+     if (vp_created)
+         WHvDeleteVirtualProcessor(rt.partition, 0);
+     if (rt.partition)

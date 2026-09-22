@@ -1,0 +1,22 @@
+M29N2a
+=======
+
+* OS2LIBPATH is now a real guest module search namespace rather than a reserved
+  environment variable.
+* Added a process-local guest LE/LX module registry.  Unknown import modules are
+  loaded as genuine OS/2 DLLs; known OS2HOST32 personality modules remain
+  backed by Win32 compatibility DLLs.
+* Library LE/LX images may have no process entry object/stack, as appropriate
+  for DLL modules.
+* Guest DLLs map their own objects, apply the proven flat-32 relocation subset,
+  and recursively resolve their own imports.
+* Added export resolution by ordinal and by resident/non-resident export name.
+* Added external named REL32 import application, complementing the existing
+  ordinal path.
+* Module names are matched case-insensitively and tolerate an optional `.DLL`
+  suffix; repeated imports reuse the existing mapped module.
+* DLL init/term, runtime module APIs, reference counts, forwarders, call gates,
+  16-bit exports and unproven fixup forms remain intentionally deferred.
+* Added CRT-free C/386 M29N2A.DLL / M29N2B.DLL fixtures and a normal C/386 EXE
+  proving EXE -> DLL-by-name -> DLL-by-ordinal recursion.
+* Updated env.cmd: OS2LIBPATH=.;C:\OS2\DLL is now consumed by the loader.

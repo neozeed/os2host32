@@ -1,0 +1,9 @@
+M30J
+====
+
+* Export DOSCALLS.284 as the 32-bit OS/2 DosDevIOCtl ABI.
+* Convert unsupported EMX device probes from loader-fatal missing imports into normal
+  OS/2 ERROR_INVALID_CATEGORY / ERROR_INVALID_FUNCTION results.
+* Add tracing of HFILE, Win32 handle type, category, function, and parameter/data sizes.
+* Implement IOCTL_ASYNC / ASYNC_GETINQUECOUNT (01h/68h) for real Win32 COM handles.
+* Add m30j-emx-hi-test.cmd and README-M30J.md.

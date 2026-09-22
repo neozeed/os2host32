@@ -1,0 +1,1 @@
+@echo M29N_CMD_PATH_OK ARG1=%1 ZERO=%0

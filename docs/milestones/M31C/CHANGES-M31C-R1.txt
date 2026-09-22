@@ -1,0 +1,11 @@
+M31C R1
+- Added PMGPI GpiBox @356 and GpiSetCurrentPosition @519.
+- Added OS/2 default 16-color mapping for native GPI rectangle fills.
+- Added PMWIN HANOI dialog/message ordinals 701,729,789,814,858,903,910,919,923.
+- Added generic type-4 OS/2 DLGTEMPLATE/DLGTITEM -> native dialog/control bridge.
+- Added generic type-8 accelerator parsing; HANOI Alt+S is delivered as WM_COMMAND.
+- Added WinPostMsg private native queue bridge for OS/2 posted messages.
+- Added DOSCALLS DosEnterCritSec @232 first-pass ordering semantics.
+- Fixed DosExit(EXIT_THREAD) to ExitThread instead of ExitProcess.
+- Added untouched HANOI SDK source/resources/executable as M31C regression fixture.
+- Added M31C HANOI resource/export regressions and test script.

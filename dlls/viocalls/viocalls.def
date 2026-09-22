@@ -1,0 +1,7 @@
+LIBRARY VIOCALLS
+EXPORTS
+    VioScrollUp      @7 NONAME
+    VioGetCurPos     @9 NONAME
+    VioSetCurPos     @15 NONAME
+    VioWrtTTY        @19 NONAME
+    VioGetMode       @21 NONAME

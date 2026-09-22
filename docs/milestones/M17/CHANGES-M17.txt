@@ -1,0 +1,24 @@
+le2pe386 milestone 17
+=====================
+
+Consolidated from milestones 10-16 plus the Microsoft OS/2 2.0 Beta 2 header
+reference supplied after milestone 16.
+
+New in milestone 17:
+
+* DosBeep audio backend keeps WAVE_MAPPER open between notes.
+* DosBeep uses CALLBACK_EVENT / WaitForSingleObject instead of Sleep(1) polling.
+* PCM sample storage is reused across calls.
+* Square-wave phase is preserved across adjacent tones to reduce clicks.
+* Frequency 0 is accepted as a Sarien-compatible silence/rest marker.
+* Audio calls are serialized with a critical section.
+* PMWIN constants now match the supplied Beta-2 pmwin.h for WM_CHAR, KC_*,
+  VK_F1..F12, SV_* and SWP_* values.
+* WinSetWindowPos translates the wider Beta-2 SWP_* flag set.
+* F-key events include the authentic Beta-2 VK value while retaining the
+  Sarien compatibility low-word key code.
+* Added beep-test.c in addition to queuebeep-test.c.
+
+The "i3 optimization" is intentionally an I/O/scheduling optimization rather
+than CPU-specific machine code.  Opening/closing waveOut once per 42 ms note
+was the main source of choppiness; the default build remains generic 32-bit x86.

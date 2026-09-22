@@ -1,0 +1,163 @@
+--- ../_m30f/m30f/os2host32.c	2026-09-17 17:51:50.000000000 +0000
++++ os2host32.c	2026-09-17 18:11:56.719270518 +0000
+@@ -1996,7 +1996,7 @@
+ {
+     static const char *const names[] = {
+         "DOSCALLS", "KBDCALLS", "VIOCALLS", "QUECALLS",
+-        "SESMGR", "PMWIN", "PMGPI"
++        "SESMGR", "NLS", "PMWIN", "PMGPI"
+     };
+     U32 i;
+     for (i = 0; i < (U32)(sizeof(names) / sizeof(names[0])); ++i) {
+@@ -2725,13 +2725,6 @@
+ 
+     if (x->modules[m].kind != IMPORT_KIND_NONE)
+         return;
+-    if (x->emx_bridge_complete && module_name_equal(x->modules[m].name, "NLS")) {
+-        x->modules[m].kind = IMPORT_KIND_TRAP;
+-        if (!g_quiet)
+-            printf("deferred %-12s imports to M30 trap-on-use stubs\n",
+-                   x->modules[m].name);
+-        return;
+-    }
+     if (is_personality_module(x->modules[m].name)) {
+         if (strlen(x->modules[m].name) + 5 >= sizeof(dllname))
+             fail("LE/LX import module name is too long");
+--- ../_m30f/m30f/Makefile	2026-09-17 09:24:33.000000000 +0000
++++ Makefile	2026-09-17 18:11:56.719645103 +0000
+@@ -11,7 +11,7 @@
+ 
+ tools: le2pe386.exe os2host32.exe cmd32os2.exe m29n2b2-setentry.exe
+ 
+-compat: DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll PMWIN.dll PMGPI.dll
++compat: DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll NLS.dll PMWIN.dll PMGPI.dll
+ 
+ # Friendly alias for people thinking in terms of the compatibility DLL set.
+ dlls: compat
+@@ -106,6 +106,9 @@
+ SESMGR.dll: sesmgr.c sesmgr.def
+ 	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ sesmgr.c sesmgr.def -Wl,--out-implib,libsesmgr.a
+ 
++NLS.dll: nls.c nls.def
++	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ nls.c nls.def -Wl,--out-implib,libnls.a
++
+ PMWIN.dll: pmwin.c pmwin.def
+ 	$(MINGW) -std=c89 -O2 -Wall -Wextra -pedantic -shared -o $@ pmwin.c pmwin.def -luser32 -lgdi32 -Wl,--out-implib,libpmwin.a
+ 
+@@ -114,5 +117,5 @@
+ 
+ clean:
+ 	rm -f le2pe386.exe os2host32.exe cmd32os2.exe le2pe386-host os2host32-host \
+-	      DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll PMWIN.dll PMGPI.dll parse-test-host batch-test-host m29o-batch-host-test m29o1-parser-for-test m29p-rename-host-test env-test-host \
+-	      libdoscalls.a libkbdcalls.a libviocalls.a libquecalls.a libsesmgr.a libpmwin.a libpmgpi.a sarien-pe.exe m29n2b2-setentry.exe
++	      DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll NLS.dll PMWIN.dll PMGPI.dll parse-test-host batch-test-host m29o-batch-host-test m29o1-parser-for-test m29p-rename-host-test env-test-host \
++	      libdoscalls.a libkbdcalls.a libviocalls.a libquecalls.a libsesmgr.a libnls.a libpmwin.a libpmgpi.a sarien-pe.exe m29n2b2-setentry.exe
+--- /dev/null	2026-09-17 16:43:03.474857274 +0000
++++ nls.c	2026-09-17 18:11:56.875355026 +0000
+@@ -0,0 +1,99 @@
++/*
++ * nls.c - minimal Win32 personality for OS/2 32-bit NLS.DLL.
++ *
++ * Milestone 30G implements the two NLS entry points imported by the EMX
++ * runtime under test:
++ *
++ *      6  DosQueryDBCSEnv
++ *      7  DosMapCase
++ *
++ * The current host personality models a western SBCS process.  Therefore
++ * DosQueryDBCSEnv returns an empty (zero-terminated) DBCS lead-byte vector.
++ * DosMapCase performs the ASCII subset of OS/2 case mapping.  This is enough
++ * for the EMX startup path and deliberately avoids pretending that the host
++ * Windows ANSI code page is byte-compatible with an OS/2 OEM code page.
++ *
++ * ANSI C89 / old Win32 SDK friendly by design.
++ */
++
++#include <stdlib.h>
++#include <stdio.h>
++#include <string.h>
++
++#ifndef __cdecl
++#define __cdecl
++#endif
++
++typedef unsigned long O2ULONG;
++typedef unsigned long O2APIRET;
++typedef unsigned char O2UCHAR;
++
++typedef struct O2COUNTRYCODE {
++    O2ULONG country;
++    O2ULONG codepage;
++} O2COUNTRYCODE;
++
++#define O2_NO_ERROR                 0UL
++#define O2_ERROR_INVALID_PARAMETER 87UL
++
++static int nls_trace_enabled(void)
++{
++    return getenv("OS2_TRACE_NLS") != NULL ||
++           getenv("OS2_TRACE_MODULES") != NULL;
++}
++
++/* NLS.6 / OS/2 2.x DosQueryDBCSEnv.
++ *
++ * The result is a sequence of inclusive lead-byte pairs, terminated by
++ * 00,00.  A western SBCS process has no lead-byte ranges, so a zero-filled
++ * buffer is the correct answer for country/codepage 0 (current defaults).
++ */
++O2APIRET __cdecl DosQueryDBCSEnv(O2ULONG cb, const O2COUNTRYCODE *pcc,
++                                 O2UCHAR *buf)
++{
++    if (buf == NULL || cb == 0UL)
++        return O2_ERROR_INVALID_PARAMETER;
++
++    memset(buf, 0, (size_t)cb);
++
++    if (nls_trace_enabled()) {
++        O2ULONG country;
++        O2ULONG codepage;
++        country = pcc ? pcc->country : 0UL;
++        codepage = pcc ? pcc->codepage : 0UL;
++        printf("M30G NLS: DosQueryDBCSEnv cb=%lu country=%lu cp=%lu -> SBCS empty vector\n",
++               cb, country, codepage);
++        fflush(stdout);
++    }
++    return O2_NO_ERROR;
++}
++
++/* NLS.7 / OS/2 2.x DosMapCase.
++ *
++ * Preserve bytes >= 0x80 until we add explicit OS/2 OEM-code-page tables;
++ * mapping them through the Windows ACP would be subtly wrong.  EMX startup
++ * only needs the ordinary ASCII behavior here.
++ */
++O2APIRET __cdecl DosMapCase(O2ULONG cb, const O2COUNTRYCODE *pcc,
++                            O2UCHAR *s)
++{
++    O2ULONG i;
++    if (s == NULL && cb != 0UL)
++        return O2_ERROR_INVALID_PARAMETER;
++
++    for (i = 0UL; i < cb; ++i) {
++        if (s[i] >= (O2UCHAR)'a' && s[i] <= (O2UCHAR)'z')
++            s[i] = (O2UCHAR)(s[i] - (O2UCHAR)'a' + (O2UCHAR)'A');
++    }
++
++    if (nls_trace_enabled()) {
++        O2ULONG country;
++        O2ULONG codepage;
++        country = pcc ? pcc->country : 0UL;
++        codepage = pcc ? pcc->codepage : 0UL;
++        printf("M30G NLS: DosMapCase cb=%lu country=%lu cp=%lu -> rc=0\n",
++               cb, country, codepage);
++        fflush(stdout);
++    }
++    return O2_NO_ERROR;
++}
+--- /dev/null	2026-09-17 16:43:03.474857274 +0000
++++ nls.def	2026-09-17 18:11:56.876066147 +0000
+@@ -0,0 +1,4 @@
++LIBRARY NLS
++EXPORTS
++    DosQueryDBCSEnv  @6 NONAME
++    DosMapCase       @7 NONAME

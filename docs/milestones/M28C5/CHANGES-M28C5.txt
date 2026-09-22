@@ -1,0 +1,11 @@
+Milestone 28C5
+--------------
+* Removed the unsuccessful fixed low-address reservation strategy.
+* Detect occupied preferred LX object ranges with VirtualQuery.
+* Relocate the complete flat-32 LX image when preferred addresses are occupied.
+* Preserve relative object spacing inside a private relocation arena.
+* Apply internal OFF32 fixups using actual mapped target addresses.
+* Apply external REL32 fixups using actual mapped source addresses.
+* Transfer to the actual relocated entry point and stack.
+* Retain exact preferred-address mapping when those ranges are free.
+* M28C4 native redirection semantics are unchanged.

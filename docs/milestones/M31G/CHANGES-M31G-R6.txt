@@ -1,0 +1,8 @@
+M31G R6
+- Added PMWIN ordinal 780: WinLoadPointer(HWND, HMODULE, ULONG).
+- Reused the generic RT_POINTER resource registry.
+- Generalized the OS/2 bitmap-array icon converter for IC/CI and PT/CP data.
+- Preserved pointer hotspots for PT/CP resources.
+- Preserved existing frame/dialog icon behavior through an icon-only wrapper.
+- Added R6 static regression check and NEKO smoke-test command.
+- No application-name/resource-ID hacks.

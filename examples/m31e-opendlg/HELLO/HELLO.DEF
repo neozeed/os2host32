@@ -1,0 +1,14 @@
+; HELLO definition file
+; Created by Microsoft, IBM Corporation 1990
+;
+NAME    HELLO	WINDOWAPI
+
+DESCRIPTION 'Microsoft OS/2 Sample Application'
+
+STUB    'OS2STUB.EXE'
+
+CODE    MOVEABLE
+DATA    MOVEABLE MULTIPLE
+
+HEAPSIZE  1024
+STACKSIZE 8192

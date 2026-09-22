@@ -1,0 +1,14 @@
+Milestone 28B
+-------------
+* Removed direct Win32 environment access from CMD and cparse/clex variable expansion.
+* Added a host-neutral CMD-owned OS/2 environment block shared by native and LX backends.
+* SET, SETLOCAL/ENDLOCAL and %NAME% expansion now use that block.
+* DosExecPgm receives the current CMD environment explicitly, so SET changes are inherited by LX children.
+* Direct OS/2 backend seeds the environment from DosGetInfoBlocks/PIB.pib_pchenv.
+* Added DOSCALLS.312 DosGetInfoBlocks and DOSCALLS.227 DosScanEnv compatibility exports.
+* Added PATH built-in and PATH-based external command lookup using the CMD-owned environment.
+* Added DOSCALLS.220 DosSetDefaultDisk, drive-selector commands (for example C:), and disk-aware DosQueryCurrentDir.
+* DosSetCurrentDir now preserves OS/2 per-drive current-directory semantics when changing a non-default drive.
+* Added env-child.exe C/386/LX inheritance probe and M28B direct-LX smoke coverage, including real DosSetDefaultDisk/DosSetCurrentDir execution.
+* Native pipeline worker processes now receive the CMD-owned environment block explicitly instead of inheriting a stale host copy.
+* Added portable env-check regression and a self-contained PATH lookup test that does not require a prebuilt status0.exe.

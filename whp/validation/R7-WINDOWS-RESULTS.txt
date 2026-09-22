@@ -1,0 +1,9 @@
+R7 Windows feedback received before R8 development:
+- info1-trace.txt: clean process exit rc=0.
+- infotort-trace_1strun.txt: 10 workers x 100 rounds, exactly 1000
+  acknowledgment posts, normal and DosExit termination paths, rc=0.
+- User reports the expanded batch completed runs 1..14 at 30 workers x
+  1000 rounds, then was manually interrupted during run 15 of 50.
+- Attached infotort-trace.txt is the PARTIAL run 15 trace, ending in ^C.
+  It contains no clean process exit and no reported failure before interruption.
+  Do not label that interrupted run or all 50 runs as passed.

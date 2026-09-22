@@ -1,0 +1,21 @@
+Milestone 29H1
+===============
+
+Fix the M29H C/386 smoke-test link definition after completing the VIO backend.
+
+cmdos2_os2.obj now contains references to the complete console VIO set even when
+an individual smoke program does not call every wrapper. LINK386 therefore needs
+all four new VIO migration imports in every DEF used to link that object.
+
+cmdos2_os2_smoke.def now declares:
+  VIOCALLS.7   VioScrollUp
+  VIOCALLS.9   VioGetCurPos
+  VIOCALLS.15  VioSetCurPos
+  VIOCALLS.19  VioWrtTTY
+  VIOCALLS.21  VioGetMode
+  KBDCALLS.4   KbdCharIn
+  KBDCALLS.13  KbdFlushBuffer
+  DOSCALLS.425 DosFlatToSel
+
+No C source, thunk detector, bridge descriptor, or personality DLL code changed
+from M29H.

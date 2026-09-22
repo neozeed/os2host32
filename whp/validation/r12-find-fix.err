@@ -1,0 +1,463 @@
+v2: DOSCALLS.273 file/time API(000003E8,000007D0,000007D4,00000000)
+v2: DosOpen ABI8 ESP=00000064 args=000003E8,000007D0,000007D4,00000000,00000000,00000010,00000042,00000000
+v2: DosOpen path="/tmp/v2-fileio-unit.dat" size=0 flags=00000010 mode=00000042
+v2: DosOpen -> hfile=3 action=2
+v2: DOSCALLS.281 file/time API(00000003,00000BB8,00000009,000007D8)
+v2: DOSCALLS.281 file/time API(00000003,00000BB8,00000009,000007D8)
+v2: DOSCALLS.272 file/time API(00000003,00000003,00000000,00000000)
+v2: DOSCALLS.279 file/time API(00000003,00000001,00000FA0,00000018)
+v2: DOSCALLS.281 file/time API(00000003,0000FFFF,00000002,000007D8)
+v2: DOSCALLS.257 file/time API(00000003,00000000,00000000,00000000)
+v2: DOSCALLS.257 file/time API(00000003,00000000,00000000,00000000)
+v2: DOSCALLS.223 file/time API(000003E8,00000001,00000FA0,00000018)
+v2: DOSCALLS.230 file/time API(00001388,00000000,00000000,00000000)
+v2: DOSCALLS.273 file/time API(000003E8,000007D0,000007D4,00000000)
+v2: DosOpen ABI8 ESP=00000064 args=000003E8,000007D0,000007D4,00000000,00000000,00000010,00000042,00000000
+v2: DosOpen path="/tmp/v2-fileio-unit.dat" size=0 flags=00000010 mode=00000042
+v2: DOSCALLS.273 file/time API(000003E8,000007D0,000007D4,00000063)
+v2: DosOpen ABI8 ESP=00000064 args=000003E8,000007D0,000007D4,00000063,00000000,00000011,00000042,00000000
+v2: DosOpen path="/tmp/v2-fileio-unit.dat" size=99 flags=00000011 mode=00000042
+v2: DosOpen -> hfile=3 action=1
+v2: DOSCALLS.279 file/time API(00000003,00000001,00000FA0,00000018)
+v2: DOSCALLS.257 file/time API(00000003,00000000,00000000,00000000)
+v2: DOSCALLS.273 file/time API(000003E8,000007D0,000007D4,00000008)
+v2: DosOpen ABI8 ESP=00000064 args=000003E8,000007D0,000007D4,00000008,00000000,00000012,00000042,00000000
+v2: DosOpen path="/tmp/v2-fileio-unit.dat" size=8 flags=00000012 mode=00000042
+v2: DosOpen -> hfile=3 action=3
+v2: DOSCALLS.279 file/time API(00000003,00000001,00000FA0,00000018)
+v2: DOSCALLS.257 file/time API(00000003,00000000,00000000,00000000)
+v2: DOSCALLS.259 file/time API(000003E8,00000000,00000000,00000000)
+v2: DOSCALLS.273 file/time API(000003E8,000007D0,000007D4,00000000)
+v2: DosOpen ABI8 ESP=00000064 args=000003E8,000007D0,000007D4,00000000,00000000,00000001,00000042,00000000
+v2: DosOpen path="/tmp/v2-fileio-unit.dat" size=0 flags=00000001 mode=00000042
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=2 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010000 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000002 level=1
+v2: DosFindFirst path="*" -> HDIR=00010001 name="ALPHA.TXT"
+v2: DOSCALLS.265 directory API handle/arg=00010000
+v2: DOSCALLS.265 directory API handle/arg=00010000
+v2: DOSCALLS.265 directory API handle/arg=00010000
+v2: DOSCALLS.265 directory API handle/arg=00010000
+v2: DOSCALLS.265 directory API handle/arg=00010001
+v2: DOSCALLS.263 directory API handle/arg=00010000
+v2: DOSCALLS.263 directory API handle/arg=00010000
+v2: DOSCALLS.265 directory API handle/arg=00010000
+v2: DOSCALLS.263 directory API handle/arg=00010001
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00000001 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00001000 level=1
+v2: DosFindFirst path="*" -> HDIR=00000001 name="SUBDIR"
+v2: DOSCALLS.263 directory API handle/arg=00000001
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=99
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=0 cb=279 attr=00000000 level=1
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=0 cb=284 attr=00000007 level=1
+v2: DosFindFirst compatibility: zero input count treated as one
+v2: DosFindFirst path="*" -> HDIR=00000001 name="ALPHA.TXT"
+v2: DOSCALLS.265 directory API handle/arg=00000001
+v2: DOSCALLS.263 directory API handle/arg=00000001
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=0 cb=8 attr=00000007 level=1
+v2: DosFindFirst compatibility: zero input count treated as one
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=0 cb=284 attr=00000007 level=99
+v2: DosFindFirst compatibility: zero input count treated as one
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="MISSING" count=0 cb=284 attr=00000007 level=1
+v2: DosFindFirst compatibility: zero input count treated as one
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="MISSING" count=0 cb=284 attr=00000007 level=1
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="MISSING" count=1 cb=279 attr=00000000 level=1
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010002 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010002
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010003 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010003
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010004 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010004
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010005 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010005
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010006 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010006
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010007 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010007
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010008 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010008
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010009 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010009
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001000A name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001000A
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001000B name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001000B
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001000C name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001000C
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001000D name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001000D
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001000E name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001000E
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001000F name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001000F
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010010 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010010
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010011 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010011
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010012 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010012
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010013 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010013
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010014 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010014
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010015 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010015
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010016 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010016
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010017 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010017
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010018 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010018
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010019 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010019
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001001A name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001001A
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001001B name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001001B
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001001C name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001001C
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001001D name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001001D
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001001E name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001001E
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001001F name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001001F
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010020 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010020
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010021 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010021
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010022 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010022
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010023 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010023
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010024 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010024
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010025 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010025
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010026 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010026
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010027 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010027
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010028 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010028
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010029 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010029
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001002A name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001002A
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001002B name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001002B
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001002C name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001002C
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001002D name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001002D
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001002E name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001002E
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001002F name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001002F
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010030 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010030
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010031 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010031
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010032 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010032
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010033 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010033
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010034 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010034
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010035 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010035
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010036 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010036
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010037 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010037
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010038 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010038
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010039 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010039
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001003A name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001003A
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001003B name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001003B
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001003C name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001003C
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001003D name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001003D
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001003E name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001003E
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001003F name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=0001003F
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010040 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010040
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010041 name="ALPHA.TXT"
+v2: DOSCALLS.263 directory API handle/arg=00010041
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010042 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010043 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010044 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010045 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010046 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010047 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010048 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010049 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001004A name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001004B name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001004C name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001004D name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001004E name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001004F name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010050 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010051 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010052 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010053 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010054 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010055 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010056 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010057 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010058 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010059 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001005A name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001005B name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001005C name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001005D name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001005E name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=0001005F name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010060 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DosFindFirst path="*" -> HDIR=00010061 name="ALPHA.TXT"
+v2: DOSCALLS.264 directory API handle/arg=000003E8
+v2: DosFindFirst request path="*" count=1 cb=279 attr=00000000 level=1
+v2: DOSCALLS.263 directory API handle/arg=00010042
+v2: DOSCALLS.263 directory API handle/arg=00010043
+v2: DOSCALLS.263 directory API handle/arg=00010044
+v2: DOSCALLS.263 directory API handle/arg=00010045
+v2: DOSCALLS.263 directory API handle/arg=00010046
+v2: DOSCALLS.263 directory API handle/arg=00010047
+v2: DOSCALLS.263 directory API handle/arg=00010048
+v2: DOSCALLS.263 directory API handle/arg=00010049
+v2: DOSCALLS.263 directory API handle/arg=0001004A
+v2: DOSCALLS.263 directory API handle/arg=0001004B
+v2: DOSCALLS.263 directory API handle/arg=0001004C
+v2: DOSCALLS.263 directory API handle/arg=0001004D
+v2: DOSCALLS.263 directory API handle/arg=0001004E
+v2: DOSCALLS.263 directory API handle/arg=0001004F
+v2: DOSCALLS.263 directory API handle/arg=00010050
+v2: DOSCALLS.263 directory API handle/arg=00010051
+v2: DOSCALLS.263 directory API handle/arg=00010052
+v2: DOSCALLS.263 directory API handle/arg=00010053
+v2: DOSCALLS.263 directory API handle/arg=00010054
+v2: DOSCALLS.263 directory API handle/arg=00010055
+v2: DOSCALLS.263 directory API handle/arg=00010056
+v2: DOSCALLS.263 directory API handle/arg=00010057
+v2: DOSCALLS.263 directory API handle/arg=00010058
+v2: DOSCALLS.263 directory API handle/arg=00010059
+v2: DOSCALLS.263 directory API handle/arg=0001005A
+v2: DOSCALLS.263 directory API handle/arg=0001005B
+v2: DOSCALLS.263 directory API handle/arg=0001005C
+v2: DOSCALLS.263 directory API handle/arg=0001005D
+v2: DOSCALLS.263 directory API handle/arg=0001005E
+v2: DOSCALLS.263 directory API handle/arg=0001005F
+v2: DOSCALLS.263 directory API handle/arg=00010060
+v2: DOSCALLS.263 directory API handle/arg=00010061

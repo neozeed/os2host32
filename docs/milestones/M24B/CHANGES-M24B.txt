@@ -1,0 +1,5 @@
+Milestone 24b
+
+* Fixed `%NAME%` expansion on Win32 to query the same process environment used by SET/SETLOCAL/ENDLOCAL.
+* Preserved portable `getenv()` behavior for non-Windows parser regression builds.
+* Updated the CMD32 banner to identify M24b.

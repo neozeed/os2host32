@@ -1,0 +1,12 @@
+Milestone 26 - cfile.c file commands
+
+* Added cmdfile.c/cmdfile.h as the recovered cfile.c/cpwork.c semantic boundary.
+* COPY is now live, including normal copies and wildcard-to-directory copies.
+* DEL/ERASE are live, including wildcard deletion of files.
+* REN/RENAME are live for ordinary single-file renames.
+* MOVE is live for ordinary files and wildcard-to-directory moves.
+* MOVE falls back to copy+delete for a cross-volume file move.
+* Built-in dispatch now uses eCopy/eDelete/eRename/eMove rather than eNotYet.
+* Added examples/m26-file-test.cmd.
+* Added analysis/CFILE_RECOVERY.md and NT1991_CFILE_DISASM.txt.
+* COPY concatenation and wildcard RENAME are intentionally deferred.

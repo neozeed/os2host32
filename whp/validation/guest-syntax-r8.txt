@@ -1,0 +1,1 @@
+PASS: GCC -m32 -std=c89 -Wall -Wextra -Werror syntax/type check of sleep1.c, mutex1.c, queue1.c, recycle1.c, info1.c and infotort.c against supplied Beta2 headers. Legacy keywords removed for GCC; existing SDK comment/pragma warnings suppressed. This is not a C/386 compiler/linker or guest execution result.

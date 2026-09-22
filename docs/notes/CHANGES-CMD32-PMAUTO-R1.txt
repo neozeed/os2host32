@@ -1,0 +1,28 @@
+CMD32 PMAUTO R1
+===============
+
+Quality-of-life behavior layered on the frozen M31G R19 V1 tree and the
+STARTUP/history/COPY/PS-KILL CMD32 additions.
+
+* Restores DOSCALLS ordinal 163 DosQAppType for native Win32 personalities.
+  LE/LX PM compatibility bits are decoded from module flags.
+* Adds CmdO2QueryAppType to the host-neutral CMD OS/2 service boundary.
+  - native CMD32 resolves DOSCALLS.163
+  - direct C/386 OS/2 CMD32 calls the historical DosQAppType API
+* Plain synchronous execution now checks application type after command/PATH
+  resolution.  WINDOWAPI (PM) executables are launched as related PM sessions,
+  equivalent to START /PM, so CMD immediately returns to its prompt and the
+  task appears in PS/KILL.
+* If DosQAppType cannot classify an executable, CMD falls back to the existing
+  synchronous DosExecPgm behavior rather than refusing to launch it.
+* Adds START /PMC program [args] as the explicit debugging escape hatch.
+  /PMC keeps the PM program attached to the current CMD console and uses the
+  old synchronous DosExecPgm path so stdout/stderr/printf remain visible.
+* VER now identifies this QoL branch instead of the stale Milestone 29P banner.
+
+Regression:
+  make cmd32-pmauto-check
+  make m31g-neko-r19-check
+
+Real C/386 build remains:
+  build-os2-shell.cmd

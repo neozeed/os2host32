@@ -1,0 +1,18 @@
+M29C - Microsoft C/386 far16 KBD bridge
+
+* Extends the M29B C/386 migration-thunk recognizer from VIOCALLS.19 to
+  KBDCALLS.4 (KbdCharIn).
+* Reuses the proven native bridge for the common historical signature shape:
+      (far16 pointer, USHORT, USHORT) -> USHORT
+  The Win32 bridge receives the far-Pascal frame and calls the existing
+  KBDCALLS.dll ordinal 4 implementation without entering 16-bit code.
+* The far16 pointer remains an opaque flat-address token because DosFlatToSel
+  is intercepted and the patched helper never loads a selector.
+* Corrects the host-side KBDKEYINFO compatibility structure to OS/2's
+  two-byte-packed 10-byte wire layout and adds a compile-time size check.
+* Adds c386-far16-kbd-test.c/.def and build-c386-far16-kbd.cmd.  The historical
+  LINK386 invocation uses a response file, preserving the M29B2 command-tail
+  fix.
+* Adds examples/m29c-far16-kbd-test.cmd.
+
+M29B VioWrtTTY bridging remains supported unchanged.

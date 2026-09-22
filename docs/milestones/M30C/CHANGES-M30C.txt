@@ -1,0 +1,15 @@
+Milestone 30C
+-------------
+
+* Identified classic EMX executable payload as i386 a.out (ZMAGIC linked image,
+  OMAGIC relocatable object).
+* Confirmed the linked `hi` retains 597 text and 23 data relocation records.
+* Confirmed text relocation offset 1 describes the startup `push 0x00020000`
+  operand as a 32-bit absolute DATA reference.
+* Added opt-in `OS2_EMX_AOUT_SIDECAR` support for bound EMX LX executables.
+* Validates sidecar i386 a.out magic, TEXT size, DATA+BSS size and entry address
+  against bound LX objects 1/2 before changing guest memory.
+* Applies only internal absolute 32-bit TEXT/DATA/BSS relocations by the LX
+  arena delta; leaves PC-relative, external and absolute-constant records alone.
+* Emits relocation inventory and the canonical entry DATA operand before/after.
+* No speculative changes to the M30 mixed-mode EMX DLL bridge.

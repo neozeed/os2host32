@@ -1,0 +1,19 @@
+M31A FINAL
+==========
+
+Frozen 2026-09-18 from the proven R13 tree.
+
+* Original Microsoft OS/2 2.0 Beta 2 WMCHAR.EXE runs interactively.
+* Paint/repaint/resize path works.
+* Printable WM_CHAR rows format, draw, and scroll correctly.
+* LINK386 biased internal OFF32 relocations supported and regression-tested.
+* Indexed WMCHAR data references verified by regression.
+* PMGPI GpiQueryFontMetrics added for Beta-2 FONTMETRICS.
+* PMSHAPI WinAddSwitchEntry personality added.
+* PMWIN WMCHAR-required paint/window/query/scroll/text APIs added.
+* WinDrawText isolates guest text through host-owned memory before GDI.
+* Native show is deferred until WinGetMsg; Win32 IME messages are isolated.
+* Small eligible PM stacks are promoted to a 256 KB runtime mapping.
+* Historical WMCHAR executable remains byte-identical to the SDK sample.
+* Sarien PM remains the pre-existing regression and was manually re-verified.
+* OS/2 resource menu/icon translation remains intentionally deferred to M31B.

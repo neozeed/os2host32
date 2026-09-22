@@ -1,0 +1,5 @@
+M29J1
+- Add STACKSIZE 61440 to cmd32os2_os2.def.
+- No executable logic changes.
+- Intended to eliminate the immediate C/386 R6000 caused by the full shell's
+  substantially larger automatic storage requirements versus the M29I probes.

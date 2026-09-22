@@ -1,0 +1,15 @@
+Milestone 31A - WMCHAR first pass
+
+- Preserved the original Beta-2 WMCHAR SDK sample as examples/m31a-wmchar.
+- Added PMWIN ordinals 743, 757, 765, 834, 838, 840, 841, 848, 849, 899,
+  913 and 920.
+- Added PMGPI GpiQueryFontMetrics ordinal 453.
+- Added the first PMSHAPI personality with WinAddSwitchEntry ordinal 120.
+- Added PMSHAPI to the os2host32 host-personality module list.
+- Added pmcompat.h so PMWIN and PMGPI share compatible HPS objects.
+- Implemented WinGetPS and WinBeginPaint(NULL) presentation spaces.
+- Implemented basic OS/2 bottom-left <-> Win32 top-left rectangle conversion.
+- Implemented text/fill/scroll/invalidate/query operations used by WMCHAR.
+- Expanded Win32 keyboard translation into Beta-2 WM_CHAR mp1/mp2 fields.
+- Preserved Sarien F-key compatibility behavior.
+- General OS/2 menu/icon resource decoding remains deliberately deferred.

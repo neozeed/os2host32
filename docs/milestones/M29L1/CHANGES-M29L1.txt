@@ -1,0 +1,15 @@
+M29L1
+- Added CmdO2StartOptions and CmdO2StartSessionEx over the complete 60-byte
+  pack(2) 32-bit STARTDATA wire structure.
+- Preserved the M29L CmdO2StartSession convenience wrapper.
+- SESMGR now validates and traces title, inherit option, session type,
+  PgmControl, initial position/size, icon name and object-buffer fields.
+- Mapped visible/invisible/min/max/set-position controls onto Win32
+  STARTUPINFO for windowed session hosts.
+- Corrected background-session host display from minimized-without-activation
+  to shown-without-activation.
+- START now parses title, /F, /B, /FS, /WIN, /PM, /MAX, /MIN, /I, /N and /PGM.
+- Explicit /FS, /WIN and /PM requests force foreground session semantics.
+- Added full STARTDATA C/386 regression and shell STARTDATA regression.
+- START fixture now records M29L_TOKEN so parent-vs-/I environment inheritance
+  can be observed directly.

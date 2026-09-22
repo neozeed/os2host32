@@ -1,0 +1,9 @@
+M29K3
+- Make Ctrl+C/Ctrl+Break non-fatal for native and hosted CMD frontends.
+- Install a lazy KBDCALLS Win32 console-control handler.
+- Inject ASCII 3 into active historical KBD console reads to wake KbdCharIn.
+- Cancel partial prompt input with ^C and return to a fresh prompt.
+- Preserve the prior ERRORLEVEL when prompt input is cancelled.
+- Keep parent CMD alive while foreground children receive console control independently.
+- Add m29k3-break-child.exe foreground Ctrl+C fixture.
+- No LE/LX loader, far16 descriptor, or DosExecPgm ABI changes.

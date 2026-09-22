@@ -1,0 +1,5 @@
+console-check PASS: packed frames, pointer token, viewport/cursor, mode bounds, TTY, clear, key wait/yield/repeat/flush and mode restoration
+pm-check PASS: guest callbacks, QMSG ABI, native queue wake, guest sleep, paint, cleanup
+gpi-check PASS: 1/4/8/24/32 bpp, headers, palette/row roundtrip, pixels, blits, bounds, handles, cleanup
+sarien-check PASS: logical colors, 16-byte header, shared window PS, supplied paint PS, keys, beep scheduling
+sync-check PASS: callback continuations + R8 scheduler/queue/mutex/recycling + R7 info

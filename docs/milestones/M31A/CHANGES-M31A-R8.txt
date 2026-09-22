@@ -1,0 +1,23 @@
+M31A R8 - WMCHAR first-key trace
+
+R7 milestone:
+- window creation, deferred visibility, first WM_PAINT and message loop work;
+- the first printable key reaches OS/2 WM_CHAR;
+- the guest calls WinGetPS from NewMessage and then the process exits;
+- Sarien remains operational with the same compatibility DLLs.
+
+R8 deliberately does not change PM semantics.  It adds focused traces to:
+- WM_CHAR mp1/mp2 translation;
+- WinBeginPaint;
+- WinQueryWindowRect;
+- WinScrollWindow, including returned update RECTL;
+- WinGetPS / WinReleasePS;
+- WinFillRect;
+- WinDrawText.
+
+This separates a PM drawing failure from guest code between WinFillRect and
+WinDrawText.  In WMCHAR that guest-only interval contains its first sprintf()
+call of the entire program, so this trace also tests whether the failure is in
+the Microsoft C runtime rather than PMWIN.
+
+The original Beta-2 WMCHAR sample remains byte-for-byte unchanged.

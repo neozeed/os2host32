@@ -1,0 +1,9 @@
+M29G1 - Microsoft C/386 Beta 2 header compatibility correction
+
+* Removed four explicit PEAOP2 null-pointer casts from cmdos2_os2.c.
+* DosOpen and DosCreateDir now receive the C null pointer constant 0 for
+  their extended-attribute argument.
+* This intentionally lets the active Microsoft OS/2 2.0 Beta 2 header
+  prototype supply its own pointer type instead of requiring the later
+  PEAOP2 typedef name at the call site.
+* No loader, far16 detector, bridge, or console ABI logic changed from M29G.

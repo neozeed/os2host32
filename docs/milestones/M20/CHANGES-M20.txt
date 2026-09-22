@@ -1,0 +1,17 @@
+Milestone 20
+============
+
+* Added --scan mode for non-executing LX fixup/import inventory.
+* Added object bitness labels using the LX Big/Default object flag.
+* Broadened fixup scanner to understand 16-bit/mixed-LX source forms,
+  alias fixups, named imports, source lists, and additive fields.
+* Kept direct fixup application deliberately limited to the proven flat-32
+  OFF32/internal + REL32/external-ordinal path.
+* Added a clean refusal for --run on 16-bit/mixed LX images.
+* Analysed OS/2 2.0 GA CMD.EXE:
+  - all 3 objects are 16-bit;
+  - 176 PTR16:16 alias records / 276 sites;
+  - 1 OFF16 record / 2 sites;
+  - 95 ordinal imports + 2 named imports.
+* Added CMD entry disassembly and annotated import inventory.
+* ANSI C89 strict host build remains clean.

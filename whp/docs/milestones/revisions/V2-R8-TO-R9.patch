@@ -1,0 +1,648 @@
+--- a/README-V2-CALLBACK-R9.txt
++++ b/README-V2-CALLBACK-R9.txt
+@@ -0,0 +1,110 @@
++WHP OS/2 V2 R9 - host-to-guest callback foundation
++================================================
++Cumulative source package based on the user-verified R8 suite PASS.
++No Windows host executable or new guest binaries are prebuilt here.
++
++BUILD AND RUN
++  build-v2.cmd                 (x64 MSVC developer prompt)
++  build-c386-callback.cmd       (your C/386 environment)
++  run-callback.cmd              (Windows, with guest binaries beside host)
++
++Expected:
++  callback1 PASS
++  callbackdll PASS
++  R9 callback suite PASS
++
++Keep CBDLL.DLL beside the host/guests. Diagnostics go to callback1-trace.txt
++and callbackdll-trace.txt. No long batch run is needed. After these pass,
++run-sync.cmd and run-info1.cmd are useful regressions for scheduler/FS changes.
++
++WHAT THIS IMPLEMENTS
++The host can enter a flat 32-bit guest function on the current guest thread,
++pass stack arguments and collect its 32-bit integer return value. Each thread
++has its own linked stack of host continuation frames, limited to 16 levels.
++Frames live on the host heap, avoiding a large per-thread fixed array and
++avoiding recursive native run_guest loops.
++
++begin_guest_callback saves the current integer/segment register context,
++records the host API continuation RIP, reserves argument/return words below
++the current guest ESP, and redirects the VP to the guest function. The guest
++function runs in the ordinary execution loop, so its DOSCALLS, sleeps, event
++waits and thread switches use the existing scheduler. Other threads may have
++independent pending callbacks. Nested calls push another continuation frame.
++
++The return sentinel at F7FE0 pushes EAX, loads a dedicated runtime trap ID,
++and exits via OUT F0. The host checks the expected sentinel RIP and stack
++position, retrieves the saved guest result, restores the caller's registers
++and segments, writes the result, and resumes the suspended host API stub at
++its RET. Restoring this continuation must bypass the usual hypercall RIP
++advance, otherwise the callback entry or its caller would be skipped.
++
++Both normal and DosExit thread termination discard all pending continuation
++frames before recycling the stack/slot. Process cleanup also discards frames
++for all threads, including an interrupted/faulted callback run.
++
++TEST INTERFACE
++WHPTEST.1 is a synthetic import supplied by the host, not an OS/2 DLL/API:
++  ULONG cdecl HostInvoke(CALLBACK2 fn, ULONG a, ULONG b, ULONG *result)
++  CALLBACK2: ULONG cdecl fn(ULONG a, ULONG b)
++Return code 0 means the callback returned; *result holds its EAX value.
++Invalid pointer/range/stack inputs return 87, depth/allocation exhaustion 8,
++and register access failures 1. A thread exiting inside a callback never
++returns to its HostInvoke caller. A malformed return sentinel stops execution
++with a diagnostic rather than popping the wrong continuation.
++
++The general internal entry helper supports 0..8 DWORD arguments; WHPTEST.1
++exercises two. Stack arguments use caller cleanup. Callee-cleanup RET n,
++floating-point/structure returns and 16-bit/far callbacks are not supported.
++All saved integer registers, EFLAGS and CS/SS/DS/ES/FS/GS are restored, except
++EAX, which carries the fixture API's return code. DF is cleared at guest C
++callback entry and the original flags are restored on return. Guest memory
++side effects, including TIB contents, are retained.
++
++This release supplies same-thread asynchronous continuations within the host
++execution loop. It does not yet connect a native Windows message pump,
++implement PM/GPI, inject arbitrary callbacks into another guest thread, or
++resume arbitrary native C stack frames. Future PM dispatch needs a completion
++action appropriate to that API, instead of this fixture's result-pointer
++completion. No host window procedures are called through 32-bit guest pointers.
++Function pointers are range-checked, not checked against executable objects;
++invalid code within RAM will produce the existing guest-fault diagnostic.
++Only the existing integer/segment context is saved: FPU/SIMD remains deferred.
++
++GUEST TESTS
++callback1:
++- zero/invalid arguments and exact 32-bit return values;
++- deliberate EBX/ESI/EDI/EBP clobber and DF set inside a machine-code callback;
++- depth 16 followed by graceful depth-limit error and complete unwinding;
++- four worker threads each making 20 nested calls while yielding, plus main
++  making a callback concurrently; FS/TIB2 identity and stack canaries checked;
++- event-blocked main callback, resumed by a separate sleeping/posting thread;
++- 40 worker exits from inside callbacks, exercising abandoned frame cleanup
++  and slot/stack reuse; a subsequent ordinary callback must still succeed.
++callbackdll:
++- host -> guest DLL callback -> nested host -> guest EXE callback;
++- DLL-side DosSleep(0), EXE-side DosSleep(1), return propagation and shared
++  DLL call count; caller FS/TIB identity checked after each call.
++
++CBDLL is CRT-free and uses explicit import/export .DEF entries like the
++previous V2DLL fixture. Its address getter returns an internally relocated
++function pointer, avoiding any new external OFF32 import requirement.
++The test probes stored in byte arrays rely on the runtime's executable guest
++RAM mapping and avoid an additional assembler dependency. These are WHP
++fixtures; WHPTEST is intentionally not a native OS/2 API.
++
++VALIDATION HERE
++- GCC 32-bit C89 syntax/type checks against the supplied Beta2 SDK passed for
++  callback1.c, callbackdll.c and cbdll.c. Legacy keywords are removed for GCC,
++  existing SDK comment/pragma warnings suppressed. This is not a C/386 build.
++- Production callback helpers compiled/executed with WHP-register/clock test
++  doubles under AddressSanitizer and UndefinedBehaviorSanitizer. Checks cover
++  stack layout, high-bit results, full register/segment restoration, nested
++  calls, independently pending thread callbacks, blocked callback resumption,
++  invalid/spoofed returns, depth limit, stack exhaustion and cancellation.
++- The same native suite also passes R8 scheduling/mutex/queue tests and 5000
++  recycled threads, plus R7's 32000 context save/restores.
++  ASAN_OPTIONS=detect_leaks=0 python3 tests/run-sync-check.py
++  LeakSanitizer is disabled for this ptrace-based execution environment.
++- Real Windows WHP execution and Microsoft C/386 linking remain user tests.
++  Earlier validation logs are historical. R8 live suite PASS was reported by
++  the user before this release; no R9 Windows success is claimed here.
+--- a/build-c386-callback.cmd
++++ b/build-c386-callback.cmd
+@@ -0,0 +1,31 @@
++@echo off
++setlocal
++if "%C386LIB%"=="" set C386LIB=\c386\lib
++cl386 -c -Gd -Gs -Zl -Od -W3 -B1 C1_386 cbdll.c
++if errorlevel 1 exit /b %errorlevel%
++>cbdll.lnk echo cbdll.obj
++>>cbdll.lnk echo cbdll.dll
++>>cbdll.lnk echo cbdll.map
++>>cbdll.lnk echo.
++>>cbdll.lnk echo cbdll.def
++link386 @cbdll.lnk
++if errorlevel 1 exit /b %errorlevel%
++cl386 -c -Gs -Od -W3 -B1 C1_386 callback1.c
++if errorlevel 1 exit /b %errorlevel%
++>callback1.lnk echo callback1.obj
++>>callback1.lnk echo callback1.exe
++>>callback1.lnk echo callback1.map
++>>callback1.lnk echo %C386LIB%\libc.lib %C386LIB%\os2386.lib
++>>callback1.lnk echo callback1.def
++link386 @callback1.lnk
++if errorlevel 1 exit /b %errorlevel%
++cl386 -c -Gs -Od -W3 -B1 C1_386 callbackdll.c
++if errorlevel 1 exit /b %errorlevel%
++>callbackdll.lnk echo callbackdll.obj
++>>callbackdll.lnk echo callbackdll.exe
++>>callbackdll.lnk echo callbackdll.map
++>>callbackdll.lnk echo %C386LIB%\libc.lib %C386LIB%\os2386.lib
++>>callbackdll.lnk echo callbackdll.def
++link386 @callbackdll.lnk
++if errorlevel 1 exit /b %errorlevel%
++exit /b 0
+--- a/callback1.c
++++ b/callback1.c
+@@ -0,0 +1,95 @@
++#define TEST_NAME "callback1"
++#include "cbtest.h"
++static ULONG tibs[5];
++static volatile ULONG done[4],exit_mark;
++static HEV gate;
++/* Deliberately violates callee-saved registers and sets DF. The host must
++ * restore its caller context rather than trusting callback ABI behaviour. */
++static unsigned char clobber_code[]={
++    0xbb,0x11,0x11,0x11,0x11, 0xbe,0x22,0x22,0x22,0x22,
++    0xbf,0x33,0x33,0x33,0x33, 0xbd,0x44,0x44,0x44,0x44,
++    0x8b,0x44,0x24,0x04, 0x33,0x44,0x24,0x08, 0xfd,0xc3
++};
++static ULONG _cdecl arithmetic(ULONG a,ULONG b) { return (a*3UL)^b; }
++static ULONG _cdecl nested(ULONG id,ULONG depth)
++{
++    ULONG value;
++    volatile ULONG guard;
++    guard=0xcafe0000UL+id;
++    CHECK(id<5 && fs_tib2()==tibs[id]);
++    CHECK(DosSleep(0)==0);
++    if(depth) {
++        CHECK(HostInvoke(nested,id,depth-1,&value)==0);
++        ++value;
++    } else value=0x1000UL+id;
++    CHECK(guard==0xcafe0000UL+id && fs_tib2()==tibs[id]);
++    return value;
++}
++static void worker(ULONG id)
++{
++    ULONG i,result;
++    tibs[id]=fs_tib2();
++    for(i=0;i<20;i++) {
++        CHECK(HostInvoke(nested,id,3,&result)==0 && result==0x1003UL+id);
++        CHECK(fs_tib2()==tibs[id]);
++    }
++    done[id-1]=1;
++}
++static ULONG _cdecl waiting(ULONG a,ULONG b)
++{
++    CHECK(DosWaitEventSem(gate,1000)==0);
++    CHECK(fs_tib2()==tibs[0]);
++    return a+b;
++}
++static void poster(ULONG ignored)
++{ (void)ignored;CHECK(DosSleep(5)==0);CHECK(DosPostEventSem(gate)==0); }
++static ULONG _cdecl exiting(ULONG a,ULONG b)
++{ (void)a;(void)b;exit_mark=1;DosExit(EXIT_THREAD,0);return 0; }
++static void exit_worker(ULONG ignored)
++{
++    ULONG value;
++    (void)ignored;
++    HostInvoke(exiting,0,0,&value);
++    CHECK(0); /* must never resume this abandoned continuation */
++}
++static ULONG _cdecl depth_limit(ULONG a,ULONG depth)
++{
++    ULONG value,rc;
++    (void)a;
++    rc=HostInvoke(depth_limit,0,depth+1,&value);
++    if(depth==15) { CHECK(rc==8);return 1; }
++    CHECK(rc==0);return value+1;
++}
++int main(void)
++{
++    ULONG value,i;
++    TID tids[4],tid;
++    union { unsigned char *data; CALLBACK2 call; } probe;
++    tibs[0]=fs_tib2();
++    value=0xdeadbeefUL;
++    CHECK(HostInvoke((CALLBACK2)0,0,0,&value)==87 && value==0xdeadbeefUL);
++    CHECK(HostInvoke(arithmetic,0,0,NULL)==87);
++    CHECK(HostInvoke(arithmetic,0x80000000UL,0x12345678UL,&value)==0);
++    CHECK(value==0x92345678UL);
++    probe.data=clobber_code;
++    CHECK(HostInvoke(probe.call,0x11223344UL,0xaabbccddUL,&value)==0);
++    CHECK(value==0xbb99ff99UL);
++    CHECK(HostInvoke(depth_limit,0,0,&value)==0 && value==16);
++    for(i=0;i<4;i++) CHECK(DosCreateThread(&tids[i],(PFNTHREAD)worker,i+1,0,32768)==0);
++    CHECK(HostInvoke(nested,0,4,&value)==0 && value==0x1004UL);
++    for(i=0;i<4;i++) {tid=tids[i];CHECK(DosWaitThread(&tid,DCWW_WAIT)==0 && done[i]==1);}
++    for(i=0;i<4;i++) CHECK(tibs[i+1]!=tibs[0]);
++    CHECK(DosCreateEventSem(NULL,&gate,0,FALSE)==0);
++    CHECK(DosCreateThread(&tid,(PFNTHREAD)poster,0,0,16384)==0);
++    CHECK(HostInvoke(waiting,20,22,&value)==0 && value==42);
++    CHECK(DosWaitThread(&tid,DCWW_WAIT)==0);
++    CHECK(DosCloseEventSem(gate)==0);
++    for(i=0;i<40;i++) {
++        exit_mark=0;
++        CHECK(DosCreateThread(&tid,(PFNTHREAD)exit_worker,0,0,16384)==0);
++        CHECK(DosWaitThread(&tid,DCWW_WAIT)==0 && exit_mark==1);
++    }
++    CHECK(HostInvoke(arithmetic,7,9,&value)==0 && value==28);
++    CHECK(fs_tib2()==tibs[0]);
++    printf("callback1 PASS\n");return 0;
++}
+--- a/callback1.def
++++ b/callback1.def
+@@ -0,0 +1,5 @@
++NAME CALLBACK1 WINDOWCOMPAT
++PROTMODE
++STACKSIZE 65536
++IMPORTS
++    _HostInvoke=WHPTEST.1
+--- a/callbackdll.c
++++ b/callbackdll.c
+@@ -0,0 +1,25 @@
++#define TEST_NAME "callbackdll"
++#include "cbtest.h"
++extern ULONG _cdecl CbDllAddress(void);
++extern ULONG _cdecl CbDllCount(void);
++static ULONG caller_tib;
++static ULONG _cdecl from_dll(ULONG a,ULONG b)
++{
++    CHECK(fs_tib2()==caller_tib);
++    CHECK(DosSleep(1)==0);
++    return a+b;
++}
++int main(void)
++{
++    ULONG result,i;
++    union { ULONG address; CALLBACK2 function; } target,back;
++    target.address=CbDllAddress();
++    back.function=from_dll;
++    caller_tib=fs_tib2();
++    for(i=0;i<10;i++) {
++        CHECK(HostInvoke(target.function,back.address,i,&result)==0);
++        CHECK(result==i+107 && fs_tib2()==caller_tib);
++    }
++    CHECK(CbDllCount()==10);
++    printf("callbackdll PASS\n");return 0;
++}
+--- a/callbackdll.def
++++ b/callbackdll.def
+@@ -0,0 +1,7 @@
++NAME CALLBACKDLL WINDOWCOMPAT
++PROTMODE
++STACKSIZE 65536
++IMPORTS
++    _HostInvoke=WHPTEST.1
++    _CbDllAddress=CBDLL.CbDllAddress
++    _CbDllCount=CBDLL.2
+--- a/cbdll.c
++++ b/cbdll.c
+@@ -0,0 +1,24 @@
++/* CRT-free guest DLL: a host-invoked DLL function calls DOSCALLS and then
++ * requests a nested host-to-guest callback into executable code. */
++typedef unsigned long ULONG;
++typedef ULONG (*CALLBACK2)(ULONG,ULONG);
++extern ULONG HostInvoke(CALLBACK2,ULONG,ULONG,ULONG *);
++extern ULONG DosSleep(ULONG);
++static ULONG count;
++ULONG CbDllInvoke(ULONG fn,ULONG arg)
++{
++    ULONG result;
++    union { ULONG address; CALLBACK2 function; } target;
++    target.address=fn;
++    ++count;
++    if(DosSleep(0)!=0) return 0xbad00001UL;
++    if(HostInvoke(target.function,arg,7,&result)!=0) return 0xbad00002UL;
++    return result+100;
++}
++ULONG CbDllCount(void) { return count; }
++
++ULONG CbDllAddress(void)
++{
++    union { ULONG address; CALLBACK2 function; } target;
++    target.function=CbDllInvoke;return target.address;
++}
+--- a/cbdll.def
++++ b/cbdll.def
+@@ -0,0 +1,10 @@
++LIBRARY CBDLL
++PROTMODE
++DATA MULTIPLE NONSHARED
++IMPORTS
++    _HostInvoke=WHPTEST.1
++    _DosSleep=DOSCALLS.229
++EXPORTS
++    CbDllInvoke=_CbDllInvoke @1
++    CbDllCount=_CbDllCount @2
++    CbDllAddress=_CbDllAddress @3
+--- a/cbtest.h
++++ b/cbtest.h
+@@ -0,0 +1,16 @@
++#define INCL_DOSPROCESS
++#define INCL_DOSSEMAPHORES
++#include <os2.h>
++#include <stdio.h>
++typedef ULONG (_cdecl *CALLBACK2)(ULONG,ULONG);
++/* Synthetic host-test API, explicitly imported through .DEF; not an OS/2 API. */
++extern ULONG _cdecl HostInvoke(CALLBACK2 fn,ULONG a,ULONG b,ULONG *result);
++static void fail(ULONG line)
++{ printf("%s FAIL line %lu\n",TEST_NAME,line);DosExit(EXIT_PROCESS,1); }
++#define CHECK(x) do { if(!(x)) fail((ULONG)__LINE__); } while(0)
++static unsigned char fs_code[]={0x8c,0xe0,0x8e,0xe0,0x64,0xa1,0x0c,0,0,0,0xc3};
++static ULONG fs_tib2(void)
++{
++    union { unsigned char *data;ULONG (_cdecl *call)(void); } u;
++    u.data=fs_code;return u.call();
++}
+--- a/run-callback.cmd
++++ b/run-callback.cmd
+@@ -0,0 +1,14 @@
++@echo off
++setlocal
++pushd "%~dp0"
++whp_os2_v2_hi.exe callback1.exe 2>callback1-trace.txt
++if errorlevel 1 goto failed
++whp_os2_v2_hi.exe callbackdll.exe 2>callbackdll-trace.txt
++if errorlevel 1 goto failed
++echo R9 callback suite PASS
++popd
++exit /b 0
++:failed
++echo FAIL - inspect callback1-trace.txt or callbackdll-trace.txt
++popd
++exit /b 1
+--- a/tests/run-sync-check.py
++++ b/tests/run-sync-check.py
+@@ -21,7 +21,7 @@
+     p=pathlib.Path(tmp)
+     (p/'defs.inc').write_text(macros+'\n'+structs+'\n'+(root/'v2_sync_types.h').read_text())
+     (p/'production.inc').write_text('\n'.join(map(func,helpers))+'\n'+
+-        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_sync.h','v2_queue.h'])+'\n'+
++        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_callback.h','v2_sync.h','v2_queue.h'])+'\n'+
+         '\n'.join(map(func,['create_guest_thread','schedule_next_thread','switch_after_hypercall'])))
+     subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',
+         '-g','-I'+tmp,str(root/'tests/sync-check.c'),'-o',str(p/'check')],check=True)
+--- a/tests/sync-check.c
++++ b/tests/sync-check.c
+@@ -71,6 +71,7 @@
+ static void reset(void)
+ {
+  uint8_t *ram=rt.ram;
++ clock_ms=100;
+  memset(&rt,0,sizeof(rt)); rt.ram=ram; memset(ram,0,RAM_SIZE);
+  rt.stub_next=GUEST_STUB_BASE;
+  rt.alloc_next=GUEST_ALLOC_BASE; rt.next_tid=2;rt.current_thread=0;
+@@ -83,6 +84,8 @@
+ int main(void)
+ {
+  uint32_t h,old,q,q2,ev,i,j,base,end,tid,deadline,token;
++ uint32_t args[2]={123,456};
++ WHV_REGISTER_VALUE original[THREAD_REG_COUNT];
+  DWORD ms;
+  rt.ram=calloc(1,RAM_SIZE);assert(rt.ram);reset();spawn();spawn();
+  h=hostcall_stub(&rt,HC_DOSCALLS,9);q=hostcall_stub(&rt,HC_QUECALLS,9);
+@@ -108,6 +111,52 @@
+  guest_put_u32(&rt,0x500,0xdeadbeef);
+  assert(get_info_blocks(&rt,0x500,0xfffffffe)==87);
+  assert(guest_u32(&rt,0x500)==0xdeadbeef);
++ reset();spawn();spawn();
++ /* Host -> guest callback continuations, two threads and nested returns. */
++ reset();spawn();
++ cpu[0].Reg64=0x11000;cpu[1].Reg64=0x27000;cpu[2].Reg64=0x602;
++ for(i=3;i<10;i++)cpu[i].Reg64=0xaa000000+i;
++ memcpy(original,cpu,sizeof(cpu));
++ assert(begin_guest_callback(&rt,0,args,2,0x600,0x11002)==87);
++ assert(!rt.threads[0].callbacks);
++ assert(begin_guest_callback(&rt,0x12000,args,2,0x600,0x11002)==0);
++ assert(cpu[0].Reg64==0x12000 && cpu[1].Reg64==0x26ff4);
++ assert(!(cpu[2].Reg64&0x400));
++ assert(guest_u32(&rt,0x26ff4)==GUEST_CALLBACK_RETURN_STUB);
++ assert(guest_u32(&rt,0x26ff8)==123 && guest_u32(&rt,0x26ffc)==456);
++ assert(guest_sleep(&rt,20)==0);park(0);select_thread(1);
++ assert(begin_guest_callback(&rt,0x13000,args,2,0x604,0x14002)==0);
++ assert(rt.threads[0].callback_depth==1 && rt.threads[1].callback_depth==1);
++ base=rt.threads[1].callbacks->entry_sp;guest_put_u32(&rt,base,0x87654321);
++ assert(return_guest_callback(&rt,base,GUEST_CALLBACK_RETURN_STUB+6)==0);
++ assert(guest_u32(&rt,0x604)==0x87654321);
++ clock_ms+=20;wake_expired_waiters(&rt);select_thread(0);
++ /* Simulate callback stack frames before it requests a nested callback. */
++ cpu[1].Reg64-=64;
++ assert(begin_guest_callback(&rt,0x15000,args,2,0x608,0x16002)==0);
++ base=rt.threads[0].callbacks->entry_sp;
++ assert(return_guest_callback(&rt,base,GUEST_CALLBACK_RETURN_STUB)==87);
++ assert(rt.threads[0].callback_depth==2);
++ guest_put_u32(&rt,base,0x12345678);
++ assert(return_guest_callback(&rt,base,GUEST_CALLBACK_RETURN_STUB+6)==0);
++ assert(cpu[0].Reg64==0x16002 && rt.threads[0].callback_depth==1);
++ base=rt.threads[0].callbacks->entry_sp;guest_put_u32(&rt,base,0xfedcba98);
++ /* Callback clobbers integer and segment registers: continuation restores all. */
++ memset(cpu,0x55,sizeof(cpu));
++ assert(return_guest_callback(&rt,base,GUEST_CALLBACK_RETURN_STUB+6)==0);
++ original[0].Reg64=0x11002;original[3].Reg64=0;
++ assert(memcmp(cpu,original,sizeof(cpu))==0);
++ assert(guest_u32(&rt,0x600)==0xfedcba98 && !rt.threads[0].callbacks);
++ assert(return_guest_callback(&rt,base,GUEST_CALLBACK_RETURN_STUB+6)==87);
++ for(i=0;i<16;i++)assert(begin_guest_callback(&rt,0x12000,args,2,0x600,0x11002)==0);
++ assert(begin_guest_callback(&rt,0x12000,args,2,0x600,0x11002)==8);
++ cancel_guest_callbacks(&rt.threads[0]);assert(!rt.threads[0].callback_depth);
++ cpu[1].Reg64=rt.threads[0].stack_base+12;
++ assert(begin_guest_callback(&rt,0x12000,args,2,0x600,0x11002)==87);
++ reset();spawn();select_thread(1);
++ assert(begin_guest_callback(&rt,0x12000,args,2,0x600,0x11002)==0);
++ finish_guest_thread(&rt);assert(!rt.threads[1].callbacks && rt.threads[1].callback_depth==0);
++ select_thread(0);spawn();assert(!rt.threads[1].callbacks);
+  reset();spawn();spawn();
+  /* Sleep(0) rotates; all-blocked positive sleep advances only to deadline. */
+  assert(guest_sleep(&rt,0)==0);assert(switch_after_hypercall(&rt)==0);assert(rt.current_thread==1);
+@@ -221,5 +270,5 @@
+  assert(rt.threads[0].state==THREAD_RUNNABLE && rt.threads[1].state==THREAD_FREE);
+  select_thread(0);assert(guest_wait_thread(&rt,0x500,1)==0);
+  finish_guest_thread(&rt);assert(rt.process_exited && rt.process_rc==0);
+- free(rt.ram);puts("sync-check PASS: sleep deadlines, mutexes, queues, 5000 recycled threads");return 0;
+-}
++ free(rt.ram);puts("sync-check PASS: callback continuations + R8 scheduler/queue/mutex/recycling + R7 info");return 0;
++}
+--- a/v2_callback.h
++++ b/v2_callback.h
+@@ -0,0 +1,69 @@
++/* Same-thread guest calls use heap-backed continuations, not recursive host
++ * run loops. The scheduler may switch threads with any continuation pending.
++ * Caller-cleanup 32-bit stack arguments, integer return; no FPU state yet. */
++static void cancel_guest_callbacks(struct GuestThread *t)
++{
++    while (t->callbacks) {
++        struct GuestCallback *f=t->callbacks;
++        t->callbacks=f->previous;
++        free(f);
++    }
++    t->callback_depth=0;
++}
++
++static uint32_t begin_guest_callback(struct Runtime *rt, uint32_t entry,
++            const uint32_t *args, uint32_t argc, uint32_t result_out,
++            uint32_t resume_rip)
++{
++    struct GuestThread *t=current_guest_thread(rt);
++    struct GuestCallback *f;
++    WHV_REGISTER_VALUE regs[THREAD_REG_COUNT];
++    uint32_t sp,bytes,i;
++    HRESULT hr;
++    if (!t || t->state!=THREAD_RUNNING || !entry || !guest_range(entry,1) ||
++        argc>8u || !result_out || !guest_range(result_out,4))
++        return OS2_ERROR_INVALID_PARAMETER;
++    if (t->callback_depth>=16u) return OS2_ERROR_NOT_ENOUGH_MEMORY;
++    hr=WHvGetVirtualProcessorRegisters(rt->partition,0,thread_reg_names,THREAD_REG_COUNT,regs);
++    if (FAILED(hr)) return OS2_ERROR_INVALID_FUNCTION;
++    sp=(uint32_t)regs[1].Reg64;
++    bytes=(argc+1u)*4u;
++    /* Four additional bytes are needed by PUSH EAX in the return sentinel. */
++    if (sp<t->stack_base || sp>t->stack_base+t->stack_size ||
++        sp-t->stack_base<bytes+4u || !guest_range(sp-bytes-4u,bytes+4u))
++        return OS2_ERROR_INVALID_PARAMETER;
++    f=(struct GuestCallback *)calloc(1,sizeof(*f));
++    if (!f) return OS2_ERROR_NOT_ENOUGH_MEMORY;
++    memcpy(f->caller,regs,sizeof(regs));
++    f->caller[0].Reg64=resume_rip;
++    f->result_out=result_out;
++    f->entry_sp=sp-bytes;
++    f->previous=t->callbacks;
++    guest_put_u32(rt,f->entry_sp,GUEST_CALLBACK_RETURN_STUB);
++    for (i=0;i<argc;++i) guest_put_u32(rt,f->entry_sp+4u+i*4u,args[i]);
++    regs[0].Reg64=entry; regs[1].Reg64=f->entry_sp;
++    /* Direction flag must be clear at a C ABI boundary; restored on return. */
++    regs[2].Reg64 &= ~0x400ULL;
++    hr=WHvSetVirtualProcessorRegisters(rt->partition,0,thread_reg_names,THREAD_REG_COUNT,regs);
++    if (FAILED(hr)) { free(f); return OS2_ERROR_INVALID_FUNCTION; }
++    t->callbacks=f; ++t->callback_depth;
++    return OS2_NO_ERROR;
++}
++
++static uint32_t return_guest_callback(struct Runtime *rt, uint32_t esp, uint32_t rip)
++{
++    struct GuestThread *t=current_guest_thread(rt);
++    struct GuestCallback *f=t ? t->callbacks : NULL;
++    uint32_t result;
++    HRESULT hr;
++    if (!f || rip!=GUEST_CALLBACK_RETURN_STUB+6u || esp!=f->entry_sp ||
++        !guest_range(esp,4)) return OS2_ERROR_INVALID_PARAMETER;
++    result=guest_u32(rt,esp); /* return sentinel preserved guest EAX */
++    f->caller[3].Reg64=OS2_NO_ERROR; /* fixture host API's return code */
++    hr=WHvSetVirtualProcessorRegisters(rt->partition,0,thread_reg_names,THREAD_REG_COUNT,f->caller);
++    if (FAILED(hr)) return OS2_ERROR_INVALID_FUNCTION;
++    guest_put_u32(rt,f->result_out,result);
++    t->callbacks=f->previous; --t->callback_depth;
++    free(f);
++    return OS2_NO_ERROR;
++}
+--- a/v2_sync.h
++++ b/v2_sync.h
+@@ -175,6 +175,7 @@
+     struct GuestThread *t = current_guest_thread(rt);
+     struct GuestAlloc *ga;
+     uint32_t i;
++    cancel_guest_callbacks(t);
+     mutex_owner_exit(rt, t->tid);
+     t->state = THREAD_DEAD;
+     wake_thread_waiters(rt, t->tid);
+--- a/whp_os2_v2_hi.c
++++ b/whp_os2_v2_hi.c
+@@ -71,6 +71,9 @@
+ #define HOSTCALL_PORT       0x00F0u
+ #define HC_DOSCALLS         0x01000000u
+ #define HC_QUECALLS         0x03000000u
++#define HC_WHPTEST          0x04000000u
++#define HC_RUNTIME_CALLBACK_RETURN 2u
++#define GUEST_CALLBACK_RETURN_STUB 0x000F7FE0u
+ #define HC_RUNTIME          0x02000000u
+ #define HC_RUNTIME_THREAD_RETURN 1u
+ #define GUEST_THREAD_EXIT_STUB  0x000F7FF0u
+@@ -235,6 +238,12 @@
+     THREAD_DEAD
+ };
+ 
++struct GuestCallback {
++    struct GuestCallback *previous;
++    WHV_REGISTER_VALUE caller[THREAD_REG_COUNT];
++    uint32_t result_out, entry_sp;
++};
++
+ struct GuestThread {
+     uint32_t tid;
+     enum GuestThreadState state;
+@@ -248,6 +257,8 @@
+     uint32_t queue_args[8];
+     int queue_peek;
+     int owns_stack;
++    struct GuestCallback *callbacks;
++    uint32_t callback_depth;
+     WHV_REGISTER_VALUE regs[THREAD_REG_COUNT];
+     int regs_valid;
+ };
+@@ -1333,6 +1344,8 @@
+         const char *mod = x->modules[x->imports[i].module].name;
+         if (_stricmp(mod, "DOSCALLS") == 0) {
+             addr = hostcall_stub(rt, HC_DOSCALLS, x->imports[i].ordinal);
++        } else if (_stricmp(mod, "WHPTEST") == 0) {
++            addr = hostcall_stub(rt, HC_WHPTEST, x->imports[i].ordinal);
+         } else if (_stricmp(mod, "QUECALLS") == 0) {
+             addr = hostcall_stub(rt, HC_QUECALLS, x->imports[i].ordinal);
+         } else {
+@@ -1855,9 +1868,14 @@
+     p[5] = 0xE7;
+     p[6] = (uint8_t)HOSTCALL_PORT;
+     p[7] = 0xF4; /* HLT if the host accidentally resumes this dead thread. */
++    p = rt->ram + GUEST_CALLBACK_RETURN_STUB;
++    p[0] = 0x50; /* push eax: preserve callback result before loading trap ID */
++    p[1] = 0xB8; wr32(p + 2, HC_RUNTIME | HC_RUNTIME_CALLBACK_RETURN);
++    p[6] = 0xE7; p[7] = (uint8_t)HOSTCALL_PORT; p[8] = 0xF4;
+ }
+ 
+ #include "v2_info.h"
++#include "v2_callback.h"
+ #include "v2_sync.h"
+ #include "v2_queue.h"
+ 
+@@ -2455,13 +2473,31 @@
+                 failed("get RSP", hr);
+                 return 1;
+             }
++            if (module == HC_RUNTIME && ordinal == HC_RUNTIME_CALLBACK_RETURN) {
++                rc = return_guest_callback(rt, (uint32_t)rsp, (uint32_t)ec.VpContext.Rip);
++                if (rc != 0) {
++                    fprintf(stderr,"v2: invalid callback return rc=%u\n",rc);
++                    dump_regs(rt,"callback return"); return 1;
++                }
++                continue; /* restored RIP is the suspended caller's continuation */
++            }
+             if (!guest_range((uint32_t)rsp, 20)) {
+                 dump_regs(rt, "hypercall with invalid guest ESP");
+                 return 1;
+             }
+ 
+             wake_expired_waiters(rt);
+-            if (module == HC_DOSCALLS) {
++            if (module == HC_WHPTEST) {
++                uint32_t args[2];
++                args[0]=guest_u32(rt,(uint32_t)rsp+8u);
++                args[1]=guest_u32(rt,(uint32_t)rsp+12u);
++                rc = ordinal == 1 ? begin_guest_callback(rt,
++                    guest_u32(rt,(uint32_t)rsp+4u),args,2,
++                    guest_u32(rt,(uint32_t)rsp+16u),
++                    (uint32_t)(ec.VpContext.Rip+ec.VpContext.InstructionLength)) :
++                    OS2_ERROR_INVALID_FUNCTION;
++                if (rc == 0) continue; /* enter callback; do not advance its RIP */
++            } else if (module == HC_DOSCALLS) {
+                 rc = dispatch_doscalls(rt, ordinal, (uint32_t)rsp);
+             } else if (module == HC_QUECALLS) {
+                 rc = dispatch_queue(rt, ordinal, (uint32_t)rsp);
+@@ -2577,7 +2613,7 @@
+         return 1;
+     }
+ 
+-    fprintf(stderr, "WHP OS/2 V2 R8 scheduling/mutexes/queues - LE/LX loader + threads + events + guest DLLs + file I/O\n");
++    fprintf(stderr, "WHP OS/2 V2 R9 host-to-guest callbacks - LE/LX loader + threads + events + guest DLLs + file I/O\n");
+     fprintf(stderr, "v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);
+@@ -2762,6 +2798,7 @@
+     goto cleanup;
+ 
+ cleanup:
++    for (i = 0; i < MAX_THREADS; ++i) cancel_guest_callbacks(&rt.threads[i]);
+     for (i = 0; i < MAX_SEARCHES; ++i)
+         if (rt.searches[i].active) FindClose(rt.searches[i].native);
+     for (i = 3; i < MAX_FILES; ++i) {

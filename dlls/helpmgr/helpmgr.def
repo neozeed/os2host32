@@ -1,0 +1,5 @@
+LIBRARY HELPMGR
+EXPORTS
+    WinCreateHelpInstance  @51 NONAME
+    WinDestroyHelpInstance @52 NONAME
+    WinAssociateHelpInstance @54 NONAME

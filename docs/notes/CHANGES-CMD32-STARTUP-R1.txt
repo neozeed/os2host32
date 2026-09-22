@@ -1,0 +1,50 @@
+CMD32 STARTUP R1 — post-M31G shell quality-of-life patch
+========================================================
+
+This is intentionally separate from the frozen M31G R19 PM milestone.
+
+Change
+------
+When CMD32OS2 starts interactively, it now checks for:
+
+    C:\OS2\ENV\STARTUP.CMD
+
+If the file exists, CMD32OS2 executes it through the existing batch engine
+before displaying the first prompt.  Ordinary SET commands therefore remain
+in the shell environment after STARTUP.CMD returns.  SETLOCAL/ENDLOCAL keeps
+its existing scoped behavior.
+
+If STARTUP.CMD does not exist, startup remains silent and the shell behaves as
+before.
+
+The hook is deliberately not run for the internal `-c` path.  Pipelines spawn
+CMD32OS2 -c workers, and rerunning STARTUP.CMD in those children would be both
+surprising and potentially recursive/expensive.
+
+Manual test
+-----------
+Create C:\OS2\ENV\STARTUP.CMD containing, for example:
+
+    @echo off
+    set FOO=FROM_STARTUP
+    set PATH=C:\OS2;C:\OS2\DLL;%PATH%
+
+Launch CMD32OS2 normally and then run:
+
+    set FOO
+
+Expected:
+
+    FOO=FROM_STARTUP
+
+Build
+-----
+Rebuild the OS/2 C/386 shell with:
+
+    build-os2-shell.cmd
+
+Regression
+----------
+
+    make cmd32-startup-check
+    make m31g-neko-r19-check

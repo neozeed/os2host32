@@ -1,0 +1,320 @@
+--- /tmp/m30h-clean/m30h/doscalls.c	2026-09-17 19:13:54.000000000 +0000
++++ doscalls.c	2026-09-17 19:20:27.998599770 +0000
+@@ -26,6 +26,7 @@
+ #include <stddef.h>
+ #include <string.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ 
+ #ifndef __cdecl
+ #define __cdecl
+@@ -122,6 +123,7 @@
+ #define O2_ERROR_TOO_MANY_OPEN_FILES 4UL
+ #define O2_ERROR_INVALID_HANDLE     6UL
+ #define O2_ERROR_INVALID_ACCESS    12UL
++#define O2_ERROR_NOT_ENOUGH_MEMORY  8UL
+ #define O2_ERROR_INVALID_PARAMETER 87UL
+ #define O2_ERROR_WAIT_NO_CHILDREN 128UL
+ #define O2_ERROR_CHILD_NOT_COMPLETE 129UL
+@@ -183,6 +185,18 @@
+ #define O2_PAG_FREE       0x00004000UL
+ #define O2_PAG_BASE       0x00010000UL
+ 
++/* OS/2 32-bit memory-suballocation flags.  EMX uses this family for its
++ * small-block heap.  INIT/GROW are the only flags which affect M30's
++ * external bookkeeping; sparse objects are already committed by our
++ * DosAllocMem and SERIALIZE is naturally process-local here. */
++#define O2_DOSSUB_INIT       0x00000001UL
++#define O2_DOSSUB_GROW       0x00000002UL
++#define O2_DOSSUB_SPARSE_OBJ 0x00000004UL
++#define O2_DOSSUB_SERIALIZE  0x00000008UL
++#define O2_SUBPOOL_HEADER    64UL
++#define O2_MAX_SUBPOOLS      32
++#define O2_MAX_SUBRANGES     256
++
+ /* OS/2 file attributes. */
+ #define O2_FILE_READONLY   0x0001UL
+ #define O2_FILE_HIDDEN     0x0002UL
+@@ -248,6 +262,28 @@
+ static CRITICAL_SECTION child_lock;
+ static int child_lock_ready;
+ 
++/* M30I: OS/2 DosSub* small-block pools.  The real kernel stores allocator
++ * bookkeeping in the first 64 bytes of the supplied object.  Keep metadata
++ * on the host so we do not expose host pointers to guest code, while
++ * preserving the observable OS/2 layout: first allocation begins at +64 and
++ * each requested block is rounded to an 8-byte boundary. */
++struct O2SubRange {
++    O2ULONG off;
++    O2ULONG len;
++    int is_free;
++};
++
++struct O2SubPool {
++    void *base;
++    O2ULONG size;
++    O2ULONG flags;
++    int in_use;
++    unsigned int nranges;
++    struct O2SubRange ranges[O2_MAX_SUBRANGES];
++};
++
++static struct O2SubPool o2_subpools[O2_MAX_SUBPOOLS];
++
+ /* Minimal 32-bit OS/2 TIB/PIB views for DosGetInfoBlocks.  The direct LX
+  * backend currently needs pib_pchenv; the remaining fields are populated
+  * conservatively so other simple clients can inspect them too. */
+@@ -3149,6 +3185,240 @@
+     return O2_NO_ERROR;
+ }
+ 
++static O2ULONG o2_sub_align8(O2ULONG cb)
++{
++    if (cb > 0xfffffff8UL)
++        return 0;
++    return (cb + 7UL) & ~7UL;
++}
++
++static struct O2SubPool *o2_find_subpool(void *base)
++{
++    unsigned int i;
++    for (i = 0; i < O2_MAX_SUBPOOLS; ++i) {
++        if (o2_subpools[i].in_use && o2_subpools[i].base == base)
++            return &o2_subpools[i];
++    }
++    return NULL;
++}
++
++static struct O2SubPool *o2_new_subpool(void *base)
++{
++    unsigned int i;
++    for (i = 0; i < O2_MAX_SUBPOOLS; ++i) {
++        if (!o2_subpools[i].in_use) {
++            memset(&o2_subpools[i], 0, sizeof(o2_subpools[i]));
++            o2_subpools[i].in_use = 1;
++            o2_subpools[i].base = base;
++            return &o2_subpools[i];
++        }
++    }
++    return NULL;
++}
++
++static void o2_sub_coalesce(struct O2SubPool *pool)
++{
++    unsigned int i;
++    if (!pool)
++        return;
++    i = 0;
++    while (i + 1U < pool->nranges) {
++        struct O2SubRange *a;
++        struct O2SubRange *b;
++        a = &pool->ranges[i];
++        b = &pool->ranges[i + 1U];
++        if (a->is_free && b->is_free && a->off + a->len == b->off) {
++            unsigned int j;
++            a->len += b->len;
++            for (j = i + 1U; j + 1U < pool->nranges; ++j)
++                pool->ranges[j] = pool->ranges[j + 1U];
++            --pool->nranges;
++        } else {
++            ++i;
++        }
++    }
++}
++
++/* 344 - DosSubSetMem. */
++O2APIRET __cdecl DosSubSetMem(void *base, O2ULONG flags, O2ULONG size)
++{
++    struct O2SubPool *pool;
++    MEMORY_BASIC_INFORMATION mbi;
++    O2ULONG usable;
++
++    if (!base || size < O2_SUBPOOL_HEADER)
++        return O2_ERROR_INVALID_PARAMETER;
++
++    /* Do not let a malformed guest pool description walk beyond its mapped
++     * memory object.  VirtualQuery is also useful for LX/static objects. */
++    memset(&mbi, 0, sizeof(mbi));
++    if (VirtualQuery(base, &mbi, sizeof(mbi)) == 0)
++        return O2_ERROR_INVALID_PARAMETER;
++    if ((unsigned char *)base < (unsigned char *)mbi.BaseAddress ||
++        (SIZE_T)size > mbi.RegionSize -
++                         (SIZE_T)((unsigned char *)base - (unsigned char *)mbi.BaseAddress))
++        return O2_ERROR_INVALID_PARAMETER;
++
++    pool = o2_find_subpool(base);
++    if (!pool) {
++        /* DOSSUB_INIT is required by real OS/2 for a private new pool.  Be a
++         * little tolerant of vintage runtimes that carry extra flag bits, but
++         * still reject an explicit GROW of a non-existent pool. */
++        if ((flags & O2_DOSSUB_GROW) && !(flags & O2_DOSSUB_INIT))
++            return O2_ERROR_INVALID_PARAMETER;
++        pool = o2_new_subpool(base);
++        if (!pool)
++            return O2_ERROR_NOT_ENOUGH_MEMORY;
++        pool->size = size;
++        pool->flags = flags;
++        usable = o2_sub_align8(size - O2_SUBPOOL_HEADER);
++        if (usable > size - O2_SUBPOOL_HEADER)
++            usable -= 8UL;
++        pool->nranges = 1;
++        pool->ranges[0].off = O2_SUBPOOL_HEADER;
++        pool->ranges[0].len = usable;
++        pool->ranges[0].is_free = 1;
++        /* The first 64 bytes are reserved by OS/2's pool manager.  Zeroing
++         * them is deterministic and matches a freshly initialized pool well
++         * enough for clients which only use the documented DosSub* API. */
++        memset(base, 0, (size_t)O2_SUBPOOL_HEADER);
++    } else {
++        if (size < pool->size)
++            return O2_ERROR_INVALID_PARAMETER;
++        if (size > pool->size) {
++            O2ULONG old_aligned;
++            O2ULONG new_aligned;
++            O2ULONG extra;
++            unsigned int n;
++            old_aligned = pool->size & ~7UL;
++            new_aligned = size & ~7UL;
++            extra = new_aligned > old_aligned ? new_aligned - old_aligned : 0;
++            if (extra != 0) {
++                n = pool->nranges;
++                if (n != 0 && pool->ranges[n - 1U].is_free &&
++                    pool->ranges[n - 1U].off + pool->ranges[n - 1U].len == old_aligned) {
++                    pool->ranges[n - 1U].len += extra;
++                } else {
++                    if (n >= O2_MAX_SUBRANGES)
++                        return O2_ERROR_NOT_ENOUGH_MEMORY;
++                    pool->ranges[n].off = old_aligned;
++                    pool->ranges[n].len = extra;
++                    pool->ranges[n].is_free = 1;
++                    ++pool->nranges;
++                }
++            }
++            pool->size = size;
++        }
++        pool->flags |= flags;
++    }
++
++    if (emx_self_trace_enabled()) {
++        fprintf(stderr,
++                "M30I SUBMEM: DosSubSetMem base=%p flags=%08lX size=%lu ranges=%u\n",
++                base, (unsigned long)flags, (unsigned long)size,
++                pool->nranges);
++    }
++    return O2_NO_ERROR;
++}
++
++/* 345 - DosSubAllocMem. */
++O2APIRET __cdecl DosSubAllocMem(void *base, void **ppBlock, O2ULONG size)
++{
++    struct O2SubPool *pool;
++    O2ULONG need;
++    unsigned int i;
++
++    if (!base || !ppBlock || size == 0)
++        return O2_ERROR_INVALID_PARAMETER;
++    pool = o2_find_subpool(base);
++    if (!pool)
++        return O2_ERROR_INVALID_PARAMETER;
++    need = o2_sub_align8(size);
++    if (need == 0)
++        return O2_ERROR_NOT_ENOUGH_MEMORY;
++
++    for (i = 0; i < pool->nranges; ++i) {
++        struct O2SubRange *r;
++        r = &pool->ranges[i];
++        if (!r->is_free || r->len < need)
++            continue;
++        if (r->len > need) {
++            unsigned int j;
++            if (pool->nranges >= O2_MAX_SUBRANGES)
++                return O2_ERROR_NOT_ENOUGH_MEMORY;
++            for (j = pool->nranges; j > i + 1U; --j)
++                pool->ranges[j] = pool->ranges[j - 1U];
++            pool->ranges[i + 1U].off = r->off + need;
++            pool->ranges[i + 1U].len = r->len - need;
++            pool->ranges[i + 1U].is_free = 1;
++            ++pool->nranges;
++            r = &pool->ranges[i];
++            r->len = need;
++        }
++        r->is_free = 0;
++        *ppBlock = (void *)((unsigned char *)base + r->off);
++        if (emx_self_trace_enabled()) {
++            fprintf(stderr,
++                    "M30I SUBMEM: DosSubAllocMem base=%p ask=%lu rounded=%lu -> %p\n",
++                    base, (unsigned long)size, (unsigned long)need, *ppBlock);
++        }
++        return O2_NO_ERROR;
++    }
++    *ppBlock = NULL;
++    return O2_ERROR_NOT_ENOUGH_MEMORY;
++}
++
++/* 346 - DosSubFreeMem. */
++O2APIRET __cdecl DosSubFreeMem(void *base, void *block, O2ULONG size)
++{
++    struct O2SubPool *pool;
++    O2ULONG off;
++    O2ULONG cb;
++    unsigned int i;
++
++    if (!base || !block || size == 0)
++        return O2_ERROR_INVALID_PARAMETER;
++    pool = o2_find_subpool(base);
++    if (!pool || (unsigned char *)block < (unsigned char *)base)
++        return O2_ERROR_INVALID_PARAMETER;
++    off = (O2ULONG)((unsigned char *)block - (unsigned char *)base);
++    cb = o2_sub_align8(size);
++    for (i = 0; i < pool->nranges; ++i) {
++        struct O2SubRange *r;
++        r = &pool->ranges[i];
++        if (r->off == off && !r->is_free) {
++            /* OS/2 callers supply the original allocation size.  Accept an
++             * equivalent 8-byte-rounded size, reject obviously wrong frees. */
++            if (cb == 0 || cb != r->len)
++                return O2_ERROR_INVALID_PARAMETER;
++            r->is_free = 1;
++            o2_sub_coalesce(pool);
++            if (emx_self_trace_enabled()) {
++                fprintf(stderr,
++                        "M30I SUBMEM: DosSubFreeMem base=%p block=%p size=%lu\n",
++                        base, block, (unsigned long)size);
++            }
++            return O2_NO_ERROR;
++        }
++    }
++    return O2_ERROR_INVALID_PARAMETER;
++}
++
++/* 347 - DosSubUnsetMem. */
++O2APIRET __cdecl DosSubUnsetMem(void *base)
++{
++    struct O2SubPool *pool;
++    if (!base)
++        return O2_ERROR_INVALID_PARAMETER;
++    pool = o2_find_subpool(base);
++    if (!pool)
++        return O2_ERROR_INVALID_PARAMETER;
++    if (emx_self_trace_enabled())
++        fprintf(stderr, "M30I SUBMEM: DosSubUnsetMem base=%p\n", base);
++    memset(pool, 0, sizeof(*pool));
++    return O2_NO_ERROR;
++}
++
+ /* 299: pre-release C/386 ABI has a fourth reserved argument. */
+ O2APIRET __cdecl DosAllocMem(void **ppBase, O2ULONG size,
+                              O2ULONG flags, O2ULONG reserved)
+--- /tmp/m30h-clean/m30h/doscalls.def	2026-09-17 19:13:28.000000000 +0000
++++ doscalls.def	2026-09-17 19:20:27.998765871 +0000
+@@ -56,6 +56,10 @@
+     DosCloseMutexSem   @333 NONAME
+     DosRequestMutexSem @334 NONAME
+     DosReleaseMutexSem @335 NONAME
++    DosSubSetMem       @344 NONAME
++    DosSubAllocMem     @345 NONAME
++    DosSubFreeMem      @346 NONAME
++    DosSubUnsetMem     @347 NONAME
+     DosQuerySysInfo    @348 NONAME
+     DosSetExceptionHandler @354 NONAME
+     DosUnsetExceptionHandler @355 NONAME

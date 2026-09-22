@@ -1,0 +1,22 @@
+M29B - Microsoft C/386 _far16 VIO bridge
+
+- Recognizes the mixed 32/16-bit LE migration-thunk shape emitted by
+  Microsoft C/386 6.00.081 for a _far16 _pascal call to VIOCALLS.19.
+- Keeps the 16-bit thunk object mapped and parsed as metadata but never enters
+  it on Win32/WOW64.
+- Validates both the LE fixup graph and the compiler-generated transition
+  helper byte pattern before enabling execution.
+- Patches the 32-bit transition helper entry to a generated native x86 bridge.
+- The native bridge decodes the C/386 far-Pascal argument frame and calls the
+  existing 32-bit VIOCALLS.dll ordinal 19 implementation.
+- Adds DOSCALLS.425 DosFlatToSel as an EAX-preserving virtual far-pointer
+  tokenizer.  For M29B the token is the original flat pointer itself because
+  no selector is ever loaded into a segment register.
+- Extends mixed-image fixup application to apply normal OFF32/REL32 records
+  while deliberately skipping the four validated selector/far-pointer records
+  belonging to the intercepted migration thunk.
+- Adds a recreatable C/386 probe, DEF file, build script, and the exact uploaded
+  9,227-byte far3.exe specimen as fixtures/c386-far16-vio.exe.
+
+Scope intentionally remains narrow: VIOCALLS.19 only.  Unknown mixed-mode
+images continue to fail closed instead of attempting 16-bit execution.

@@ -1,0 +1,8 @@
+Milestone 28A3
+--------------
+* Corrects the M28A2 assumption that /Gd would make the current C/386/header
+  combination bind ordinary CRT helpers to the OS/2 cdecl LIBC names.
+* Keeps real OS/2 API declarations from os2.h and imports from OS2386.LIB.
+* Replaces strlen/strcpy/memcpy/memset only in the direct OS/2 backend smoke
+  path with private C89 helpers, isolating DOSCALLS ABI testing from CRT ABI.
+* No change to the working native M28A DOSCALLS boundary or M27 behavior.

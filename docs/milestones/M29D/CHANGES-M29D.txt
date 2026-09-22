@@ -1,0 +1,15 @@
+M29D - Microsoft C/386 far16 KbdStringIn bridge
+
+* Adds KBDCALLS.9 (KbdStringIn) to the proven C/386 migration-thunk set.
+* Exercises a new 12-byte far-Pascal argument frame:
+      (far16 char buffer, far16 STRINGINBUF pointer, USHORT wait, USHORT hkbd)
+  so one call now carries two independent far16 pointer tokens.
+* Adds a dedicated native x86 bridge stub for that frame.  It translates the
+  Pascal layout into ordinary Win32 cdecl arguments and returns with RET 12.
+* Adds host KbdStringIn support with the historical 4-byte STRINGINBUF layout
+  (USHORT cb, USHORT cchIn), line input, Enter handling and Backspace editing.
+* KBDCALLS.dll now exports KbdStringIn at historical ordinal 9.
+* Adds c386-far16-kbdstring-test.c/.def, a LINK386 response-file build script,
+  and examples/m29d-far16-kbdstring-test.cmd.
+
+M29B VioWrtTTY and M29C KbdCharIn bridging remain supported unchanged.

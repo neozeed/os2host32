@@ -1,0 +1,10 @@
+M29J
+====
+
+* Added build-os2-shell.cmd to compile/link the existing reconstructed
+  cmd32os2.c command processor with Microsoft C/386 and cmdos2_os2.c.
+* Added cmd32os2_os2.def with the seven far16 VIO/KBD imports already proven
+  by M29H/M29I plus DosFlatToSel.
+* No loader, DOSCALLS personality, VIO/KBD bridge, or backend ABI changes.
+* M29I remains the frozen backend regression baseline; M29J intentionally lets
+  the full command processor reveal the next genuine compatibility boundary.

@@ -1,0 +1,16 @@
+M29O1 - nested FOR integration fix + self-validating batch torture
+
+* fix parser environment expansion so active FOR variables survive punctuation
+  and nested reparsing (the M29O %%i-%%j case no longer collapses to literal j)
+* add portable parser regression: make m29o1-parser-check
+* make examples/m29o-batch-torture.cmd runnable from either the tree root or
+  after cd examples
+* make child ERRORLEVEL and direct batch-chain helpers cwd-independent
+* consume the CALL batch-launch marker only for the immediate called file, so
+  a direct child.cmd inside CALL parent.cmd chains instead of inheriting CALL
+* make the torture script self-validating; a broken child/FOR/chain path now
+  prints M29O_BATCH_TORTURE_FAILED instead of an unconditional PASS marker
+* validate all four nested FOR combinations through CALL :for_check
+* update startup and VER strings to M29O1
+* keep Ctrl+C, N2b.2 DLL lifecycle, SESMGR, redirection, PATH/LIBPATH and
+  mixed-mode VIO/KBD bridges frozen

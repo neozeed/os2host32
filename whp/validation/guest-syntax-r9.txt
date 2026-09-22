@@ -1,0 +1,1 @@
+PASS: callback1.c callbackdll.c cbdll.c; GCC -m32 -std=c89 -Wall -Wextra -Werror against supplied Beta2 SDK, with legacy keywords removed and existing header comment/pragma warnings suppressed. No Microsoft compiler/linker or WHP execution available here.

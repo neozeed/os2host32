@@ -1,0 +1,10 @@
+LIBRARY CBDLL
+PROTMODE
+DATA MULTIPLE NONSHARED
+IMPORTS
+    _HostInvoke=WHPTEST.1
+    _DosSleep=DOSCALLS.229
+EXPORTS
+    CbDllInvoke=_CbDllInvoke @1
+    CbDllCount=_CbDllCount @2
+    CbDllAddress=_CbDllAddress @3

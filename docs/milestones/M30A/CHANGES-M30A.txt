@@ -1,0 +1,15 @@
+M30A — EMX bridge checkpoint
+
+- Recognize the exact supplied EMX LX mixed 16/32-bit profile.
+- Bypass EMX's 147-byte 16-bit transition object with native 32-bit helpers.
+- Redirect EMX_THUNK1 to a generated Win32 dispatcher.
+- Validate nine EMX far16 wrapper ABI layouts.
+- Treat flat pointers as transition tokens for the first EMX bridge.
+- Virtualize startup FS/TIB main-thread reads as TID 1.
+- Add trap-on-use unresolved-import diagnostics for EMX bring-up.
+- Add DosExitList, DosQueryMem and DosQueryModuleName startup support.
+- Add KbdGetStatus, KbdSetStatus and KbdPeek compatibility calls.
+- Add synthetic main-image HMTE 1 and module-name bridge support.
+
+Checkpoint only: scanner acceptance is proven; Win32 Dhrystone execution is
+not yet claimed.

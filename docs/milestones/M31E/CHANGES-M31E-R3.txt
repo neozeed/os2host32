@@ -1,0 +1,3 @@
+M31E R3: add the prerelease INITINSTANCE-only guest-DLL entry ABI used by the
+1989 OPENDLG SDK sample, while retaining the M29N2 DllInitTerm ABI for modules
+that carry a TERM lifecycle flag.  Honor the LE TERM flag at shutdown.

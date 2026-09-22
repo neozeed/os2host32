@@ -1,0 +1,68 @@
+Supplied files inspected for M30C
+================================
+
+hi.o
+----
+file(1): i386 OMAGIC / impure a.out
+size       203 (0xCB)
+a_info     0x00640107  (MID i386=100, OMAGIC=0x0107)
+a_text     0x0000001C
+a_data     0
+a_bss      0
+a_syms     0x0000003C
+a_entry    0
+a_trsize   0x00000018 = 3 relocation records
+a_drsize   0
+
+The three text relocations are:
+  +0x12  external PC-relative _printf
+  +0x0D  internal absolute TEXT
+  +0x08  external PC-relative ___main
+
+hi
+--
+file(1): i386 ZMAGIC / demand-paged a.out
+size       60635 (0xECDB)
+a_info     0x0064010B  (MID i386=100, ZMAGIC=0x010B)
+a_text     0x00009000
+a_data     0x00001000
+a_bss      0x00001160
+a_syms     0x00001980
+a_entry    0x00010000
+a_trsize   0x000012A8 = 597 text relocation records
+a_drsize   0x000000B8 = 23 data relocation records
+
+First bytes of linked TEXT:
+  68 00 00 02 00 e8 7a 80 00 00 ...
+  ^  ^^^^^^^^^^^
+  |  immediate 0x00020000
+  push imm32
+
+First relocation:
+  r_address   = 1
+  section     = DATA (6)
+  pcrel       = 0
+  length      = 2 (32-bit)
+  external    = 0
+
+Therefore the linker explicitly retained the information needed to transform
+that immediate when the program is moved.
+
+Relocation classes in linked hi:
+  applied by M30C (absolute internal TEXT/DATA/BSS) : 372
+  internal PC-relative (no rebase needed)           : 245
+  external (left to emxbind LX import fixups)        : 1
+  absolute constant                                  : 2
+  unknown                                              : 0
+
+Bound-LX relationship observed from the known-good OS/2 hi.exe trace:
+  a.out text            0x9000 == LX object 1 size 0x9000
+  a.out data+bss        0x2160 == LX object 2 size 0x2160
+  a.out entry           0x10000 == LX object 1 preferred base 0x10000
+  a.out DATA addresses             LX object 2 preferred base 0x20000
+
+The same pattern is visible in the supplied bound dhyrstone.exe:
+  embedded a.out header at file offset 0x0C00
+  a_text 0xA000 == LX object 1 size 0xA000
+  a_data 0x2000 + a_bss 0x3438 == LX object 2 size 0x5438
+  emxbind has cleared a_trsize/a_drsize in the embedded/bound header.

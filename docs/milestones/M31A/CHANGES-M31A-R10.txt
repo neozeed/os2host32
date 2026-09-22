@@ -1,0 +1,10 @@
+M31A R10 - WMCHAR keypress record-corruption diagnostics
+
+- No PM semantics changed.
+- Expanded exception tracing with EFLAGS, ECX/EDX/ESI/EDI.
+- Exception path dumps DrawMessage arguments, the pointed-to CHMSG record,
+  and its local 16-byte formatting buffer when readable.
+- WinDrawText trace now includes text pointer and first four bytes.
+- Loader trace covers all WMCHAR gacm[] OFF32 relocations in addition to the
+  indexed virtual-key table relocation.
+- check_m31a_wmchar_fixups.py now locks in the gacm relocation sites.

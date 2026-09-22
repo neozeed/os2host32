@@ -1,0 +1,11 @@
+M30A2 — EMX first real execution test
+
+- Fix the M30A1 diagnostic driver: M30A1 accidentally invoked
+    os2host32.exe dhyrstone.exe
+  which is the harness's --info shorthand and therefore never executed Dhrystone.
+- M30A2 explicitly invokes:
+    os2host32.exe --run dhyrstone.exe
+- Enable OS2_TRACE_MODULES=1 for the first execution so guest emx.dll loading,
+  import resolution, initialization, and the first trap/bridge failure are visible.
+- No bridge semantics changed from M30A1; this checkpoint exists to obtain the
+  first genuine runtime result from the validated EMX bridge.

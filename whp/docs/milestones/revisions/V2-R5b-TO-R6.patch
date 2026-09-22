@@ -1,0 +1,89 @@
+--- a/whp_os2_v2_hi.c
++++ b/whp_os2_v2_hi.c
+@@ -77,6 +77,7 @@
+ #define MAX_NAME_IMPORTS    512u
+ #define MAX_MODULES         32u
+ #define MAX_GUEST_MODULES   16u
++#define MAX_SEARCHES        32u
+ #define MAX_FILES           128u
+ #define MAX_ALLOCS          256u
+ #define MAX_THREADS         32u
+@@ -263,12 +264,21 @@
+     uint32_t address;
+ };
+ 
++struct GuestSearch {
++    int active, pending, ended;
++    uint32_t id, filter;
++    HANDLE native;
++    WIN32_FIND_DATAA data;
++};
++
+ struct Runtime {
+     WHV_PARTITION_HANDLE partition;
+     uint8_t *ram;
+     struct GuestAlloc allocs[MAX_ALLOCS];
+     HANDLE files[MAX_FILES];
+     int std_closed[3];
++    struct GuestSearch searches[MAX_SEARCHES];
++    uint32_t next_search_id;
+     uint32_t alloc_next;
+ 
+     struct GuestThread threads[MAX_THREADS];
+@@ -1560,6 +1570,7 @@
+ }
+ 
+ #include "v2_fileio.h"
++#include "v2_find.h"
+ 
+ static uint32_t alloc_guest(struct Runtime *rt, uint32_t size)
+ {
+@@ -1941,6 +1952,9 @@
+     case 273: return "DosOpen";
+     case 279: return "DosQueryFileInfo";
+     case 281: return "DosRead";
++    case 263: return "DosFindClose";
++    case 264: return "DosFindFirst";
++    case 265: return "DosFindNext";
+     case 224: return "DosQueryHType";
+     case 234: return "DosExit";
+     case 256: return "DosSetFilePtr";
+@@ -1976,6 +1990,12 @@
+     a5 = guest_range(esp + 20u, 4) ? guest_u32(rt, esp + 20u) : 0u;
+ 
+     switch (ordinal) {
++    case 263: case 264: case 265:
++    {
++        uint32_t find_rc = dispatch_find(rt, ordinal, esp);
++        fprintf(stderr, "v2: DOSCALLS.%u -> rc=%u\n", ordinal, find_rc);
++        return find_rc;
++    }
+     case 223: case 230: case 257: case 259:
+     case 272: case 273: case 279: case 281:
+     {
+@@ -2534,6 +2554,7 @@
+     rt.stub_next = GUEST_STUB_BASE;
+     rt.next_module_handle = 0x00010000u;
+     rt.next_tid = 2;
++    rt.next_search_id = 0x10000u;
+     rt.current_thread = -1;
+ 
+     x.file = load_file(argv[1], &x.file_size);
+@@ -2555,7 +2576,7 @@
+         return 1;
+     }
+ 
+-    fprintf(stderr, "WHP OS/2 V2 R5b ABI8 - LE/LX loader + threads + events + guest DLLs + file I/O\n");
++    fprintf(stderr, "WHP OS/2 V2 R6 directory search - LE/LX loader + threads + events + guest DLLs + file I/O\n");
+     fprintf(stderr, "v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);
+@@ -2732,6 +2753,8 @@
+     goto cleanup;
+ 
+ cleanup:
++    for (i = 0; i < MAX_SEARCHES; ++i)
++        if (rt.searches[i].active) FindClose(rt.searches[i].native);
+     for (i = 3; i < MAX_FILES; ++i) {
+         if (rt.files[i]) CloseHandle(rt.files[i]);
+     }

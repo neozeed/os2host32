@@ -1,0 +1,11 @@
+Milestone 25
+============
+
+* Execute cparse redirection nodes for <, > and >>.
+* Redirect both CRT descriptors and Win32 standard handles.
+* Propagate stdin/stdout/stderr through DOSCALLS.283 CreateProcess.
+* Execute pipeline nodes using concurrent CMD32 child processes connected by
+  an inheritable anonymous pipe.
+* Pipeline status is the rightmost command's result.
+* Preserve M23/M24 parser, conditional, batch and DosExecPgm behavior.
+* Add upper-test.c and emit-test.c as C/386 LX pipe regressions.

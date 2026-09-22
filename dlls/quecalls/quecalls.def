@@ -1,0 +1,6 @@
+LIBRARY QUECALLS
+EXPORTS
+    DosReadQueue       @9 NONAME
+    DosWriteQueue      @14 NONAME
+    DosOpenQueue       @15 NONAME
+    DosCreateQueue     @16 NONAME

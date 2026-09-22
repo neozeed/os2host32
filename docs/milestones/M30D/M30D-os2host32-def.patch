@@ -1,0 +1,7 @@
+--- /mnt/data/m30c/os2host32.def	2026-09-17 12:42:15.000000000 +0000
++++ /mnt/data/m30d/os2host32.def	2026-09-17 17:51:50.385841300 +0000
+@@ -5,3 +5,4 @@
+     OS2HostModuleQueryProc
+     OS2HostModuleFree
+     OS2HostModuleTerminateAll
++    OS2HostQueryMainStack

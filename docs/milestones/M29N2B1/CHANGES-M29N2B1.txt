@@ -1,0 +1,15 @@
+M29N2b.1 - runtime OS/2 module-manager APIs
+
+* DOSCALLS.318 DosLoadModule now enters the same guest module registry used by
+  static LE/LX imports.
+* DOSCALLS.319 DosQueryModuleHandle returns a stable process-local guest HMODULE.
+* DOSCALLS.321 DosQueryProcAddr resolves guest exports by name or ordinal.
+* DOSCALLS.322 DosFreeModule releases references and unloads a module at zero.
+* Guest dependency references are counted: unloading M29N2A releases its
+  recursively loaded M29N2B dependency.
+* OS2HOST32 exports a narrow private PE bridge so DOSCALLS.dll and the loader
+  share one module graph instead of maintaining competing registries.
+* Relocated DLL arenas can now be released cleanly on final DosFreeModule.
+* Added m29n2b1-dynamic.exe, which has no static M29N2A import and discovers,
+  calls, queries, double-loads, and unloads the A -> B chain entirely at runtime.
+* DLL initialization/termination remains intentionally deferred to M29N2b.2.

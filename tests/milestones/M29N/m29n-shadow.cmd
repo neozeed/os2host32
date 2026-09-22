@@ -1,0 +1,1 @@
+@echo M29N_CURRENT_DIR_CMD_OK

@@ -1,0 +1,11 @@
+Milestone 22 - first recovered CMD built-in boundary
+
+* Preserved the working M21 external LX execution path through DOSCALLS.283.
+* Replaced ad-hoc built-in checks with a recovered NT CMD-style dispatch table.
+* Added eDirectory/cinfo.c scaffold: DIR no longer falls through as an external EXE.
+* Added eType/eVersion (cinfo.c).
+* Added eChdir/eMkdir/eRmdir (cpath.c).
+* Added eSet (cenv.c), eEcho/ePause (cbatch.c), eCls/eExit (cother.c), ParseRem.
+* Added historical built-in name reservation for not-yet-transplanted commands.
+* Added analysis/m22_builtin_dispatch.tsv tying handlers to OS/2 and NT evidence.
+* Kept cmd32os2.c ANSI-C89-oriented and strict-C89 syntax clean.

@@ -1,0 +1,15 @@
+Milestone 29F
+=============
+
+* Generalized the C/386 far16 loader exception from one bridge to up to 32
+  migration thunks in one LE/LX image.
+* Pairs each 14-byte 16-bit thunk fragment with its 32-bit helper using the LE
+  PTR16:16, PTR16:32, SEL16 and SEL16+ALIAS fixups.
+* Supports LINK386 source-list compression for repeated selector fixups.
+* Validates the raw 14-byte thunk signature and alias-jump thunk offset before
+  patching a helper.
+* Reuses the M29E descriptor-driven Pascal-frame code generator for every thunk.
+* Added c386-far16-multi-test.c/.def and a response-file historical build script
+  exercising VioWrtTTY, KbdCharIn, KbdStringIn and KbdFlushBuffer together.
+* Fixed the far16 example wrappers to locate os2host32.exe relative to %~dp0,
+  avoiding the PATH/current-directory failure seen in M29E testing.

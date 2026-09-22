@@ -1,0 +1,13 @@
+M31G R16
+========
+
+Generic LX DLL relocation-layout fix for modules whose object-table preferred
+ranges are zero or overlap.
+
+- Preferred base 0 is always relocatable; it is never passed as a literal
+  VirtualAlloc preferred address (where NULL means "choose an address").
+- Duplicate/overlapping preferred object ranges are assigned distinct 64-KB
+  aligned offsets within one relocation arena.
+- Normal non-overlapping EXE/DLL layouts keep the existing relative mapping.
+- Preserves R14 NEKO PMWP/subclass/timer behavior and R15 PMWIN.833 for e.exe.
+- Adds a static regression model for the observed NEKO.DLL object geometry.

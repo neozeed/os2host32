@@ -1,0 +1,522 @@
+rva	name	storage_class	source_file
+0x00010000	_main	2	C:\nt\private\windows\cmd\cmd.c
+0x00010184	_Dispatch	2	C:\nt\private\windows\cmd\cmd.c
+0x00010308	_SetRedir	2	C:\nt\private\windows\cmd\cmd.c
+0x0001067C	_AddRedir	2	C:\nt\private\windows\cmd\cmd.c
+0x0001087C	_ResetRedir	2	C:\nt\private\windows\cmd\cmd.c
+0x000108D8	_FindFixAndRun	2	C:\nt\private\windows\cmd\cmd.c
+0x00010B30	_FindAndFix	2	C:\nt\private\windows\cmd\cmd.c
+0x00010DB0	_UnParse	2	C:\nt\private\windows\cmd\cmd.c
+0x00010E4C	_UnBuild	2	C:\nt\private\windows\cmd\cmd.c
+0x00011140	_UnDuRd	2	C:\nt\private\windows\cmd\cmd.c
+0x000111B8	_SPutC	2	C:\nt\private\windows\cmd\cmd.c
+0x000112B0	_Abort	2	C:\nt\private\windows\cmd\csig.c
+0x000112D0	_ExitAbort	2	C:\nt\private\windows\cmd\csig.c
+0x000112F0	_SigCleanUp	2	C:\nt\private\windows\cmd\csig.c
+0x00011410	_eDetach	2	C:\nt\private\windows\cmd\cop.c
+0x00011428	_eComSep	2	C:\nt\private\windows\cmd\cop.c
+0x0001144C	_eOr	2	C:\nt\private\windows\cmd\cop.c
+0x00011474	_eAnd	2	C:\nt\private\windows\cmd\cop.c
+0x000114A0	_ePipe	2	C:\nt\private\windows\cmd\cop.c
+0x00011758	_PipeErr	2	C:\nt\private\windows\cmd\cop.c
+0x00011770	_PipeWait	2	C:\nt\private\windows\cmd\cop.c
+0x000117F4	_BreakPipes	2	C:\nt\private\windows\cmd\cop.c
+0x00011934	_eParen	2	C:\nt\private\windows\cmd\cop.c
+0x00011950	_OnOffCheck	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011A14	_ChangeDrive	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011AC8	_HandleFix	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011AD0	_PutStdOut	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011AE8	_PutStdErr	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011B00	_PutMsg	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011BD4	_argstr1	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011BF0	_argstr2	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011C0C	_Copen_Work	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011D28	_Copen	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011D3C	_Copen_Copy	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011D50	_InSetList	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011D90	_Cdup	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011DC4	_Cdup2	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011E30	_Cclose	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011E88	_SetList	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011EC0	_GetFuncPtr	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011ED4	_FindCmd	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011F34	_KillProc	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011F6C	_WaitProc	2	C:\nt\private\windows\cmd\ctools2.c
+0x00011FE4	_ParseLabel	2	C:\nt\private\windows\cmd\ctools2.c
+0x000120BC	_EatWS	2	C:\nt\private\windows\cmd\ctools2.c
+0x00012128	_IsValidDrv	2	C:\nt\private\windows\cmd\ctools2.c
+0x00012158	_IsDriveLocked	2	C:\nt\private\windows\cmd\ctools2.c
+0x000121CC	_PrtErr	2	C:\nt\private\windows\cmd\ctools2.c
+0x00012220	_GetMsg	2	C:\nt\private\windows\cmd\ctools2.c
+0x00012270	_dayptr	2	C:\nt\private\windows\cmd\ctools2.c
+0x00012344	_Copen_Work2	2	C:\nt\private\windows\cmd\ctools2.c
+0x0001242C	_Copen2	2	C:\nt\private\windows\cmd\ctools2.c
+0x00012444	_Copen_Copy2	2	C:\nt\private\windows\cmd\ctools2.c
+0x00012458	_stripit	2	C:\nt\private\windows\cmd\ctools2.c
+0x000124E0	_CloseHandle	2	
+0x000124E6	_Handler	2	C:\nt\private\windows\cmd\cinit.c
+0x00012526	_Init	2	C:\nt\private\windows\cmd\cinit.c
+0x00012672	_CheckSwitches	2	C:\nt\private\windows\cmd\cinit.c
+0x0001283E	_SetUpEnvironment	2	C:\nt\private\windows\cmd\cinit.c
+0x00012A16	_FullPath	2	C:\nt\private\windows\cmd\ctools3.c
+0x00012B76	_FileIsDevice	2	C:\nt\private\windows\cmd\ctools3.c
+0x00012C42	_FileIsPipe	2	C:\nt\private\windows\cmd\ctools3.c
+0x00012C72	_GetDir	2	C:\nt\private\windows\cmd\ctools3.c
+0x00012D3A	_ChangeDir	2	C:\nt\private\windows\cmd\ctools3.c
+0x00012F4E	_exists	2	C:\nt\private\windows\cmd\ctools3.c
+0x00012F8E	_exists_ex	2	C:\nt\private\windows\cmd\ctools3.c
+0x00013092	_FixPChar	2	C:\nt\private\windows\cmd\ctools3.c
+0x000130C6	_FlushKB	2	C:\nt\private\windows\cmd\ctools3.c
+0x0001310A	_DriveIsFixed	2	C:\nt\private\windows\cmd\ctools3.c
+0x0001312E	_cmd_printf	2	C:\nt\private\windows\cmd\ctools3.c
+0x000131D6	_ePath	2	C:\nt\private\windows\cmd\cenv.c
+0x000131EA	_eAppend	2	C:\nt\private\windows\cmd\cenv.c
+0x000131FE	_PathWork	2	C:\nt\private\windows\cmd\cenv.c
+0x000132D2	_ePrompt	2	C:\nt\private\windows\cmd\cenv.c
+0x000132FE	_eSet	2	C:\nt\private\windows\cmd\cenv.c
+0x00013312	_SetWork	2	C:\nt\private\windows\cmd\cenv.c
+0x000134B2	_DisplayEnv	2	C:\nt\private\windows\cmd\cenv.c
+0x00013576	_SetEnvVar	2	C:\nt\private\windows\cmd\cenv.c
+0x000135A6	_GetEnvVar	2	C:\nt\private\windows\cmd\cenv.c
+0x000135CE	_CopyEnv	2	C:\nt\private\windows\cmd\cenv.c
+0x0001365A	_ResetEnv	2	C:\nt\private\windows\cmd\cenv.c
+0x0001369E	_MoveEnv	2	C:\nt\private\windows\cmd\cenv.c
+0x000136F2	_GetEnvCb	2	C:\nt\private\windows\cmd\cenv.c
+0x00013716	_BatProc	2	C:\nt\private\windows\cmd\cbatch.c
+0x00013806	_BatLoop	2	C:\nt\private\windows\cmd\cbatch.c
+0x00013A36	_SetBat	2	C:\nt\private\windows\cmd\cbatch.c
+0x00013D56	_DisplayStatement	2	C:\nt\private\windows\cmd\cbatch.c
+0x00013FC6	_DisplayOperator	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014002	_DisplayRedirection	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014056	_OpenPosBat	2	C:\nt\private\windows\cmd\cbatch.c
+0x000140EE	_eEcho	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014196	_FvarRestore	2	C:\nt\private\windows\cmd\cbatch.c
+0x000141BE	_eFor	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014522	_FWork	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014582	_SubFor	2	C:\nt\private\windows\cmd\cbatch.c
+0x0001478E	_SFWork	2	C:\nt\private\windows\cmd\cbatch.c
+0x0001495A	_ForFree	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014982	_eGoto	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014BA6	_eIf	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014C3E	_eErrorLevel	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014C5A	_eExist	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014C6A	_eNot	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014C92	_eStrCmp	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014CD2	_ePause	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014D92	_eShift	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014E0E	_eSetlocal	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014EE6	_eEndlocal	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014F1E	_ElclWork	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014FA6	_eCall	2	C:\nt\private\windows\cmd\cbatch.c
+0x00014FBE	_CallWork	2	C:\nt\private\windows\cmd\cbatch.c
+0x000151F2	_eExtproc	2	C:\nt\private\windows\cmd\cbatch.c
+0x00015206	_ExtPWork	2	C:\nt\private\windows\cmd\cbatch.c
+0x00015406	_FreeBigBuf	2	C:\nt\private\windows\cmd\cmem.c
+0x00015432	_FreeStack	2	C:\nt\private\windows\cmd\cmem.c
+0x00015476	_FreeStr	2	C:\nt\private\windows\cmd\cmem.c
+0x000154E6	_GetBigBuf	2	C:\nt\private\windows\cmd\cmem.c
+0x0001556E	_mknode	2	C:\nt\private\windows\cmd\cmem.c
+0x0001557A	_mkstr	2	C:\nt\private\windows\cmd\cmem.c
+0x000155D2	_gmkstr	2	C:\nt\private\windows\cmd\cmem.c
+0x000155F2	_resize	2	C:\nt\private\windows\cmd\cmem.c
+0x00015676	_InitializeDbcsLeadCharTable	2	C:\nt\private\windows\cmd\string.c
+0x0001569A	_mystrchr	2	C:\nt\private\windows\cmd\string.c
+0x00015716	_mystrrchr	2	C:\nt\private\windows\cmd\string.c
+0x00015792	_mystrcspn	2	C:\nt\private\windows\cmd\string.c
+0x000157EA	_lastc	2	C:\nt\private\windows\cmd\string.c
+0x00015822	_penulc	2	C:\nt\private\windows\cmd\string.c
+0x00015862	_prevc	2	C:\nt\private\windows\cmd\string.c
+0x000158B2	_FarZScan	2	C:\nt\private\windows\cmd\string.c
+0x00015946	_DuplicateHandle	2	
+0x0001594C	_ExtCom	2	C:\nt\private\windows\cmd\cext.c
+0x000159AC	_ECWork	2	C:\nt\private\windows\cmd\cext.c
+0x00015B7C	_ExecPgm	2	C:\nt\private\windows\cmd\cext.c
+0x00015C80	_SearchForExecutable	2	C:\nt\private\windows\cmd\cext.c
+0x000164CC	_DoFind	2	C:\nt\private\windows\cmd\cext.c
+0x00016524	_ExecError	2	C:\nt\private\windows\cmd\cext.c
+0x0001674C	_tokshrink	2	C:\nt\private\windows\cmd\cext.c
+0x0001680C	_InitLex	2	C:\nt\private\windows\cmd\clex.c
+0x00016838	_Lex	2	C:\nt\private\windows\cmd\clex.c
+0x00016A60	_TextCheck	2	C:\nt\private\windows\cmd\clex.c
+0x00016BE0	_GetByte	2	C:\nt\private\windows\cmd\clex.c
+0x00016C88	_UnGetByte	2	C:\nt\private\windows\cmd\clex.c
+0x00016C9C	_FillBuf	2	C:\nt\private\windows\cmd\clex.c
+0x000170C8	_LexCopy	2	C:\nt\private\windows\cmd\clex.c
+0x00017154	_PrintPrompt	2	C:\nt\private\windows\cmd\clex.c
+0x0001734C	_IsData	2	C:\nt\private\windows\cmd\clex.c
+0x00017358	_SubVar	2	C:\nt\private\windows\cmd\clex.c
+0x00017634	_MSEnvVar	2	C:\nt\private\windows\cmd\clex.c
+0x000176BC	_EditLine	2	C:\nt\private\windows\cmd\ckeys.c
+0x000176E4	_eKeys	2	C:\nt\private\windows\cmd\ckeys.c
+0x000177EC	_IsDosAttribMatch	2	C:\nt\private\windows\cmd\ffirst.c
+0x00017808	_IsNtAttribMatch	2	C:\nt\private\windows\cmd\ffirst.c
+0x00017810	_FindFirst	2	C:\nt\private\windows\cmd\ffirst.c
+0x00017908	_FindFirstNt	2	C:\nt\private\windows\cmd\ffirst.c
+0x00017924	_ffirst	2	C:\nt\private\windows\cmd\ffirst.c
+0x00017940	_FindNextNt	2	C:\nt\private\windows\cmd\ffirst.c
+0x00017958	_fnext	2	C:\nt\private\windows\cmd\ffirst.c
+0x00017970	_FindNext	2	C:\nt\private\windows\cmd\ffirst.c
+0x000179B8	_findclose	2	C:\nt\private\windows\cmd\ffirst.c
+0x00017A7C	_FindClose	2	
+0x00017A82	_FindFirstFileA	2	
+0x00017A88	_FindNextFileA	2	
+0x00017A8E	_FlushConsoleInputBuffer	2	
+0x00017A94	_FlushFileBuffers	2	
+0x00017A9A	_FormatMessage	2	
+0x00017AA0	_GetCommandLineA	2	
+0x00017AA6	_GetConsoleMode	2	
+0x00017AAC	_GetCurrentDirectoryA	2	
+0x00017AB2	_GetDriveTypeA	2	
+0x00017AB8	_GetEnvironmentStrings	2	
+0x00017ABE	_GetEnvironmentVariableA	2	
+0x00017AC4	_GetExitCodeProcess	2	
+0x00017ACA	_GetFileAttributesA	2	
+0x00017AD0	_GetFileType	2	
+0x00017AD6	_GetFullPathNameA	2	
+0x00017ADC	_GetLastError	2	
+0x00017AE2	_GetModuleFileNameA	2	
+0x00017AE8	_GetVersion	2	
+0x00017AEE	_GetVolumeInformationA	2	
+0x00017AF4	_copy	2	C:\nt\private\windows\cmd\cpwork.c
+0x00017C00	_get_full_name	2	C:\nt\private\windows\cmd\cpwork.c
+0x00017D4C	_do_normal_copy	2	C:\nt\private\windows\cmd\cpwork.c
+0x00018474	_source_eq_dest	2	C:\nt\private\windows\cmd\cpwork.c
+0x00018560	_do_combine_copy	2	C:\nt\private\windows\cmd\cpwork.c
+0x000189A0	_initialize_struct	2	C:\nt\private\windows\cmd\cpwork.c
+0x000189C0	_close_dest	2	C:\nt\private\windows\cmd\cpwork.c
+0x00018A7C	_get_dest_name	2	C:\nt\private\windows\cmd\cpwork.c
+0x00018CB8	_wildcard_rename	2	C:\nt\private\windows\cmd\cpwork.c
+0x00018E58	_scan_bytes	2	C:\nt\private\windows\cmd\cpwork.c
+0x00018EA4	_read_bytes	2	C:\nt\private\windows\cmd\cpwork.c
+0x00018F84	_write_bytes	2	C:\nt\private\windows\cmd\cpwork.c
+0x0001905C	_same_fcpy	2	C:\nt\private\windows\cmd\cpwork.c
+0x000190A8	_same_file	2	C:\nt\private\windows\cmd\cpwork.c
+0x0001910C	_copy_error	2	C:\nt\private\windows\cmd\cpwork.c
+0x000191A0	_copy_was_ascii	2	C:\nt\private\windows\cmd\cpwork.c
+0x000191D0	_open_for_append	2	C:\nt\private\windows\cmd\cpwork.c
+0x000192B8	_WinEditName	2	C:\nt\private\windows\cmd\cpwork.c
+0x000193F4	_eDate	2	C:\nt\private\windows\cmd\cclock.c
+0x00019458	_eTime	2	C:\nt\private\windows\cmd\cclock.c
+0x000194BC	_PrintDate	2	C:\nt\private\windows\cmd\cclock.c
+0x00019558	_PrintTime	2	C:\nt\private\windows\cmd\cclock.c
+0x000195EC	_GetVerSetDateTime	2	C:\nt\private\windows\cmd\cclock.c
+0x000197A0	_VerifyDateString	2	C:\nt\private\windows\cmd\cclock.c
+0x000198D0	_VerifyTimeString	2	C:\nt\private\windows\cmd\cclock.c
+0x000199EC	_ConvertTimeToFileTime	2	C:\nt\private\windows\cmd\cclock.c
+0x00019A68	_ConvertFileTimeToTime	2	C:\nt\private\windows\cmd\cclock.c
+0x00019AD4	_FileTimeToSystemTime	2	
+0x00019ADA	_eCls	2	C:\nt\private\windows\cmd\cother.c
+0x00019B9A	_eExit	2	C:\nt\private\windows\cmd\cother.c
+0x00019BAE	_eVerify	2	C:\nt\private\windows\cmd\cother.c
+0x00019BC2	_VerifyWork	2	C:\nt\private\windows\cmd\cother.c
+0x00019C1A	_GetSetVerMode	2	C:\nt\private\windows\cmd\cother.c
+0x00019C2A	_GetConsoleScreenBufferInfo	2	
+0x00019C30	_GetSystemTime	2	
+0x00019C36	_NtCurrentTeb	2	
+0x00019C3C	_Parser	2	C:\nt\private\windows\cmd\cparse.c
+0x00019CD0	_ParseStatement	2	C:\nt\private\windows\cmd\cparse.c
+0x00019D0C	_ParseFor	2	C:\nt\private\windows\cmd\cparse.c
+0x00019E18	_ParseIf	2	C:\nt\private\windows\cmd\cparse.c
+0x00019EE4	_ParseDetach	2	C:\nt\private\windows\cmd\cparse.c
+0x00019F50	_ParseRem	2	C:\nt\private\windows\cmd\cparse.c
+0x00019FDC	_ParseS0	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A010	_ParseS1	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A02C	_ParseS2	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A048	_ParseS3	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A064	_ParseS4	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A1F8	_ParseS5	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A34C	_ParseCond	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A440	_ParseArgEqArg	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A5DC	_ParseCmd	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A718	_ParseRedir	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A8EC	_BinaryOperator	2	C:\nt\private\windows\cmd\cparse.c
+0x0001A9F0	_BuildArgList	2	C:\nt\private\windows\cmd\cparse.c
+0x0001AAD4	_GetCheckStr	2	C:\nt\private\windows\cmd\cparse.c
+0x0001AAFC	_GeTexTok	2	C:\nt\private\windows\cmd\cparse.c
+0x0001AB68	_GeToken	2	C:\nt\private\windows\cmd\cparse.c
+0x0001ABCC	_LoadNodeTC	2	C:\nt\private\windows\cmd\cparse.c
+0x0001AC2C	_PError	2	C:\nt\private\windows\cmd\cparse.c
+0x0001AC48	_PSError	2	C:\nt\private\windows\cmd\cparse.c
+0x0001ACD4	_SpaceCat	2	C:\nt\private\windows\cmd\cparse.c
+0x0001AD8C	_ReadFile	2	
+0x0001AD92	_TokStr	2	C:\nt\private\windows\cmd\ctools1.c
+0x0001B03E	_LoopThroughArgs	2	C:\nt\private\windows\cmd\ctools1.c
+0x0001B386	_IsDriveNameOnly	2	C:\nt\private\windows\cmd\ctools1.c
+0x0001B3D6	_ScanFSpec	2	C:\nt\private\windows\cmd\ctools1.c
+0x0001B76A	_SetFsSetSaveDir	2	C:\nt\private\windows\cmd\ctools1.c
+0x0001B8A2	_ScrollConsoleScreenBuffer	2	
+0x0001B8A8	_SearchPathA	2	
+0x0001B8AE	_SetConsoleCtrlHandler	2	
+0x0001B8B4	_SetConsoleCursorPosition	2	
+0x0001B8BA	_SetConsoleMode	2	
+0x0001B8C0	_SetCurrentDirectoryA	2	
+0x0001B8C6	_SetEnvironmentVariableA	2	
+0x0001B8CC	_SetErrorMode	2	
+0x0001B8D2	_SetFileTime	2	
+0x0001B8D8	_SetSystemTime	2	
+0x0001B8DE	_SystemTimeToFileTime	2	
+0x0001B8E4	_TerminateProcess	2	
+0x0001B8EA	_VirtualAlloc	2	
+0x0001B8F0	_VirtualFree	2	
+0x0001B8F6	_VirtualQuery	2	
+0x0001B8FC	_WaitForSingleObject	2	
+0x0001B902	_WriteFile	2	
+0x0001B908	__chkstk	2	i386\chkstk.asm
+0x0001B938	__close	2	D:\nt\private\crt32st\lowio\close.c
+0x0001B9B8	__cinit	2	D:\nt\private\crt32st\startup\crt0dat.c
+0x0001BA98	_exit	2	D:\nt\private\crt32st\startup\crt0dat.c
+0x0001BAAC	__exit	2	D:\nt\private\crt32st\startup\crt0dat.c
+0x0001BAC0	__cexit	2	D:\nt\private\crt32st\startup\crt0dat.c
+0x0001BAD0	__c_exit	2	D:\nt\private\crt32st\startup\crt0dat.c
+0x0001BAE0	doexit	3	D:\nt\private\crt32st\startup\crt0dat.c
+0x0001BB4C	_doinitterm	3	D:\nt\private\crt32st\startup\crt0dat.c
+0x0001BB78	_ExitProcess	2	
+0x0001BB7E	_GetStdHandle	2	
+0x0001BB84	__dosmaperr	2	D:\nt\private\crt32st\dos\dosmap.c
+0x0001BC04	__dup	2	D:\nt\private\crt32st\lowio\dup.c
+0x0001BCC4	_GetCurrentProcess	2	
+0x0001BCCA	__alloc_osfhnd	2	D:\nt\private\crt32st\lowio\osfinfo.c
+0x0001BD0A	__set_osfhnd	2	D:\nt\private\crt32st\lowio\osfinfo.c
+0x0001BD86	__free_osfhnd	2	D:\nt\private\crt32st\lowio\osfinfo.c
+0x0001BE0A	__get_osfhandle	2	D:\nt\private\crt32st\lowio\osfinfo.c
+0x0001BE46	__open_osfhandle	2	D:\nt\private\crt32st\lowio\osfinfo.c
+0x0001BEEA	_SetStdHandle	2	
+0x0001BEF0	__dup2	2	D:\nt\private\crt32st\lowio\dup2.c
+0x0001BFD0	__eof	2	D:\nt\private\crt32st\lowio\eof.c
+0x0001C060	__getch	2	D:\nt\private\crt32st\lowio\getch.c
+0x0001C0EC	__getche	2	D:\nt\private\crt32st\lowio\getch.c
+0x0001C120	__initcon	2	D:\nt\private\crt32st\lowio\initcon.c
+0x0001C164	__termcon	2	D:\nt\private\crt32st\lowio\initcon.c
+0x0001C1A0	_CreateFileA	2	
+0x0001C1A6	__lseek	2	D:\nt\private\crt32st\lowio\lseek.c
+0x0001C226	_SetFilePointer	2	
+0x0001C22C	__msize	2	D:\nt\private\crt32st\heap\msize.c
+0x0001C24C	__pipe	2	D:\nt\private\crt32st\lowio\pipe.c
+0x0001C36C	_CreatePipe	2	
+0x0001C372	__putch	2	D:\nt\private\crt32st\lowio\putch.c
+0x0001C3C2	__read	2	D:\nt\private\crt32st\lowio\read.c
+0x0001C602	__setmode	2	D:\nt\private\crt32st\lowio\setmode.c
+0x0001C692	__open	2	D:\nt\private\crt32st\lowio\open.c
+0x0001C6AA	__sopen	2	D:\nt\private\crt32st\lowio\open.c
+0x0001C9A2	_SetEndOfFile	2	
+0x0001C9A8	__access	2	D:\nt\private\crt32st\dos\access.c
+0x0001CA08	__chsize	2	D:\nt\private\crt32st\lowio\chsize.c
+0x0001CB58	__spawnl	2	D:\nt\private\crt32st\exec\spawnl.c
+0x0001CB78	comexecmd	3	D:\nt\private\crt32st\exec\spawnve.c
+0x0001CC84	__spawnve	2	D:\nt\private\crt32st\exec\spawnve.c
+0x0001CEC8	__cenvarg	2	D:\nt\private\crt32st\exec\cenvarg.c
+0x0001D208	__dospawn	2	D:\nt\private\crt32st\exec\dospawn.c
+0x0001D3C8	_CreateProcessA	2	
+0x0001D3CE	__searchenv	2	D:\nt\private\crt32st\misc\searchen.c
+0x0001D50E	__getcwd	2	D:\nt\private\crt32st\dos\getcwd.c
+0x0001D522	__getdcwd	2	D:\nt\private\crt32st\dos\getcwd.c
+0x0001D68E	_dtoxmode	3	D:\nt\private\crt32st\dos\stat.c
+0x0001D762	__stat	2	D:\nt\private\crt32st\dos\stat.c
+0x0001D9C6	__ValidDrive	2	D:\nt\private\crt32st\dos\stat.c
+0x0001D9DE	_GetLogicalDrives	2	
+0x0001D9E4	__dtoxtime	2	D:\nt\private\crt32st\time\dtoxtime.c
+0x0001DAB4	___tzset	2	D:\nt\private\crt32st\time\tzset.c
+0x0001DACC	__tzset	2	D:\nt\private\crt32st\time\tzset.c
+0x0001DB6C	__isindst	2	D:\nt\private\crt32st\time\tzset.c
+0x0001DC44	__fullpath	2	D:\nt\private\crt32st\dos\fullpath.c
+0x0001DF04	__getdrive	2	D:\nt\private\crt32st\dos\drive.c
+0x0001DF5C	__chdrive	2	D:\nt\private\crt32st\dos\drive.c
+0x0001E054	__getpath	2	D:\nt\private\crt32st\misc\getpath.c
+0x0001E0F4	__stricmp	2	D:\nt\private\crt32st\string\stricmp.c
+0x0001E104	__strcmpi	2	D:\nt\private\crt32st\string\stricmp.c
+0x0001E164	__strupr	2	D:\nt\private\crt32st\string\strupr.c
+0x0001E194	__tell	2	D:\nt\private\crt32st\lowio\tell.c
+0x0001E1B4	xtoa	3	D:\nt\private\crt32st\convert\xtoa.c
+0x0001E220	__itoa	2	D:\nt\private\crt32st\convert\xtoa.c
+0x0001E24C	__ltoa	2	D:\nt\private\crt32st\convert\xtoa.c
+0x0001E27C	__ultoa	2	D:\nt\private\crt32st\convert\xtoa.c
+0x0001E294	_remove	2	D:\nt\private\crt32st\dos\unlink.c
+0x0001E2D0	__unlink	2	D:\nt\private\crt32st\dos\unlink.c
+0x0001E2E4	_DeleteFileA	2	
+0x0001E2EA	__write	2	D:\nt\private\crt32st\lowio\write.c
+0x0001E4EA	_atol	2	D:\nt\private\crt32st\convert\atox.c
+0x0001E562	_atoi	2	D:\nt\private\crt32st\convert\atox.c
+0x0001E57A	_calloc	2	D:\nt\private\crt32st\heap\calloc.c
+0x0001E5CA	_eCopy	2	C:\nt\private\windows\cmd\cfile.c
+0x0001E5E2	_eDelete	2	C:\nt\private\windows\cmd\cfile.c
+0x0001E5FA	_DelWork	2	C:\nt\private\windows\cmd\cfile.c
+0x0001ECF6	_PromptUser	2	C:\nt\private\windows\cmd\cfile.c
+0x0001EE02	_eRename	2	C:\nt\private\windows\cmd\cfile.c
+0x0001EE16	_RenWork	2	C:\nt\private\windows\cmd\cfile.c
+0x0001F42E	_RenError	2	C:\nt\private\windows\cmd\cfile.c
+0x0001F4A6	_eMove	2	C:\nt\private\windows\cmd\cfile.c
+0x0001F516	_MoveParse	2	C:\nt\private\windows\cmd\cfile.c
+0x0001F91E	_MoveError	2	C:\nt\private\windows\cmd\cfile.c
+0x0001F996	_Move	2	C:\nt\private\windows\cmd\cfile.c
+0x0001FDA6	_eChcp	2	C:\nt\private\windows\cmd\cfile.c
+0x0001FDBE	_eStart	2	C:\nt\private\windows\cmd\cfile.c
+0x0001FDDA	_Chcp	2	C:\nt\private\windows\cmd\cchcp.c
+0x0001FDFA	_MoveFileA	2	
+0x0001FE00	_getparam	2	C:\nt\private\windows\cmd\start.c
+0x0001FF08	_Start	2	C:\nt\private\windows\cmd\start.c
+0x000204E0	_eMkdir	2	C:\nt\private\windows\cmd\cpath.c
+0x000204FC	_MdWork	2	C:\nt\private\windows\cmd\cpath.c
+0x00020594	_eChdir	2	C:\nt\private\windows\cmd\cpath.c
+0x00020690	_ChdirWork	2	C:\nt\private\windows\cmd\cpath.c
+0x000206D8	_PushStr	2	C:\nt\private\windows\cmd\cpath.c
+0x00020724	_PopStr	2	C:\nt\private\windows\cmd\cpath.c
+0x00020774	_DumpStrStack	2	C:\nt\private\windows\cmd\cpath.c
+0x000207B0	_PushCurDir	2	C:\nt\private\windows\cmd\cpath.c
+0x00020840	_ePushDir	2	C:\nt\private\windows\cmd\cpath.c
+0x000208FC	_ePopDir	2	C:\nt\private\windows\cmd\cpath.c
+0x0002092C	_eRmdir	2	C:\nt\private\windows\cmd\cpath.c
+0x00020948	_RdWork	2	C:\nt\private\windows\cmd\cpath.c
+0x00020990	_CreateDirectoryA	2	
+0x00020996	_RemoveDirectoryA	2	
+0x0002099C	_eDirectory	2	C:\nt\private\windows\cmd\cinfo.c
+0x000209B4	_eType	2	C:\nt\private\windows\cmd\cinfo.c
+0x000209D0	_TyWork	2	C:\nt\private\windows\cmd\cinfo.c
+0x00020BF8	_eVersion	2	C:\nt\private\windows\cmd\cinfo.c
+0x00020C78	_eVolume	2	C:\nt\private\windows\cmd\cinfo.c
+0x00020C94	_VolWork	2	C:\nt\private\windows\cmd\cinfo.c
+0x00020E3C	_Dir	2	C:\nt\private\windows\cmd\dir.c
+0x00020FF0	_SetAttribs	2	C:\nt\private\windows\cmd\dir.c
+0x00021120	_SetSortDesc	2	C:\nt\private\windows\cmd\dir.c
+0x00021238	_ParseDirParms	2	C:\nt\private\windows\cmd\dir.c
+0x000215A8	_SetWildCards	2	C:\nt\private\windows\cmd\dir.c
+0x000216F4	_IsFATDrive	2	C:\nt\private\windows\cmd\dir.c
+0x000217D8	_GetDrive	2	C:\nt\private\windows\cmd\dir.c
+0x000218C4	_PrintPatterns	2	C:\nt\private\windows\cmd\dir.c
+0x00021F94	_DirWalkAndPrint	2	C:\nt\private\windows\cmd\dir.c
+0x0002237C	_GetFS	2	C:\nt\private\windows\cmd\dir.c
+0x00022620	_CmpName	2	C:\nt\private\windows\cmd\dir.c
+0x0002265C	_CmpExt	2	C:\nt\private\windows\cmd\dir.c
+0x00022708	_CmpTime	2	C:\nt\private\windows\cmd\dir.c
+0x00022724	_CmpSize	2	C:\nt\private\windows\cmd\dir.c
+0x00022750	_CmpType	2	C:\nt\private\windows\cmd\dir.c
+0x00022770	_SortCompare	2	C:\nt\private\windows\cmd\dir.c
+0x000227D4	_SortFileList	2	C:\nt\private\windows\cmd\dir.c
+0x0002280C	_CompareFileTime	2	
+0x00022812	_DisplayFileListHeader	2	C:\nt\private\windows\cmd\display.c
+0x00022842	_DisplayFileList	2	C:\nt\private\windows\cmd\display.c
+0x00022A12	_DisplayFile	2	C:\nt\private\windows\cmd\display.c
+0x00022ACE	_DisplayBare	2	C:\nt\private\windows\cmd\display.c
+0x00022BCE	_SetDotForm	2	C:\nt\private\windows\cmd\display.c
+0x00022C1E	_DisplayDotForm	2	C:\nt\private\windows\cmd\display.c
+0x00022C82	_DisplaySpacedForm	2	C:\nt\private\windows\cmd\display.c
+0x00022DA6	_DisplayOldRest	2	C:\nt\private\windows\cmd\display.c
+0x00022DF6	_DisplayTimeDate	2	C:\nt\private\windows\cmd\display.c
+0x00022E72	_DisplayNewRest	2	C:\nt\private\windows\cmd\display.c
+0x00022EC6	_DisplayWide	2	C:\nt\private\windows\cmd\display.c
+0x00022F4E	_GetMaxCbFileSize	2	C:\nt\private\windows\cmd\display.c
+0x00022FCE	_DisplayFileSizes	2	C:\nt\private\windows\cmd\display.c
+0x00023016	_DisplayTotals	2	C:\nt\private\windows\cmd\display.c
+0x0002304A	_DisplayDiskFreeSpace	2	C:\nt\private\windows\cmd\display.c
+0x0002310E	_DisplayVolInfo	2	C:\nt\private\windows\cmd\display.c
+0x00023272	_OpenScreen	2	C:\nt\private\windows\cmd\console.c
+0x000232DA	_WriteString	2	C:\nt\private\windows\cmd\console.c
+0x000232F2	_WriteMsgString	2	C:\nt\private\windows\cmd\console.c
+0x000233E2	_WriteFmtString	2	C:\nt\private\windows\cmd\console.c
+0x0002347A	_WriteErrString	2	C:\nt\private\windows\cmd\console.c
+0x0002349E	_WriteEol	2	C:\nt\private\windows\cmd\console.c
+0x00023536	_CheckPause	2	C:\nt\private\windows\cmd\console.c
+0x0002355E	_SetTab	2	C:\nt\private\windows\cmd\console.c
+0x00023586	_WriteTab	2	C:\nt\private\windows\cmd\console.c
+0x000235FE	_FillToCol	2	C:\nt\private\windows\cmd\console.c
+0x00023652	_WriteFlush	2	C:\nt\private\windows\cmd\console.c
+0x000236BA	_WriteFlushAndEol	2	C:\nt\private\windows\cmd\console.c
+0x00023702	_GetDiskFreeSpaceA	2	
+0x00023708	__heapmin	2	D:\nt\private\crt32st\heap\heapmin.c
+0x00023800	_heapmin_region	3	D:\nt\private\crt32st\heap\heapmin.c
+0x000238C0	_free_partial_region	3	D:\nt\private\crt32st\heap\heapmin.c
+0x00023968	__heap_abort	2	D:\nt\private\crt32st\heap\hpabort.c
+0x00023978	_mainCRTStartup	2	D:\nt\private\crt32st\startup\crt0.c
+0x00023A9C	inherit	3	D:\nt\private\crt32st\startup\crt0.c
+0x00023B04	__amsg_exit	2	D:\nt\private\crt32st\startup\crt0.c
+0x00023B28	_GetStartupInfoA	2	
+0x00023B2E	_UnhandledExceptionFilter	2	
+0x00023B34	__FF_MSGBANNER	2	D:\nt\private\crt32st\startup\crt0msg.c
+0x00023B60	__NMSG_WRITE	2	D:\nt\private\crt32st\startup\crt0msg.c
+0x00023BD4	__except_handler	2	i386\crtexcpt.asm
+0x00023C36	__global_unwind	2	i386\crtexcpt.asm
+0x00023C36	__local_unwind	2	i386\crtexcpt.asm
+0x00023C54	_DbgPrint	2	
+0x00023C5A	_RtlUnwind	2	
+0x00023C60	__heap_init	2	D:\nt\private\crt32st\heap\heapinit.c
+0x00023C74	__heap_grow_emptylist	2	D:\nt\private\crt32st\heap\heapinit.c
+0x00023CC0	__heap_findaddr	2	D:\nt\private\crt32st\heap\findaddr.c
+0x00023D40	__heap_grow	2	D:\nt\private\crt32st\heap\heapgrow.c
+0x00023DB4	_heap_new_region	3	D:\nt\private\crt32st\heap\heapgrow.c
+0x00023E40	__heap_grow_region	2	D:\nt\private\crt32st\heap\heapgrow.c
+0x00023F14	__heap_free_region	2	D:\nt\private\crt32st\heap\heapgrow.c
+0x00023F70	__heapadd	2	D:\nt\private\crt32st\heap\heapadd.c
+0x00023F9C	__heap_addblock	2	D:\nt\private\crt32st\heap\heapadd.c
+0x00024170	_before	3	D:\nt\private\crt32st\heap\heapadd.c
+0x00024210	__heap_search	2	D:\nt\private\crt32st\heap\heapsrch.c
+0x00024330	__setargv	2	D:\nt\private\crt32st\startup\stdargv.c
+0x000243D4	parse_cmdline	3	D:\nt\private\crt32st\startup\stdargv.c
+0x00024550	__setenvp	2	D:\nt\private\crt32st\startup\stdenvp.c
+0x00024660	__strlwr	2	D:\nt\private\crt32st\string\strlwr.c
+0x00024690	_OpenAppropriateToken	2	C:\nt\private\windows\cmd\uipriv.c
+0x00024708	_EnableAllPrivileges	2	C:\nt\private\windows\cmd\uipriv.c
+0x000247B0	_ResetAllPrivileges	2	C:\nt\private\windows\cmd\uipriv.c
+0x00024860	_DisableAllPrivileges	2	C:\nt\private\windows\cmd\uipriv.c
+0x000248A0	_ePriv	2	C:\nt\private\windows\cmd\uipriv.c
+0x00024A40	_NtAdjustPrivilegesToken	2	
+0x00024A46	_NtClose	2	
+0x00024A4C	_NtOpenProcess	2	
+0x00024A52	_NtOpenProcessToken	2	
+0x00024A58	_NtQueryInformationToken	2	
+0x00024A5E	_fflush	2	D:\nt\private\crt32st\stdio\fflush.c
+0x00024AAA	__flush	2	D:\nt\private\crt32st\stdio\fflush.c
+0x00024B1E	__flushall	2	D:\nt\private\crt32st\stdio\fflush.c
+0x00024B2A	flsall	3	D:\nt\private\crt32st\stdio\fflush.c
+0x00024BA6	__endstdio	2	D:\nt\private\crt32st\stdio\fflush.c
+0x00024BBE	__commit	2	D:\nt\private\crt32st\lowio\commit.c
+0x00024C2E	__fcloseall	2	D:\nt\private\crt32st\stdio\closeall.c
+0x00024C5E	_fclose	2	D:\nt\private\crt32st\stdio\fclose.c
+0x00024D3E	__freebuf	2	D:\nt\private\crt32st\stdio\_freebuf.c
+0x00024D6E	_fprintf	2	D:\nt\private\crt32st\stdio\fprintf.c
+0x00024DAE	__stbuf	2	D:\nt\private\crt32st\stdio\_sftbuf.c
+0x00024E46	__ftbuf	2	D:\nt\private\crt32st\stdio\_sftbuf.c
+0x00024E9E	__isatty	2	D:\nt\private\crt32st\lowio\isatty.c
+0x00024ECE	__output	2	D:\nt\private\crt32st\stdio\output.c
+0x0002560E	write_char	3	D:\nt\private\crt32st\stdio\output.c
+0x0002565A	write_multi_char	3	D:\nt\private\crt32st\stdio\output.c
+0x00025686	write_string	3	D:\nt\private\crt32st\stdio\output.c
+0x000256B6	write_wstring	3	D:\nt\private\crt32st\stdio\output.c
+0x000256EA	get_int_arg	3	D:\nt\private\crt32st\stdio\output.c
+0x000256FA	get_long_arg	3	D:\nt\private\crt32st\stdio\output.c
+0x0002570E	__flsbuf	2	D:\nt\private\crt32st\stdio\_flsbuf.c
+0x0002583E	__fptrap	2	D:\nt\private\crt32st\startup\crt0fp.c
+0x0002584E	__getbuf	2	D:\nt\private\crt32st\stdio\_getbuf.c
+0x0002589E	_free	2	D:\nt\private\crt32st\heap\free.c
+0x0002590E	_getenv	2	D:\nt\private\crt32st\misc\getenv.c
+0x0002598E	_localtime	2	D:\nt\private\crt32st\time\localtim.c
+0x000259FE	_gmtime	2	D:\nt\private\crt32st\time\gmtime.c
+0x00025BAE	_longjmp	2	
+0x00025BB4	_malloc	2	D:\nt\private\crt32st\heap\malloc.c
+0x00025C4C	__heap_split_block	2	D:\nt\private\crt32st\heap\malloc.c
+0x00025CB4	_memchr	2	D:\nt\private\crt32st\string\memchr.c
+0x00025CF4	_parse_args	2	C:\nt\private\windows\cmd\cpparse.c
+0x00025EF0	_handle_switch	2	C:\nt\private\windows\cmd\cpparse.c
+0x00025F88	_found_file	2	C:\nt\private\windows\cmd\cpparse.c
+0x0002603C	_set_mode	2	C:\nt\private\windows\cmd\cpparse.c
+0x000260C8	_add_filespec_to_struct	2	C:\nt\private\windows\cmd\cpparse.c
+0x000260F4	_qsort	2	D:\nt\private\crt32st\misc\qsort.c
+0x00026298	shortsort	3	D:\nt\private\crt32st\misc\qsort.c
+0x00026300	swap	3	D:\nt\private\crt32st\misc\qsort.c
+0x00026334	_realloc	2	D:\nt\private\crt32st\heap\realloc.c
+0x00026454	__expand	2	D:\nt\private\crt32st\heap\realloc.c
+0x00026560	_heap_expand_block	3	D:\nt\private\crt32st\heap\realloc.c
+0x000265E4	_setbuf	2	D:\nt\private\crt32st\stdio\setbuf.c
+0x00026614	_setjmp	2	
+0x0002661A	_setvbuf	2	D:\nt\private\crt32st\stdio\setvbuf.c
+0x000266EA	_sprintf	2	D:\nt\private\crt32st\stdio\sprintf.c
+0x0002675A	_strchr	2	D:\nt\private\crt32st\string\strchr.c
+0x0002678A	_strftime	2	D:\nt\private\crt32st\time\strftime.c
+0x00026B76	_store_str	3	D:\nt\private\crt32st\time\strftime.c
+0x00026BA2	_store_num	3	D:\nt\private\crt32st\time\strftime.c
+0x00026C06	_store_time	3	D:\nt\private\crt32st\time\strftime.c
+0x00026C6E	_store_date	3	D:\nt\private\crt32st\time\strftime.c
+0x00026CEA	_strncmp	2	D:\nt\private\crt32st\string\strncmp.c
+0x00026D2A	_strncpy	2	D:\nt\private\crt32st\string\strncpy.c
+0x00026D6A	_strpbrk	2	D:\nt\private\crt32st\string\strpbrk.c
+0x00026DEA	_strrchr	2	D:\nt\private\crt32st\string\strrchr.c
+0x00026E2A	_time	2	D:\nt\private\crt32st\time\time.c
+0x00026E7A	_vsprintf	2	D:\nt\private\crt32st\stdio\vsprintf.c

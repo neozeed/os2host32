@@ -1,0 +1,3990 @@
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 0000000..cdcded5
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1,4 @@
++# Patch artifacts contain unified-diff marker lines whose payload may itself
++# describe historical whitespace.  Do not treat that archived payload as
++# whitespace damage in the repository containing the patch.
++*.patch -whitespace
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..c0961b7
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,20 @@
++# Native/WHP build products
++*.exe
++*.dll
++*.lib
++*.a
++*.obj
++*.o
++*.pdb
++*.ilk
++
++# Local test products and caches
++personality-core-check
++__pycache__/
++*.pyc
++
++# Editor/OS noise
++*.swp
++*~
++.DS_Store
++Thumbs.db
+diff --git a/DIRECTORY_LAYOUT.md b/DIRECTORY_LAYOUT.md
+index fb110e0..eee6be6 100644
+--- a/DIRECTORY_LAYOUT.md
++++ b/DIRECTORY_LAYOUT.md
+@@ -6,6 +6,21 @@ it into the build, and prevent the project root from becoming a milestone archiv
+ 
+ ## Active build tree
+ 
++### `common/`
++Loader-neutral OS/2 API semantics and metadata shared by the native compatibility
++DLLs and the WHP loader.  Keep explicit 32-bit application addresses at this
++boundary; do not pass a WHP guest pointer as a Win64 host pointer.
++
++- `common/include/` contains stable shared contracts.
++- `common/api/` contains the canonical module/ordinal/name catalogue.
++- `common/doscalls/` contains shared DOSCALLS semantics.
++- `common/win32/` contains Win32 services which are genuinely identical for both
++  execution backends.
++
++An API belongs here only after native and WHP both call the same common
++implementation.  Loader scheduling, process control, callbacks, and other
++execution-engine operations do not belong here merely to avoid two function names.
++
+ ### `loader/`
+ The OS2HOST32 loader/runtime executable and code directly belonging to it.
+ 
+@@ -30,7 +45,9 @@ User-facing OS/2 personality programs that are part of the normal build, current
+ CMD32.
+ 
+ ### `dlls/`
+-Compatibility/personality DLL source.  Keep each OS/2 API family in its own
++Compatibility/personality DLL exports, native adapter code, and subsystem-private
++source.  Shared semantics should live under `common/`; the DLL files should become
++thin ABI veneers as APIs are migrated.  Keep each OS/2 API family in its own
+ subdirectory, for example:
+ 
+ - `dlls/doscalls/`
+@@ -51,9 +68,10 @@ catch-all DLL directory for unrelated code.
+ ## Tests, examples, and evidence
+ 
+ ### `tests/`
+-Regression tests and compatibility probes.  Historical milestone-specific tests
+-belong under `tests/milestones/`; older retained tests that are no longer part of
+-the normal regression path belong under `tests/legacy/`.
++Regression tests and compatibility probes.  Portable tests for the common
++personality layer belong under `tests/common/`.  Historical milestone-specific
++tests belong under `tests/milestones/`; older retained tests that are no longer
++part of the normal regression path belong under `tests/legacy/`.
+ 
+ ### `examples/`
+ Example applications intended to demonstrate supported OS/2 behaviour.  Examples
+@@ -129,13 +147,15 @@ files, ad-hoc test executables, or captured logs to the root.
+ When reorganising the repository, moving a source file is fine; changing its
+ contents is a separate operation.  Repository-cleanup milestones should preserve
+ `.c`, `.h`, and `.def` contents unless source changes are explicitly part of the
+-requested work.
++requested work.  Functional migrations such as the shared personality core must
++be documented and validated independently from layout cleanup.
+ 
+ ## Adding a new subsystem
+ 
+-For a new OS/2 API family, create `dlls/<subsystem>/` and keep its implementation,
+-DEF file, and subsystem-private headers together.  Add the resulting DLL to the
+-root build only when it is intended to be a normal runtime deliverable.
++For a new OS/2 API family, create `dlls/<subsystem>/` and keep its export veneer,
++DEF file, native adapter, and subsystem-private headers together.  Put semantics
++shared with WHP in `common/<subsystem>/`.  Add the resulting DLL to the root build
++only when it is intended to be a normal runtime deliverable.
+ 
+ For an experimental API implementation that is not yet part of the product, keep
+ it under the relevant test/analysis area until it is promoted deliberately.
+diff --git a/Makefile b/Makefile
+index 01b32a7..6f7db97 100644
+--- a/Makefile
++++ b/Makefile
+@@ -4,15 +4,21 @@
+ #   loader/os2host32.c             -> os2host32.exe
+ #   transformer/le2pe386.c         -> le2pe386.exe
+ #   shell/*                        -> cmd32os2.exe
+-#   dlls/*                         -> OS/2 compatibility DLL personalities
++#   dlls/*                         -> OS/2 compatibility DLL veneers/backends
++#   common/*                       -> shared native/WHP personality semantics
+ #
+ # Historical milestone/regression build logic is preserved at:
+ #   docs/current/Makefile-M31-original
+ 
+ MINGW ?= i686-w64-mingw32-gcc
++HOSTCC ?= cc
+ C89FLAGS ?= -std=c89 -O2 -Wall -Wextra -pedantic
++COMMON_CPPFLAGS = -Icommon/include
++API_CATALOG_SRC = common/api/os2_api_catalog.c
++DOSCALLS_CORE_SRC = common/doscalls/os2_doscalls_core.c
++WIN32_COMMON_SRC = common/win32/os2_win32_services.c
+ 
+-.PHONY: all loader whp transformer shell dlls compat clean
++.PHONY: all loader whp transformer shell dlls compat verify common-check catalog-check wiring-check clean
+ 
+ all: loader transformer shell dlls
+ 
+@@ -34,8 +40,10 @@ os2host32.exe: loader/os2host32.c loader/os2host32.def
+ 	$(MINGW) $(C89FLAGS) -Wl,--disable-dynamicbase,--image-base,0x400000 \
+ 		-o $@ loader/os2host32.c loader/os2host32.def
+ 
+-le2pe386.exe: transformer/le2pe386.c
+-	$(MINGW) -O2 -Wall -o $@ transformer/le2pe386.c
++le2pe386.exe: transformer/le2pe386.c $(API_CATALOG_SRC) \
++                 common/include/os2_api_catalog.h common/api/os2_api_catalog.inc
++	$(MINGW) -O2 -Wall $(COMMON_CPPFLAGS) -o $@ \
++		transformer/le2pe386.c $(API_CATALOG_SRC)
+ 
+ cmd32os2.exe: shell/cmd32os2.c shell/cmdparse.c shell/cmdparse.h \
+               shell/cmdbatch.c shell/cmdbatch.h shell/cmdfile.c shell/cmdfile.h \
+@@ -45,8 +53,14 @@ cmd32os2.exe: shell/cmd32os2.c shell/cmdparse.c shell/cmdparse.h \
+ 		shell/cmd32os2.c shell/cmdparse.c shell/cmdbatch.c shell/cmdfile.c \
+ 		shell/cmdos2_win32.c shell/cmdos2_session_win32.c shell/cmdos2_env.c
+ 
+-DOSCALLS.dll: dlls/doscalls/doscalls.c dlls/doscalls/doscalls.def
+-	$(MINGW) $(C89FLAGS) -shared -o $@ dlls/doscalls/doscalls.c dlls/doscalls/doscalls.def \
++DOSCALLS.dll: dlls/doscalls/doscalls.c dlls/doscalls/doscalls.def \
++              $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) \
++              common/include/os2_personality.h \
++              common/include/os2_doscalls_core.h \
++              common/include/os2_win32_services.h
++	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -shared -o $@ \
++		dlls/doscalls/doscalls.c $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) \
++		dlls/doscalls/doscalls.def \
+ 		-lwinmm -Wl,--out-implib,libdoscalls.a
+ 
+ KBDCALLS.dll: dlls/kbdcalls/kbdcalls.c dlls/kbdcalls/kbdcalls.def
+@@ -91,8 +105,27 @@ HELPMGR.dll: dlls/helpmgr/helpmgr.c dlls/helpmgr/helpmgr.def
+ 	$(MINGW) $(C89FLAGS) -shared -o $@ dlls/helpmgr/helpmgr.c dlls/helpmgr/helpmgr.def \
+ 		-Wl,--out-implib,libhelpmgr.a
+ 
++
++verify: common-check catalog-check wiring-check
++
++common-check: tests/common/personality-core-check.c $(DOSCALLS_CORE_SRC) \
++              $(API_CATALOG_SRC) common/include/os2_personality.h \
++              common/include/os2_doscalls_core.h common/include/os2_api_catalog.h \
++              common/api/os2_api_catalog.inc
++	$(HOSTCC) -std=c89 -O2 -Wall -Wextra -pedantic $(COMMON_CPPFLAGS) \
++		-o personality-core-check tests/common/personality-core-check.c \
++		$(DOSCALLS_CORE_SRC) $(API_CATALOG_SRC)
++	./personality-core-check
++	rm -f personality-core-check
++
++catalog-check:
++	python3 tools/check_api_catalog.py
++
++wiring-check:
++	python3 tools/check_shared_personality.py
++
+ clean:
+-	rm -f os2host32.exe le2pe386.exe cmd32os2.exe \
++	rm -f os2host32.exe le2pe386.exe cmd32os2.exe personality-core-check \
+ 	      DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll NLS.dll \
+ 	      PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll \
+ 	      libdoscalls.a libkbdcalls.a libviocalls.a libquecalls.a libsesmgr.a \
+diff --git a/README.md b/README.md
+index 0454768..55b6f44 100644
+--- a/README.md
++++ b/README.md
+@@ -1,66 +1,124 @@
+-# os2host32 — cleaned Milestone 31 source tree
++# OS2HOST32 — Milestone 31 with shared native/WHP personality core
+ 
+-This is a layout-only cleanup of the Milestone 31 package. The active C/header/DEF
+-source files were moved into subsystem directories without changing their contents.
+-Historical milestone material, regression programs, patches, old build scripts, and
+-snapshot binaries are retained in separate archive/documentation directories.
++OS2HOST32 provides two execution backends for 32-bit OS/2 LE/LX programs:
++
++- `loader/` executes transformed programs as native 32-bit Win32 processes.
++- `whp/` executes untouched 32-bit guest code under Windows Hypervisor Platform
++  from a 64-bit host process.
++
++The two loaders no longer maintain completely independent copies of ordinary
++OS/2 system-call behaviour.  Shared API semantics live under `common/` and are
++compiled into both the native compatibility DLLs and the WHP executable.
++Loader-sensitive operations—guest scheduling, process creation, thread exit,
++semaphore waits, callbacks, and address-space management—remain explicit
++backend operations or loader intrinsics.
+ 
+ ## Active source layout
+ 
+-- `loader/` — native Win32 OS/2 LE/LX loader/runtime (`os2host32`)
+-- `whp/` — alternative Win64 Windows Hypervisor Platform loader/runtime, with its own source, milestones, tests, and validation history
+-- `transformer/` — LE-to-PE transformer (`le2pe386`)
+-- `shell/` — CMD32 shell/personality source
+-- `dlls/doscalls/` — DOSCALLS personality
+-- `dlls/kbdcalls/` — KBDCALLS personality
+-- `dlls/viocalls/` — VIOCALLS personality
+-- `dlls/quecalls/` — QUECALLS personality
+-- `dlls/sesmgr/` — SESMGR personality
+-- `dlls/nls/` — NLS personality
+-- `dlls/pmwin/` — PMWIN personality
+-- `dlls/pmgpi/` — PMGPI personality
+-- `dlls/pmshapi/` — PMSHAPI personality
+-- `dlls/pmwp/` — PMWP personality
+-- `dlls/helpmgr/` — HELPMGR personality
+-- `dlls/pm-common/` — shared PM compatibility header
++- `common/` — loader-neutral OS/2 API semantics, the canonical ordinal catalogue,
++  and small Win32 services used by both execution paths.
++- `loader/` — native Win32 OS2HOST32 loader/runtime.
++- `whp/` — alternative Win64/WHP loader, with its own tests, milestones, and
++  validation history.
++- `transformer/` — LE-to-PE transformer (`le2pe386`).
++- `shell/` — CMD32 shell/personality source.
++- `dlls/` — native compatibility DLL veneers and subsystem-specific code.
++- `tests/` — common-core tests, milestone regressions, and retained legacy probes.
++
++See [`DIRECTORY_LAYOUT.md`](DIRECTORY_LAYOUT.md) for the full directory policy.
++
++## Shared system-call layer
++
++The canonical API inventory is:
++
++    common/api/os2_api_catalog.inc
++
++Each entry records the OS/2 module, ordinal, API name, known argument-byte count,
++and implementation route.  It currently catalogues 247 entries and covers every
++ordinal exported by the native compatibility DLL DEF files.
++
++The first shared DOSCALLS set is:
++
++- `DOSCALLS.224` — `DosQueryHType`
++- `DOSCALLS.230` — `DosGetDateTime`
++- `DOSCALLS.256` — `DosSetFilePtr`
++- `DOSCALLS.282` — `DosWrite`
++- `DOSCALLS.299` — `DosAllocMem`
++- `DOSCALLS.304` — `DosFreeMem`
++- `DOSCALLS.305` — `DosSetMem`
++- `DOSCALLS.348` — `DosQuerySysInfo`
++
++For native execution, the exported `DOSCALLS.DLL` functions are thin veneers over
++these common implementations.  For WHP, the same implementations receive a
++backend context that validates and translates 32-bit guest addresses before
++accessing guest RAM.  This avoids treating an untrusted guest pointer as a Win64
++host pointer.
++
++The transformer and WHP import diagnostics also use the canonical catalogue, so
++ordinal-only imports are reported by API name and implementation route.
++
++Detailed architecture notes are in
++[`docs/current/SHARED-PERSONALITY-ARCHITECTURE.md`](docs/current/SHARED-PERSONALITY-ARCHITECTURE.md).
+ 
+ ## Build
+ 
+-The root `Makefile` intentionally builds only the current runtime deliverables:
++The native build requires 32-bit MinGW:
+ 
+     make clean
+     make
+ 
+-Individual groups are also available:
++This builds the native loader, transformer, CMD32, and compatibility DLLs.  The
++runtime products remain together in the repository root, matching the existing
++loader/DLL discovery model.
++
++The WHP loader requires an **x64 Visual Studio Developer Command Prompt**:
+ 
+-    make loader
+     make whp
+-    make transformer
+-    make shell
+-    make dlls
+-
+-The native outputs remain in the repository root, matching the old package's runtime
+-expectation that the loader and compatibility DLLs are beside one another.  The WHP
+-loader is built explicitly with `make whp` and its output remains under `whp/`; it is
+-not part of the default MinGW `make all` because it requires an x64 Visual Studio
+-Developer Command Prompt and Windows Hypervisor Platform libraries.
+-
+-## Historical material
+-
+-- `docs/current/` — M31 handoff material and the original M31 Makefile
+-- `docs/milestones/` — historical milestone READMEs, CHANGES, freeze notes, research, and patches grouped by milestone
+-- `docs/notes/` — miscellaneous retained notes/manifests
+-- `tests/milestones/` — milestone-specific command/regression scripts
+-- `tests/legacy/` — older C/DEF probes, regression programs, and fixtures that were previously at repository root
+-- `scripts/legacy/` — historical build command files
+-- `archive/snapshot-bin/` — prebuilt/generated binaries from the supplied snapshot
+-- `archive/backups/` — retained source backup copies
+-- `analysis/`, `examples/`, `fixtures/`, `regression-evidence/`, `tools/` — retained project support material
+-
+-Nothing in the active C/header/DEF source set was rewritten as part of this cleanup.
+-
+-## Repository organisation
+-
+-See [`DIRECTORY_LAYOUT.md`](DIRECTORY_LAYOUT.md) for the canonical directory map
+-and the rules for adding source, tests, milestone material, and external reference
+-documentation.
++
++or:
++
++    cd whp
++    make
++
++The WHP Makefile intentionally produces only:
++
++    whp_os2_v2_hi.exe
++
++It links the shared personality sources directly into that executable; it does
++not try to load the 32-bit native compatibility DLL binaries into a Win64 process.
++
++## Toolchain-independent verification
++
++The common layer can be checked on a non-Windows development host:
++
++    make verify
++
++That runs:
++
++- the C89 common-core behavioural test;
++- catalogue/DEF coverage and duplicate checks;
++- structural wiring checks proving that every API marked `shared` is called by
++  both native `DOSCALLS.DLL` and WHP.
++
++A dry run of either production build is also useful when reviewing dependencies:
++
++    make -n all
++    make -n whp
++
++Actual native and WHP binaries still need to be built and regression-tested on
++Windows with their respective toolchains.
++
++## Documentation and retained history
++
++- `docs/current/` — current architecture and handoff notes.
++- `docs/milestones/` — completed native-loader milestone material.
++- `docs/reference/microsoft-programmers-library/` — preserved Microsoft
++  Programmer's Library OS/2 references.
++- `whp/docs/current/` — current WHP milestone notes.
++- `whp/docs/milestones/` — superseded WHP packages, patches, and revision history.
++- `analysis/`, `examples/`, `fixtures/`, `regression-evidence/`, and `tools/` —
++  retained project support material.
++
++The repository cleanup history remains intact, but this revision is no longer a
++layout-only change: it deliberately introduces the first shared native/WHP OS/2
++personality implementation.
+diff --git a/common/README.md b/common/README.md
+new file mode 100644
+index 0000000..2488854
+--- /dev/null
++++ b/common/README.md
+@@ -0,0 +1,45 @@
++# Shared OS/2 personality core
++
++This directory contains implementation code deliberately shared by the native
++OS2HOST32 compatibility DLLs and the Win64 Windows Hypervisor Platform loader.
++
++## Layout
++
++- `include/` — public contracts for 32-bit OS/2 addresses, backend operations,
++  shared DOSCALLS implementations, catalogue access, and shared Win32 services.
++- `api/` — canonical module/ordinal/name catalogue and lookup implementation.
++- `doscalls/` — loader-neutral DOSCALLS validation and OS/2 result semantics.
++- `win32/` — small Win32 services genuinely identical in both products, such as
++  local DATETIME acquisition and the monotonic millisecond clock.
++
++## Address rule
++
++The native loader and WHP must never exchange naked host pointers through this
++layer.  Every application pointer is an `os2_addr32_t`.
++
++- The native 32-bit DLL adapter treats that value as an address in its process.
++- The Win64 WHP adapter validates it against guest RAM before mapping or writing.
++
++Common routines own pointer/range validation, fixed OS/2 structure layouts, and
++result writeback.  Backends own handle translation, actual host I/O, allocation,
++and execution-engine operations.
++
++## API routing
++
++`api/os2_api_catalog.inc` labels each known ordinal as shared, backend-specific,
++loader-intrinsic, or native-only.  Do not mark an API `SHARED` until both call
++paths actually invoke the common implementation; `make wiring-check` enforces
++that rule.
++
++Calls which alter an execution engine—`DosExit`, process/thread creation and
++waiting, semaphore scheduling, callbacks, and guest sleeps—remain loader
++intrinsics.  Ordinary API semantics should move here as pointer-safe backend
++contracts mature.
++
++## Verification
++
++From the repository root:
++
++    make verify
++
++The common behavioural test is host-portable and does not require Windows or WHP.
+diff --git a/common/api/README.md b/common/api/README.md
+new file mode 100644
+index 0000000..36b0200
+--- /dev/null
++++ b/common/api/README.md
+@@ -0,0 +1,22 @@
++# Canonical OS/2 API catalogue
++
++`os2_api_catalog.inc` is an X-macro table with one row per known
++module/ordinal pair:
++
++```c
++OS2_API("DOSCALLS", 282u, "DosWrite", 16u, OS2_API_ROUTE_SHARED)
++```
++
++Fields are module name, ordinal, public API name, 32-bit argument bytes, and
++implementation route.  Use zero argument bytes when the ABI is unknown or has
++historical variants; do not guess a stack size merely to fill the field.
++
++The table is compiled by `os2_api_catalog.c` and is also inspected by
++`tools/check_api_catalog.py`.  After adding or changing a compatibility DLL
++export, run:
++
++    make catalog-check
++
++Changing a route to `OS2_API_ROUTE_SHARED` additionally requires both the native
++DLL export and WHP dispatcher to call `os2_core_<ApiName>`; `make wiring-check`
++enforces that invariant.
+diff --git a/common/api/os2_api_catalog.c b/common/api/os2_api_catalog.c
+new file mode 100644
+index 0000000..cf286ab
+--- /dev/null
++++ b/common/api/os2_api_catalog.c
+@@ -0,0 +1,70 @@
++#include "os2_api_catalog.h"
++
++#include <ctype.h>
++#include <string.h>
++
++#define OS2_API(module, ordinal, name, argbytes, route_kind) \
++    { module, ordinal, name, argbytes, route_kind },
++
++static const struct Os2ApiDescriptor api_catalog[] = {
++#include "os2_api_catalog.inc"
++};
++
++#undef OS2_API
++
++static int ascii_case_equal(const char *left, const char *right)
++{
++    unsigned char a;
++    unsigned char b;
++    if (left == NULL || right == NULL)
++        return 0;
++    while (*left != '\0' && *right != '\0') {
++        a = (unsigned char)*left++;
++        b = (unsigned char)*right++;
++        if (tolower(a) != tolower(b))
++            return 0;
++    }
++    return *left == '\0' && *right == '\0';
++}
++
++const struct Os2ApiDescriptor *os2_api_catalog(size_t *count)
++{
++    if (count != NULL)
++        *count = sizeof(api_catalog) / sizeof(api_catalog[0]);
++    return api_catalog;
++}
++
++const struct Os2ApiDescriptor *os2_api_lookup(const char *module_name,
++                                               uint32_t ordinal)
++{
++    size_t i;
++    for (i = 0; i < sizeof(api_catalog) / sizeof(api_catalog[0]); ++i) {
++        if (api_catalog[i].ordinal == ordinal &&
++            ascii_case_equal(api_catalog[i].module_name, module_name))
++            return &api_catalog[i];
++    }
++    return NULL;
++}
++
++const char *os2_api_name(const char *module_name, uint32_t ordinal)
++{
++    const struct Os2ApiDescriptor *api;
++    api = os2_api_lookup(module_name, ordinal);
++    return api != NULL ? api->api_name : NULL;
++}
++
++const char *os2_api_route_name(enum Os2ApiRoute route)
++{
++    switch (route) {
++    case OS2_API_ROUTE_SHARED:
++        return "shared";
++    case OS2_API_ROUTE_BACKEND:
++        return "backend";
++    case OS2_API_ROUTE_INTRINSIC:
++        return "intrinsic";
++    case OS2_API_ROUTE_NATIVE_ONLY:
++        return "native-only";
++    default:
++        return "unknown";
++    }
++}
+diff --git a/common/api/os2_api_catalog.inc b/common/api/os2_api_catalog.inc
+new file mode 100644
+index 0000000..20417bf
+--- /dev/null
++++ b/common/api/os2_api_catalog.inc
+@@ -0,0 +1,249 @@
++/* Canonical OS/2 module ordinal catalogue. */
++/* module, ordinal, API name, 32-bit argument bytes (0=unknown), route */
++OS2_API("DOSCALLS", 14u, "DosSetSigHandler", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 15u, "DosFlagProcess", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 50u, "Dos16Beep", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 163u, "DosQAppType", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 212u, "DosError", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 218u, "DosSetFileInfo", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 219u, "DosSetPathInfo", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 220u, "DosSetDefaultDisk", 4u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 223u, "DosQueryPathInfo", 16u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 224u, "DosQueryHType", 12u, OS2_API_ROUTE_SHARED)
++OS2_API("DOSCALLS", 226u, "DosDeleteDir", 4u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 227u, "DosScanEnv", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 228u, "DosSearchPath", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 229u, "DosSleep", 4u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 230u, "DosGetDateTime", 4u, OS2_API_ROUTE_SHARED)
++OS2_API("DOSCALLS", 232u, "DosEnterCritSec", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 234u, "DosExit", 8u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 236u, "DosSetPriority", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 239u, "DosCreatePipe", 12u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 255u, "DosSetCurrentDir", 4u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 256u, "DosSetFilePtr", 16u, OS2_API_ROUTE_SHARED)
++OS2_API("DOSCALLS", 257u, "DosClose", 4u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 259u, "DosDelete", 8u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 260u, "DosDupHandle", 8u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 263u, "DosFindClose", 4u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 264u, "DosFindFirst", 24u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 265u, "DosFindNext", 12u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 270u, "DosCreateDir", 12u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 271u, "DosMove", 8u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 272u, "DosSetFileSize", 8u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 273u, "DosOpen", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 274u, "DosQueryCurrentDir", 12u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 275u, "DosQueryCurrentDisk", 8u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 279u, "DosQueryFileInfo", 16u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 280u, "DosWaitChild", 20u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 281u, "DosRead", 16u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 282u, "DosWrite", 16u, OS2_API_ROUTE_SHARED)
++OS2_API("DOSCALLS", 283u, "DosExecPgm", 28u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 284u, "DosDevIOCtl", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 286u, "DosBeep", 8u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 296u, "DosExitList", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 299u, "DosAllocMem", 16u, OS2_API_ROUTE_SHARED)
++OS2_API("DOSCALLS", 304u, "DosFreeMem", 4u, OS2_API_ROUTE_SHARED)
++OS2_API("DOSCALLS", 305u, "DosSetMem", 12u, OS2_API_ROUTE_SHARED)
++OS2_API("DOSCALLS", 306u, "DosQueryMem", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 311u, "DosCreateThread", 20u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 312u, "DosGetInfoBlocks", 8u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 318u, "DosLoadModule", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 319u, "DosQueryModuleHandle", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 320u, "DosQueryModuleName", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 321u, "DosQueryProcAddr", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 322u, "DosFreeModule", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 323u, "DosQueryAppType", 8u, OS2_API_ROUTE_BACKEND)
++OS2_API("DOSCALLS", 324u, "DosCreateEventSem", 16u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 325u, "DosOpenEventSem", 8u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 326u, "DosCloseEventSem", 4u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 327u, "DosResetEventSem", 8u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 328u, "DosPostEventSem", 4u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 329u, "DosWaitEventSem", 8u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 330u, "DosQueryEventSem", 8u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 331u, "DosCreateMutexSem", 16u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 332u, "DosOpenMutexSem", 8u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 333u, "DosCloseMutexSem", 4u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 334u, "DosRequestMutexSem", 8u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 335u, "DosReleaseMutexSem", 4u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 336u, "DosQueryMutexSem", 12u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 344u, "DosSubSetMem", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 345u, "DosSubAllocMem", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 346u, "DosSubFreeMem", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 347u, "DosSubUnsetMem", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 348u, "DosQuerySysInfo", 16u, OS2_API_ROUTE_SHARED)
++OS2_API("DOSCALLS", 349u, "DosWaitThread", 8u, OS2_API_ROUTE_INTRINSIC)
++OS2_API("DOSCALLS", 354u, "DosSetExceptionHandler", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 355u, "DosUnsetExceptionHandler", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 378u, "DosSetSignalExceptionFocus", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 382u, "DosSetRelMaxFH", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 418u, "DosAcknowledgeSignalException", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 425u, "DosFlatToSel", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("DOSCALLS", 426u, "DosSelToFlat", 0u, OS2_API_ROUTE_NATIVE_ONLY)
++OS2_API("HELPMGR", 51u, "WinCreateHelpInstance", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("HELPMGR", 52u, "WinDestroyHelpInstance", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("HELPMGR", 54u, "WinAssociateHelpInstance", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("KBDCALLS", 4u, "KbdCharIn", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("KBDCALLS", 9u, "KbdStringIn", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("KBDCALLS", 10u, "KbdGetStatus", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("KBDCALLS", 11u, "KbdSetStatus", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("KBDCALLS", 13u, "KbdFlushBuffer", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("KBDCALLS", 22u, "KbdPeek", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("NLS", 5u, "DosQueryCtryInfo", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("NLS", 6u, "DosQueryDBCSEnv", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("NLS", 7u, "DosMapCase", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 351u, "GpiAssociate", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 354u, "GpiBeginPath", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 355u, "GpiBitBlt", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 356u, "GpiBox", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 359u, "GpiCharStringAt", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 362u, "GpiCombineRegion", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 364u, "GpiConvert", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 369u, "GpiCreatePS", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 370u, "GpiCreateRegion", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 371u, "GpiDeleteBitmap", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 379u, "GpiDestroyPS", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 387u, "GpiEndPath", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 398u, "GpiLine", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 399u, "GpiLoadBitmap", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 404u, "GpiMove", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 409u, "GpiPaintRegion", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 417u, "GpiPolySpline", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 443u, "GpiQueryDefaultViewMatrix", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 453u, "GpiQueryFontMetrics", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 476u, "GpiQueryPel", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 481u, "GpiQueryRegionBox", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 489u, "GpiQueryTextBox", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 492u, "GpiQueryWidthTable", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 503u, "GpiSetAttrMode", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 505u, "GpiSetBackMix", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 506u, "GpiSetBitmap", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 515u, "GpiSetClipPath", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 516u, "GpiSetClipRegion", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 517u, "GpiSetColor", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 519u, "GpiSetCurrentPosition", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 520u, "GpiSetDefaultViewMatrix", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 530u, "GpiSetLineType", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 544u, "GpiSetPel", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 546u, "GpiSetRegion", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 588u, "GpiSetAttrs", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 592u, "GpiCreateLogColorTable", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 598u, "GpiCreateBitmap", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 599u, "GpiQueryBitmapBits", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 601u, "GpiQueryBitmapInfoHeader", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 602u, "GpiSetBitmapBits", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 604u, "DevCloseDC", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 610u, "DevOpenDC", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMGPI", 611u, "GpiDestroyRegion", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMSHAPI", 102u, "PrfOpenProfile", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMSHAPI", 114u, "PrfQueryProfileInt", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMSHAPI", 116u, "PrfWriteProfileString", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMSHAPI", 117u, "PrfQueryProfileData", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMSHAPI", 118u, "PrfWriteProfileData", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMSHAPI", 120u, "WinAddSwitchEntry", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMSHAPI", 123u, "WinChangeSwitchEntry", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMSHAPI", 129u, "WinRemoveSwitchEntry", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 701u, "WinAlarm", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 702u, "WinBeginEnumWindows", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 703u, "WinBeginPaint", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 707u, "WinCloseClipbrd", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 710u, "WinCopyRect", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 716u, "WinCreateMsgQueue", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 726u, "WinDestroyMsgQueue", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 727u, "WinDestroyPointer", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 728u, "WinDestroyWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 729u, "WinDismissDlg", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 730u, "WinDrawBitmap", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 733u, "WinEmptyClipbrd", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 735u, "WinEnableWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 736u, "WinEnableWindowUpdate", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 737u, "WinEndEnumWindows", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 738u, "WinEndPaint", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 743u, "WinFillRect", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 746u, "WinFocusChange", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 748u, "WinFreeErrorInfo", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 751u, "WinGetErrorInfo", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 756u, "WinGetNextWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 757u, "WinGetPS", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 763u, "WinInitialize", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 764u, "WinIntersectRect", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 765u, "WinInvalidateRect", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 767u, "WinInvertRect", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 773u, "WinIsWindowEnabled", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 775u, "WinIsWindowVisible", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 778u, "WinLoadMenu", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 780u, "WinLoadPointer", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 781u, "WinLoadString", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 788u, "WinMapWindowPoints", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 789u, "WinMessageBox", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 793u, "WinOpenClipbrd", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 794u, "WinOpenWindowDC", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 797u, "WinPtInRect", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 804u, "WinQueryCapture", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 814u, "WinQueryDlgItemShort", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 815u, "WinQueryDlgItemText", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 817u, "WinQueryFocus", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 821u, "WinQueryPointer", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 822u, "WinQueryPointerInfo", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 823u, "WinQueryPointerPos", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 828u, "WinQuerySysPointer", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 829u, "WinQuerySysValue", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 832u, "WinQueryUpdateRegion", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 833u, "WinQueryVersion", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 834u, "WinQueryWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 837u, "WinQueryWindowPos", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 838u, "WinQueryWindowProcess", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 840u, "WinQueryWindowRect", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 841u, "WinQueryWindowText", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 843u, "WinQueryWindowULong", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 844u, "WinQueryWindowUShort", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 848u, "WinReleasePS", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 849u, "WinScrollWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 852u, "WinSetCapture", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 854u, "WinSetClipbrdData", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 858u, "WinSetDlgItemShort", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 859u, "WinSetDlgItemText", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 860u, "WinSetFocus", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 865u, "WinSetParent", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 866u, "WinSetPointer", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 872u, "WinSetSysModalWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 875u, "WinSetWindowPos", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 877u, "WinSetWindowText", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 878u, "WinSetWindowULong", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 881u, "WinShowPointer", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 883u, "WinShowWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 884u, "WinStartTimer", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 888u, "WinTerminate", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 891u, "WinUnionRect", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 892u, "WinUpdateWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 896u, "WinValidateRegion", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 899u, "WinWindowFromID", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 902u, "WinPostQueueMsg", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 903u, "WinSendDlgItemMsg", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 908u, "WinCreateStdWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 909u, "WinCreateWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 910u, "WinDefDlgProc", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 911u, "WinDefWindowProc", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 912u, "WinDispatchMsg", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 913u, "WinDrawText", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 915u, "WinGetMsg", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 918u, "WinPeekMsg", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 919u, "WinPostMsg", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 920u, "WinSendMsg", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 923u, "WinDlgBox", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 924u, "WinLoadDlg", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 926u, "WinRegisterClass", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWIN", 929u, "WinSubclassWindow", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("PMWP", 203u, "PMWPOrdinal203", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("QUECALLS", 9u, "DosReadQueue", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("QUECALLS", 14u, "DosWriteQueue", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("QUECALLS", 15u, "DosOpenQueue", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("QUECALLS", 16u, "DosCreateQueue", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("SESMGR", 5u, "DosSmSetTitle", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("SESMGR", 8u, "DosStopSession", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("SESMGR", 17u, "DosStartSession", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("SESMGR", 1000u, "O2HostQuerySessions", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("VIOCALLS", 7u, "VioScrollUp", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("VIOCALLS", 9u, "VioGetCurPos", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("VIOCALLS", 15u, "VioSetCurPos", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("VIOCALLS", 19u, "VioWrtTTY", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("VIOCALLS", 21u, "VioGetMode", 0u, OS2_API_ROUTE_BACKEND)
+diff --git a/common/doscalls/README.md b/common/doscalls/README.md
+new file mode 100644
+index 0000000..73cd5da
+--- /dev/null
++++ b/common/doscalls/README.md
+@@ -0,0 +1,12 @@
++# Shared DOSCALLS implementations
++
++`os2_doscalls_core.c` owns OS/2-visible validation, fixed structure packing,
++and result writeback for APIs used by both execution backends.
++
++The code must remain independent of native process pointers and WHP internals.
++Application addresses are always `os2_addr32_t` values and all access goes
++through `Os2PersonalityOps`.
++
++Backend callbacks may translate handles, perform host I/O, manage native or
++guest allocations, and obtain platform data.  Calls which suspend/resume a
++guest CPU context do not belong in this file.
+diff --git a/common/doscalls/os2_doscalls_core.c b/common/doscalls/os2_doscalls_core.c
+new file mode 100644
+index 0000000..2ad3223
+--- /dev/null
++++ b/common/doscalls/os2_doscalls_core.c
+@@ -0,0 +1,337 @@
++/*
++ * Loader-neutral DOSCALLS semantics shared by the native DLL personality and
++ * the Win64 Windows Hypervisor Platform loader.
++ */
++
++#include "os2_doscalls_core.h"
++
++#include <stddef.h>
++
++#define OS2_U32_MAX 0xffffffffu
++
++void os2_personality_context_init(struct Os2PersonalityContext *context,
++                                  void *opaque,
++                                  const struct Os2PersonalityOps *ops)
++{
++    if (context == NULL)
++        return;
++    context->opaque = opaque;
++    context->ops = ops;
++}
++
++static int context_has_memory(const struct Os2PersonalityContext *context)
++{
++    return context != NULL && context->ops != NULL &&
++           context->ops->validate_memory != NULL &&
++           context->ops->write_memory != NULL;
++}
++
++static os2_api_ret_t validate_memory(
++    struct Os2PersonalityContext *context,
++    os2_addr32_t address,
++    uint32_t length,
++    uint32_t access)
++{
++    if (!context_has_memory(context))
++        return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
++    if (length != 0u && address == 0u)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    if (length != 0u && address > OS2_U32_MAX - (length - 1u))
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    return context->ops->validate_memory(context->opaque, address,
++                                         length, access);
++}
++
++static os2_api_ret_t write_u32(struct Os2PersonalityContext *context,
++                               os2_addr32_t address,
++                               uint32_t value)
++{
++    os2_api_ret_t rc;
++    rc = validate_memory(context, address, 4u, OS2_MEMORY_WRITE);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++    return context->ops->write_memory(context->opaque, address,
++                                      &value, 4u);
++}
++
++os2_api_ret_t os2_core_DosGetDateTime(
++    struct Os2PersonalityContext *context,
++    os2_addr32_t datetime_address)
++{
++    struct Os2LocalDateTime value;
++    os2_api_ret_t rc;
++    unsigned char packed[12];
++    uint16_t timezone;
++
++    if (context == NULL || context->ops == NULL ||
++        context->ops->query_local_datetime == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
++    rc = validate_memory(context, datetime_address, 12u, OS2_MEMORY_WRITE);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++
++    value.hours = 0u;
++    value.minutes = 0u;
++    value.seconds = 0u;
++    value.hundredths = 0u;
++    value.day = 0u;
++    value.month = 0u;
++    value.year = 0u;
++    value.timezone_minutes_west = 0;
++    value.weekday = 0u;
++    rc = context->ops->query_local_datetime(context->opaque, &value);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++
++    timezone = (uint16_t)value.timezone_minutes_west;
++    packed[0] = value.hours;
++    packed[1] = value.minutes;
++    packed[2] = value.seconds;
++    packed[3] = value.hundredths;
++    packed[4] = value.day;
++    packed[5] = value.month;
++    packed[6] = (unsigned char)(value.year & 0xffu);
++    packed[7] = (unsigned char)(value.year >> 8);
++    packed[8] = (unsigned char)(timezone & 0xffu);
++    packed[9] = (unsigned char)(timezone >> 8);
++    packed[10] = value.weekday;
++    packed[11] = 0u;
++
++    return context->ops->write_memory(context->opaque, datetime_address,
++                                      packed, 12u);
++}
++
++os2_api_ret_t os2_core_DosQueryHType(
++    struct Os2PersonalityContext *context,
++    os2_handle32_t handle,
++    os2_addr32_t type_address,
++    os2_addr32_t attributes_address)
++{
++    os2_api_ret_t rc;
++    uint32_t type;
++    uint32_t attributes;
++
++    if (context == NULL || context->ops == NULL ||
++        context->ops->query_handle_type == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
++
++    rc = validate_memory(context, type_address, 4u, OS2_MEMORY_WRITE);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++    rc = validate_memory(context, attributes_address, 4u, OS2_MEMORY_WRITE);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++
++    type = 0u;
++    attributes = 0u;
++    rc = context->ops->query_handle_type(context->opaque, handle,
++                                         &type, &attributes);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++    rc = context->ops->write_memory(context->opaque, type_address,
++                                    &type, 4u);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++    return context->ops->write_memory(context->opaque, attributes_address,
++                                      &attributes, 4u);
++}
++
++os2_api_ret_t os2_core_DosSetFilePtr(
++    struct Os2PersonalityContext *context,
++    os2_handle32_t handle,
++    os2_long32_t distance,
++    uint32_t method,
++    os2_addr32_t new_position_address)
++{
++    os2_api_ret_t rc;
++    uint32_t new_position;
++
++    if (context == NULL || context->ops == NULL ||
++        context->ops->set_file_pointer == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
++    if (method > 2u)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    rc = validate_memory(context, new_position_address, 4u,
++                         OS2_MEMORY_WRITE);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++
++    new_position = 0u;
++    rc = context->ops->set_file_pointer(context->opaque, handle, distance,
++                                        method, &new_position);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++    return context->ops->write_memory(context->opaque,
++                                      new_position_address,
++                                      &new_position, 4u);
++}
++
++os2_api_ret_t os2_core_DosWrite(
++    struct Os2PersonalityContext *context,
++    os2_handle32_t handle,
++    os2_addr32_t buffer_address,
++    uint32_t count,
++    os2_addr32_t actual_address)
++{
++    os2_api_ret_t rc;
++    const void *buffer;
++    uint32_t actual;
++
++    if (context == NULL || context->ops == NULL ||
++        context->ops->write_handle == NULL ||
++        context->ops->map_read_memory == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
++
++    rc = validate_memory(context, actual_address, 4u, OS2_MEMORY_WRITE);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++
++    buffer = NULL;
++    if (count != 0u) {
++        rc = validate_memory(context, buffer_address, count,
++                             OS2_MEMORY_READ);
++        if (rc != OS2_PERSONALITY_NO_ERROR)
++            return rc;
++        rc = context->ops->map_read_memory(context->opaque,
++                                           buffer_address, count, &buffer);
++        if (rc != OS2_PERSONALITY_NO_ERROR)
++            return rc;
++        if (buffer == NULL)
++            return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    }
++
++    actual = 0u;
++    rc = context->ops->write_handle(context->opaque, handle, buffer,
++                                    count, &actual);
++    {
++        os2_api_ret_t write_rc;
++        write_rc = context->ops->write_memory(context->opaque, actual_address,
++                                              &actual, 4u);
++        if (write_rc != OS2_PERSONALITY_NO_ERROR)
++            return write_rc;
++    }
++    return rc;
++}
++
++os2_api_ret_t os2_core_DosAllocMem(
++    struct Os2PersonalityContext *context,
++    os2_addr32_t base_address,
++    uint32_t size,
++    uint32_t flags,
++    uint32_t reserved)
++{
++    os2_api_ret_t rc;
++    os2_addr32_t base;
++
++    if (context == NULL || context->ops == NULL ||
++        context->ops->allocate_memory == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
++    if (size == 0u)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    rc = validate_memory(context, base_address, 4u, OS2_MEMORY_WRITE);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++
++    base = 0u;
++    rc = context->ops->allocate_memory(context->opaque, size, flags,
++                                       reserved, &base);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++    if (base == 0u)
++        return OS2_PERSONALITY_ERROR_NOT_ENOUGH_MEMORY;
++
++    rc = context->ops->write_memory(context->opaque, base_address,
++                                    &base, 4u);
++    if (rc != OS2_PERSONALITY_NO_ERROR) {
++        if (context->ops->free_memory != NULL)
++            (void)context->ops->free_memory(context->opaque, base);
++        return rc;
++    }
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++os2_api_ret_t os2_core_DosFreeMem(
++    struct Os2PersonalityContext *context,
++    os2_addr32_t base)
++{
++    if (context == NULL || context->ops == NULL ||
++        context->ops->free_memory == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
++    if (base == 0u)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    return context->ops->free_memory(context->opaque, base);
++}
++
++os2_api_ret_t os2_core_DosSetMem(
++    struct Os2PersonalityContext *context,
++    os2_addr32_t base,
++    uint32_t size,
++    uint32_t flags)
++{
++    if (context == NULL || context->ops == NULL ||
++        context->ops->set_memory == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
++    if (base == 0u || size == 0u)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    return context->ops->set_memory(context->opaque, base, size, flags);
++}
++
++os2_api_ret_t os2_core_DosQuerySysInfo(
++    struct Os2PersonalityContext *context,
++    uint32_t first,
++    uint32_t last,
++    os2_addr32_t buffer_address,
++    uint32_t buffer_size)
++{
++    os2_api_ret_t rc;
++    uint32_t count;
++    uint32_t index;
++    os2_addr32_t output;
++
++    if (context == NULL || context->ops == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
++    if (first == 0u || last < first)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++
++    count = last - first + 1u;
++    if (count > OS2_U32_MAX / 4u || buffer_size < count * 4u)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    rc = validate_memory(context, buffer_address, count * 4u,
++                         OS2_MEMORY_WRITE);
++    if (rc != OS2_PERSONALITY_NO_ERROR)
++        return rc;
++
++    output = buffer_address;
++    for (index = first; index <= last; ++index) {
++        uint32_t value;
++        switch (index) {
++        case 10u:
++            value = 4096u;
++            break;
++        case 11u:
++            value = 20u;
++            break;
++        case 12u:
++        case 13u:
++            value = 0u;
++            break;
++        case 14u:
++            if (context->ops->monotonic_milliseconds != NULL)
++                value = (uint32_t)context->ops->monotonic_milliseconds(
++                    context->opaque);
++            else
++                value = 0u;
++            break;
++        default:
++            value = 0u;
++            break;
++        }
++        rc = write_u32(context, output, value);
++        if (rc != OS2_PERSONALITY_NO_ERROR)
++            return rc;
++        output += 4u;
++        if (index == OS2_U32_MAX)
++            break;
++    }
++    return OS2_PERSONALITY_NO_ERROR;
++}
+diff --git a/common/include/os2_api_catalog.h b/common/include/os2_api_catalog.h
+new file mode 100644
+index 0000000..3964ff7
+--- /dev/null
++++ b/common/include/os2_api_catalog.h
+@@ -0,0 +1,28 @@
++#ifndef OS2_API_CATALOG_H
++#define OS2_API_CATALOG_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++enum Os2ApiRoute {
++    OS2_API_ROUTE_SHARED = 1,
++    OS2_API_ROUTE_BACKEND,
++    OS2_API_ROUTE_INTRINSIC,
++    OS2_API_ROUTE_NATIVE_ONLY
++};
++
++struct Os2ApiDescriptor {
++    const char *module_name;
++    uint32_t ordinal;
++    const char *api_name;
++    uint32_t argument_bytes;
++    enum Os2ApiRoute route;
++};
++
++const struct Os2ApiDescriptor *os2_api_catalog(size_t *count);
++const struct Os2ApiDescriptor *os2_api_lookup(const char *module_name,
++                                               uint32_t ordinal);
++const char *os2_api_name(const char *module_name, uint32_t ordinal);
++const char *os2_api_route_name(enum Os2ApiRoute route);
++
++#endif
+diff --git a/common/include/os2_doscalls_core.h b/common/include/os2_doscalls_core.h
+new file mode 100644
+index 0000000..6338487
+--- /dev/null
++++ b/common/include/os2_doscalls_core.h
+@@ -0,0 +1,55 @@
++#ifndef OS2_DOSCALLS_CORE_H
++#define OS2_DOSCALLS_CORE_H
++
++#include "os2_personality.h"
++
++/* Loader-neutral implementations used by both DOSCALLS.DLL and WHP. */
++os2_api_ret_t os2_core_DosGetDateTime(
++    struct Os2PersonalityContext *context,
++    os2_addr32_t datetime_address);
++
++os2_api_ret_t os2_core_DosQueryHType(
++    struct Os2PersonalityContext *context,
++    os2_handle32_t handle,
++    os2_addr32_t type_address,
++    os2_addr32_t attributes_address);
++
++os2_api_ret_t os2_core_DosSetFilePtr(
++    struct Os2PersonalityContext *context,
++    os2_handle32_t handle,
++    os2_long32_t distance,
++    uint32_t method,
++    os2_addr32_t new_position_address);
++
++os2_api_ret_t os2_core_DosWrite(
++    struct Os2PersonalityContext *context,
++    os2_handle32_t handle,
++    os2_addr32_t buffer_address,
++    uint32_t count,
++    os2_addr32_t actual_address);
++
++os2_api_ret_t os2_core_DosAllocMem(
++    struct Os2PersonalityContext *context,
++    os2_addr32_t base_address,
++    uint32_t size,
++    uint32_t flags,
++    uint32_t reserved);
++
++os2_api_ret_t os2_core_DosFreeMem(
++    struct Os2PersonalityContext *context,
++    os2_addr32_t base);
++
++os2_api_ret_t os2_core_DosSetMem(
++    struct Os2PersonalityContext *context,
++    os2_addr32_t base,
++    uint32_t size,
++    uint32_t flags);
++
++os2_api_ret_t os2_core_DosQuerySysInfo(
++    struct Os2PersonalityContext *context,
++    uint32_t first,
++    uint32_t last,
++    os2_addr32_t buffer_address,
++    uint32_t buffer_size);
++
++#endif
+diff --git a/common/include/os2_personality.h b/common/include/os2_personality.h
+new file mode 100644
+index 0000000..771253d
+--- /dev/null
++++ b/common/include/os2_personality.h
+@@ -0,0 +1,81 @@
++#ifndef OS2_PERSONALITY_H
++#define OS2_PERSONALITY_H
++
++/*
++ * Loader-neutral OS/2 personality interface.
++ *
++ * OS/2 applications use a 32-bit linear address space.  The native Win32
++ * loader can normally treat an OS/2 address as a process pointer, while the
++ * Win64/WHP loader must translate it into its separately mapped guest RAM.
++ * Shared API implementations therefore exchange explicit 32-bit addresses
++ * through this interface instead of dereferencing application pointers.
++ */
++
++#include <stdint.h>
++
++typedef uint32_t os2_api_ret_t;
++typedef uint32_t os2_addr32_t;
++typedef uint32_t os2_handle32_t;
++typedef int32_t  os2_long32_t;
++
++#define OS2_PERSONALITY_NO_ERROR                 0u
++#define OS2_PERSONALITY_ERROR_INVALID_FUNCTION   1u
++#define OS2_PERSONALITY_ERROR_INVALID_HANDLE     6u
++#define OS2_PERSONALITY_ERROR_NOT_ENOUGH_MEMORY  8u
++#define OS2_PERSONALITY_ERROR_INVALID_PARAMETER 87u
++
++#define OS2_MEMORY_READ  0x00000001u
++#define OS2_MEMORY_WRITE 0x00000002u
++
++struct Os2LocalDateTime {
++    uint8_t hours;
++    uint8_t minutes;
++    uint8_t seconds;
++    uint8_t hundredths;
++    uint8_t day;
++    uint8_t month;
++    uint16_t year;
++    int16_t timezone_minutes_west;
++    uint8_t weekday;
++};
++
++struct Os2PersonalityOps {
++    os2_api_ret_t (*validate_memory)(void *opaque, os2_addr32_t address,
++                                    uint32_t length, uint32_t access);
++    os2_api_ret_t (*write_memory)(void *opaque, os2_addr32_t address,
++                                 const void *source, uint32_t length);
++    os2_api_ret_t (*map_read_memory)(void *opaque, os2_addr32_t address,
++                                    uint32_t length,
++                                    const void **host_pointer);
++
++    os2_api_ret_t (*query_handle_type)(void *opaque, os2_handle32_t handle,
++                                      uint32_t *type, uint32_t *attributes);
++    os2_api_ret_t (*write_handle)(void *opaque, os2_handle32_t handle,
++                                 const void *buffer, uint32_t length,
++                                 uint32_t *actual);
++    os2_api_ret_t (*set_file_pointer)(void *opaque, os2_handle32_t handle,
++                                     os2_long32_t distance, uint32_t method,
++                                     uint32_t *new_position);
++
++    os2_api_ret_t (*allocate_memory)(void *opaque, uint32_t size,
++                                    uint32_t flags, uint32_t reserved,
++                                    os2_addr32_t *base);
++    os2_api_ret_t (*free_memory)(void *opaque, os2_addr32_t base);
++    os2_api_ret_t (*set_memory)(void *opaque, os2_addr32_t base,
++                               uint32_t size, uint32_t flags);
++
++    os2_api_ret_t (*query_local_datetime)(
++        void *opaque, struct Os2LocalDateTime *value);
++    uint64_t (*monotonic_milliseconds)(void *opaque);
++};
++
++struct Os2PersonalityContext {
++    void *opaque;
++    const struct Os2PersonalityOps *ops;
++};
++
++void os2_personality_context_init(struct Os2PersonalityContext *context,
++                                  void *opaque,
++                                  const struct Os2PersonalityOps *ops);
++
++#endif
+diff --git a/common/include/os2_win32_services.h b/common/include/os2_win32_services.h
+new file mode 100644
+index 0000000..e237377
+--- /dev/null
++++ b/common/include/os2_win32_services.h
+@@ -0,0 +1,13 @@
++#ifndef OS2_WIN32_SERVICES_H
++#define OS2_WIN32_SERVICES_H
++
++#include "os2_personality.h"
++
++/* Win32 services shared by the native personality DLLs and Win64/WHP. */
++os2_api_ret_t os2_win32_query_local_datetime(
++    void *opaque,
++    struct Os2LocalDateTime *value);
++
++uint64_t os2_win32_monotonic_milliseconds(void *opaque);
++
++#endif
+diff --git a/common/win32/os2_win32_services.c b/common/win32/os2_win32_services.c
+new file mode 100644
+index 0000000..0f27a58
+--- /dev/null
++++ b/common/win32/os2_win32_services.c
+@@ -0,0 +1,56 @@
++/* Win32 services used by both OS2HOST32 execution backends. */
++
++/* GetTickCount64 is part of the Vista-and-later API surface.  Declare the
++ * minimum explicitly so a MinGW build does not depend on its header default. */
++#ifndef _WIN32_WINNT
++#define _WIN32_WINNT 0x0600
++#endif
++
++#define WIN32_LEAN_AND_MEAN
++#include <windows.h>
++#include <stddef.h>
++
++#include "os2_win32_services.h"
++
++os2_api_ret_t os2_win32_query_local_datetime(
++    void *opaque,
++    struct Os2LocalDateTime *value)
++{
++    SYSTEMTIME system_time;
++    TIME_ZONE_INFORMATION timezone;
++    DWORD timezone_id;
++    LONG bias;
++
++    (void)opaque;
++    if (value == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++
++    GetLocalTime(&system_time);
++    timezone_id = GetTimeZoneInformation(&timezone);
++    if (timezone_id == TIME_ZONE_ID_INVALID) {
++        bias = -1;
++    } else {
++        bias = timezone.Bias;
++        if (timezone_id == TIME_ZONE_ID_STANDARD)
++            bias += timezone.StandardBias;
++        else if (timezone_id == TIME_ZONE_ID_DAYLIGHT)
++            bias += timezone.DaylightBias;
++    }
++
++    value->hours = (uint8_t)system_time.wHour;
++    value->minutes = (uint8_t)system_time.wMinute;
++    value->seconds = (uint8_t)system_time.wSecond;
++    value->hundredths = (uint8_t)(system_time.wMilliseconds / 10u);
++    value->day = (uint8_t)system_time.wDay;
++    value->month = (uint8_t)system_time.wMonth;
++    value->year = (uint16_t)system_time.wYear;
++    value->timezone_minutes_west = (int16_t)bias;
++    value->weekday = (uint8_t)system_time.wDayOfWeek;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++uint64_t os2_win32_monotonic_milliseconds(void *opaque)
++{
++    (void)opaque;
++    return (uint64_t)GetTickCount64();
++}
+diff --git a/dlls/doscalls/doscalls.c b/dlls/doscalls/doscalls.c
+index 5405285..13d24db 100644
+--- a/dlls/doscalls/doscalls.c
++++ b/dlls/doscalls/doscalls.c
+@@ -28,6 +28,9 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ 
++#include "os2_doscalls_core.h"
++#include "os2_win32_services.h"
++
+ #ifndef __cdecl
+ #define __cdecl
+ #endif
+@@ -612,6 +615,256 @@ static DWORD protect_from_flags(O2ULONG flags)
+     return PAGE_NOACCESS;
+ }
+ 
++/*
++ * Shared-personality native adapter.
++ *
++ * In the transformed Win32 process, a 32-bit OS/2 linear address is also a
++ * directly usable process address.  The common implementation still carries
++ * it as an explicit os2_addr32_t so the same code can be linked into the
++ * Win64/WHP loader, where the address must be checked against guest RAM.
++ */
++static os2_api_ret_t o2p_validate_memory(void *opaque,
++                                         os2_addr32_t address,
++                                         uint32_t length,
++                                         uint32_t access)
++{
++    (void)opaque;
++    (void)access;
++    if (length != 0u && address == 0u)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    if (length != 0u && address > 0xffffffffu - (length - 1u))
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t o2p_write_memory(void *opaque,
++                                      os2_addr32_t address,
++                                      const void *source,
++                                      uint32_t length)
++{
++    (void)opaque;
++    if (length != 0u)
++        memcpy((void *)(ULONG_PTR)address, source, (size_t)length);
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t o2p_map_read_memory(void *opaque,
++                                         os2_addr32_t address,
++                                         uint32_t length,
++                                         const void **host_pointer)
++{
++    (void)opaque;
++    (void)length;
++    if (host_pointer == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    *host_pointer = (const void *)(ULONG_PTR)address;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t o2p_query_handle_type(void *opaque,
++                                           os2_handle32_t hFile,
++                                           uint32_t *type,
++                                           uint32_t *attributes)
++{
++    DWORD native_type;
++    HANDLE h;
++    (void)opaque;
++
++    h = os2_handle((O2HFILE)hFile);
++    if (h == INVALID_HANDLE_VALUE)
++        return O2_ERROR_INVALID_HANDLE;
++    native_type = GetFileType(h);
++    if (native_type == FILE_TYPE_CHAR)
++        *type = 1u;
++    else if (native_type == FILE_TYPE_PIPE)
++        *type = 2u;
++    else
++        *type = 0u;
++    *attributes = 0u;
++    if (io_trace_enabled()) {
++        fprintf(stderr,
++                "DOSCALLS IO: QHTYPE hfile=%lu handle=%p native=%s -> type=%lu attr=%lu\n",
++                (unsigned long)hFile, (void *)h, win_handle_type_name(h),
++                (unsigned long)*type, (unsigned long)*attributes);
++        fflush(stderr);
++    }
++    return O2_NO_ERROR;
++}
++
++static os2_api_ret_t o2p_write_handle(void *opaque,
++                                      os2_handle32_t hFile,
++                                      const void *buffer,
++                                      uint32_t count,
++                                      uint32_t *actual)
++{
++    DWORD done;
++    DWORD error;
++    HANDLE h;
++    const void *native_buffer;
++    (void)opaque;
++
++    h = os2_handle((O2HFILE)hFile);
++    if (h == INVALID_HANDLE_VALUE)
++        return O2_ERROR_INVALID_HANDLE;
++    done = 0;
++    native_buffer = count != 0u ? buffer : (const void *)"";
++    if (!WriteFile(h, native_buffer, (DWORD)count, &done, NULL)) {
++        error = GetLastError();
++        *actual = (uint32_t)done;
++        if (io_trace_enabled()) {
++            fprintf(stderr,
++                    "DOSCALLS IO: WRITE hfile=%lu handle=%p native=%s ask=%lu -> err=%lu actual=%lu\n",
++                    (unsigned long)hFile, (void *)h, win_handle_type_name(h),
++                    (unsigned long)count, (unsigned long)error,
++                    (unsigned long)*actual);
++            fflush(stderr);
++        }
++        return (os2_api_ret_t)error;
++    }
++    *actual = (uint32_t)done;
++    if (io_trace_enabled()) {
++        fprintf(stderr,
++                "DOSCALLS IO: WRITE hfile=%lu handle=%p native=%s ask=%lu -> rc=0 actual=%lu\n",
++                (unsigned long)hFile, (void *)h, win_handle_type_name(h),
++                (unsigned long)count, (unsigned long)*actual);
++        fflush(stderr);
++    }
++    return O2_NO_ERROR;
++}
++
++static os2_api_ret_t o2p_set_file_pointer(void *opaque,
++                                          os2_handle32_t hFile,
++                                          os2_long32_t distance,
++                                          uint32_t method,
++                                          uint32_t *new_position)
++{
++    DWORD native_method;
++    DWORD result;
++    DWORD error;
++    HANDLE h;
++    (void)opaque;
++
++    native_method = method == 0u ? FILE_BEGIN :
++                    (method == 1u ? FILE_CURRENT : FILE_END);
++    h = os2_handle((O2HFILE)hFile);
++    if (h == INVALID_HANDLE_VALUE)
++        return O2_ERROR_INVALID_HANDLE;
++    SetLastError(NO_ERROR);
++    result = SetFilePointer(h, (LONG)distance, NULL, native_method);
++    if (result == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
++        error = GetLastError();
++        if (io_trace_enabled()) {
++            fprintf(stderr,
++                    "DOSCALLS IO: SEEK hfile=%lu handle=%p native=%s dist=%ld method=%lu -> err=%lu\n",
++                    (unsigned long)hFile, (void *)h, win_handle_type_name(h),
++                    (long)distance, (unsigned long)method,
++                    (unsigned long)error);
++            fflush(stderr);
++        }
++        return (os2_api_ret_t)error;
++    }
++    *new_position = (uint32_t)result;
++    if (emx_self_trace_enabled()) {
++        fprintf(stderr,
++                "M30B SELF: DosSetFilePtr hfile=%lu dist=%ld method=%lu -> rc=0 pos=%lu\n",
++                (unsigned long)hFile, (long)distance,
++                (unsigned long)method, (unsigned long)*new_position);
++        fflush(stderr);
++    }
++    if (io_trace_enabled()) {
++        fprintf(stderr,
++                "DOSCALLS IO: SEEK hfile=%lu handle=%p native=%s dist=%ld method=%lu -> pos=%lu\n",
++                (unsigned long)hFile, (void *)h, win_handle_type_name(h),
++                (long)distance, (unsigned long)method,
++                (unsigned long)*new_position);
++        fflush(stderr);
++    }
++    return O2_NO_ERROR;
++}
++
++static os2_api_ret_t o2p_allocate_memory(void *opaque,
++                                         uint32_t size,
++                                         uint32_t flags,
++                                         uint32_t reserved,
++                                         os2_addr32_t *base)
++{
++    void *p;
++    DWORD protect;
++    (void)opaque;
++    (void)reserved;
++
++    protect = protect_from_flags((O2ULONG)flags);
++    if (protect == PAGE_NOACCESS)
++        protect = PAGE_READWRITE;
++    p = VirtualAlloc(NULL, (SIZE_T)size, MEM_RESERVE | MEM_COMMIT, protect);
++    if (p == NULL)
++        return (os2_api_ret_t)GetLastError();
++    *base = (os2_addr32_t)(ULONG_PTR)p;
++    return O2_NO_ERROR;
++}
++
++static os2_api_ret_t o2p_free_memory(void *opaque, os2_addr32_t base)
++{
++    (void)opaque;
++    if (!VirtualFree((void *)(ULONG_PTR)base, 0, MEM_RELEASE))
++        return (os2_api_ret_t)GetLastError();
++    return O2_NO_ERROR;
++}
++
++static os2_api_ret_t o2p_set_memory(void *opaque,
++                                    os2_addr32_t base,
++                                    uint32_t size,
++                                    uint32_t flags)
++{
++    void *address;
++    DWORD old_protect;
++    DWORD protect;
++    (void)opaque;
++
++    address = (void *)(ULONG_PTR)base;
++    if (flags & O2_PAG_DECOMMIT) {
++        if (!VirtualFree(address, (SIZE_T)size, MEM_DECOMMIT))
++            return (os2_api_ret_t)GetLastError();
++        return O2_NO_ERROR;
++    }
++    if (flags & O2_PAG_COMMIT) {
++        protect = protect_from_flags((O2ULONG)flags);
++        if (protect == PAGE_NOACCESS)
++            protect = PAGE_READWRITE;
++        if (VirtualAlloc(address, (SIZE_T)size, MEM_COMMIT, protect) == NULL)
++            return (os2_api_ret_t)GetLastError();
++        return O2_NO_ERROR;
++    }
++    protect = protect_from_flags((O2ULONG)flags);
++    if (!VirtualProtect(address, (SIZE_T)size, protect, &old_protect))
++        return (os2_api_ret_t)GetLastError();
++    return O2_NO_ERROR;
++}
++
++static const struct Os2PersonalityOps o2_personality_ops = {
++    o2p_validate_memory,
++    o2p_write_memory,
++    o2p_map_read_memory,
++    o2p_query_handle_type,
++    o2p_write_handle,
++    o2p_set_file_pointer,
++    o2p_allocate_memory,
++    o2p_free_memory,
++    o2p_set_memory,
++    os2_win32_query_local_datetime,
++    os2_win32_monotonic_milliseconds
++};
++
++static struct Os2PersonalityContext o2_personality_context = {
++    NULL,
++    &o2_personality_ops
++};
++
++static os2_addr32_t o2_pointer_address(const void *pointer)
++{
++    return (os2_addr32_t)(ULONG_PTR)pointer;
++}
++
+ static O2ULONG o2_attrs_from_win32(DWORD a)
+ {
+     O2ULONG r;
+@@ -1771,46 +2024,8 @@ O2APIRET __cdecl DosReleaseMutexSem(O2ULONG hmtx)
+  */
+ O2APIRET __cdecl DosGetDateTime(void *buffer)
+ {
+-    SYSTEMTIME st;
+-    TIME_ZONE_INFORMATION tzi;
+-    DWORD tzid;
+-    LONG bias;
+-    unsigned char *p;
+-
+-    if (!buffer)
+-        return O2_ERROR_INVALID_PARAMETER;
+-
+-    GetLocalTime(&st);
+-    p = (unsigned char *)buffer;
+-
+-    p[0] = (unsigned char)st.wHour;
+-    p[1] = (unsigned char)st.wMinute;
+-    p[2] = (unsigned char)st.wSecond;
+-    p[3] = (unsigned char)(st.wMilliseconds / 10U);
+-    p[4] = (unsigned char)st.wDay;
+-    p[5] = (unsigned char)st.wMonth;
+-    put16(p + 6, (WORD)st.wYear);
+-
+-    /*
+-     * OS/2 and Win32 use the same sign convention here: positive means
+-     * minutes west of UTC.  Win32's effective bias includes the current
+-     * standard/daylight adjustment.
+-     */
+-    tzid = GetTimeZoneInformation(&tzi);
+-    if (tzid == TIME_ZONE_ID_INVALID) {
+-        bias = -1;
+-    } else {
+-        bias = tzi.Bias;
+-        if (tzid == TIME_ZONE_ID_STANDARD)
+-            bias += tzi.StandardBias;
+-        else if (tzid == TIME_ZONE_ID_DAYLIGHT)
+-            bias += tzi.DaylightBias;
+-    }
+-    put16(p + 8, (WORD)(SHORT)bias);
+-    p[10] = (unsigned char)st.wDayOfWeek;
+-    p[11] = 0;
+-
+-    return O2_NO_ERROR;
++    return (O2APIRET)os2_core_DosGetDateTime(
++        &o2_personality_context, o2_pointer_address(buffer));
+ }
+ 
+ /* 220 */
+@@ -2339,30 +2554,9 @@ O2APIRET __cdecl DosQueryPathInfo(const char *path, O2ULONG level,
+ /* 224 */
+ O2APIRET __cdecl DosQueryHType(O2HFILE hFile, O2ULONG *pType, O2ULONG *pAttr)
+ {
+-    DWORD t;
+-    HANDLE h;
+-
+-    if (!pType || !pAttr)
+-        return O2_ERROR_INVALID_PARAMETER;
+-    h = os2_handle(hFile);
+-    if (h == INVALID_HANDLE_VALUE)
+-        return O2_ERROR_INVALID_HANDLE;
+-    t = GetFileType(h);
+-    if (t == FILE_TYPE_CHAR)
+-        *pType = 1;
+-    else if (t == FILE_TYPE_PIPE)
+-        *pType = 2;
+-    else
+-        *pType = 0;
+-    *pAttr = 0;
+-    if (io_trace_enabled()) {
+-        fprintf(stderr,
+-                "DOSCALLS IO: QHTYPE hfile=%lu handle=%p native=%s -> type=%lu attr=%lu\n",
+-                (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+-                (unsigned long)*pType, (unsigned long)*pAttr);
+-        fflush(stderr);
+-    }
+-    return O2_NO_ERROR;
++    return (O2APIRET)os2_core_DosQueryHType(
++        &o2_personality_context, (os2_handle32_t)hFile,
++        o2_pointer_address(pType), o2_pointer_address(pAttr));
+ }
+ 
+ /* 296 - process exit-list registration.
+@@ -2460,54 +2654,10 @@ O2APIRET __cdecl DosSetCurrentDir(const char *path)
+ O2APIRET __cdecl DosSetFilePtr(O2HFILE hFile, O2LONG distance,
+                               O2ULONG method, O2ULONG *newpos)
+ {
+-    DWORD m;
+-    DWORD r;
+-    HANDLE h;
+-
+-    if (!newpos)
+-        return O2_ERROR_INVALID_PARAMETER;
+-    if (method == 0)
+-        m = FILE_BEGIN;
+-    else if (method == 1)
+-        m = FILE_CURRENT;
+-    else if (method == 2)
+-        m = FILE_END;
+-    else
+-        return O2_ERROR_INVALID_PARAMETER;
+-
+-    h = os2_handle(hFile);
+-    if (h == INVALID_HANDLE_VALUE)
+-        return O2_ERROR_INVALID_HANDLE;
+-    SetLastError(NO_ERROR);
+-    r = SetFilePointer(h, (LONG)distance, NULL, m);
+-    if (r == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
+-        DWORD e;
+-        e = GetLastError();
+-        if (io_trace_enabled()) {
+-            fprintf(stderr,
+-                    "DOSCALLS IO: SEEK hfile=%lu handle=%p native=%s dist=%ld method=%lu -> err=%lu\n",
+-                    (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+-                    (long)distance, (unsigned long)method, (unsigned long)e);
+-            fflush(stderr);
+-        }
+-        return (O2APIRET)e;
+-    }
+-    *newpos = (O2ULONG)r;
+-    if (emx_self_trace_enabled()) {
+-        fprintf(stderr,
+-                "M30B SELF: DosSetFilePtr hfile=%lu dist=%ld method=%lu -> rc=0 pos=%lu\n",
+-                (unsigned long)hFile, (long)distance,
+-                (unsigned long)method, (unsigned long)*newpos);
+-        fflush(stderr);
+-    }
+-    if (io_trace_enabled()) {
+-        fprintf(stderr,
+-                "DOSCALLS IO: SEEK hfile=%lu handle=%p native=%s dist=%ld method=%lu -> pos=%lu\n",
+-                (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+-                (long)distance, (unsigned long)method, (unsigned long)*newpos);
+-        fflush(stderr);
+-    }
+-    return O2_NO_ERROR;
++    return (O2APIRET)os2_core_DosSetFilePtr(
++        &o2_personality_context, (os2_handle32_t)hFile,
++        (os2_long32_t)distance, (uint32_t)method,
++        o2_pointer_address(newpos));
+ }
+ 
+ /* 257 */
+@@ -3133,38 +3283,10 @@ O2APIRET __cdecl DosRead(O2HFILE hFile, void *buffer,
+ O2APIRET __cdecl DosWrite(O2HFILE hFile, const void *buffer,
+                           O2ULONG count, O2ULONG *actual)
+ {
+-    DWORD done;
+-    DWORD e;
+-    HANDLE h;
+-
+-    if (!actual || (!buffer && count != 0UL))
+-        return O2_ERROR_INVALID_PARAMETER;
+-    done = 0;
+-    h = os2_handle(hFile);
+-    if (h == INVALID_HANDLE_VALUE)
+-        return O2_ERROR_INVALID_HANDLE;
+-    if (!WriteFile(h, buffer, (DWORD)count, &done, NULL)) {
+-        e = GetLastError();
+-        *actual = (O2ULONG)done;
+-        if (io_trace_enabled()) {
+-            fprintf(stderr,
+-                    "DOSCALLS IO: WRITE hfile=%lu handle=%p native=%s ask=%lu -> err=%lu actual=%lu\n",
+-                    (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+-                    (unsigned long)count, (unsigned long)e,
+-                    (unsigned long)*actual);
+-            fflush(stderr);
+-        }
+-        return (O2APIRET)e;
+-    }
+-    *actual = (O2ULONG)done;
+-    if (io_trace_enabled()) {
+-        fprintf(stderr,
+-                "DOSCALLS IO: WRITE hfile=%lu handle=%p native=%s ask=%lu -> rc=0 actual=%lu\n",
+-                (unsigned long)hFile, (void *)h, win_handle_type_name(h),
+-                (unsigned long)count, (unsigned long)*actual);
+-        fflush(stderr);
+-    }
+-    return O2_NO_ERROR;
++    return (O2APIRET)os2_core_DosWrite(
++        &o2_personality_context, (os2_handle32_t)hFile,
++        o2_pointer_address(buffer), (uint32_t)count,
++        o2_pointer_address(actual));
+ }
+ 
+ /* 283 - direct-LX process implementation.
+@@ -4062,60 +4184,24 @@ O2APIRET __cdecl DosSubUnsetMem(void *base)
+ O2APIRET __cdecl DosAllocMem(void **ppBase, O2ULONG size,
+                              O2ULONG flags, O2ULONG reserved)
+ {
+-    void *p;
+-    DWORD protect;
+-
+-    (void)reserved;
+-    if (!ppBase || size == 0)
+-        return O2_ERROR_INVALID_PARAMETER;
+-    protect = protect_from_flags(flags);
+-    if (protect == PAGE_NOACCESS)
+-        protect = PAGE_READWRITE;
+-    p = VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, protect);
+-    if (!p)
+-        return (O2APIRET)GetLastError();
+-    *ppBase = p;
+-    return O2_NO_ERROR;
++    return (O2APIRET)os2_core_DosAllocMem(
++        &o2_personality_context, o2_pointer_address(ppBase),
++        (uint32_t)size, (uint32_t)flags, (uint32_t)reserved);
+ }
+ 
+ /* 304 */
+ O2APIRET __cdecl DosFreeMem(void *base)
+ {
+-    if (!base)
+-        return O2_ERROR_INVALID_PARAMETER;
+-    if (!VirtualFree(base, 0, MEM_RELEASE))
+-        return (O2APIRET)GetLastError();
+-    return O2_NO_ERROR;
++    return (O2APIRET)os2_core_DosFreeMem(
++        &o2_personality_context, o2_pointer_address(base));
+ }
+ 
+ /* 305 */
+ O2APIRET __cdecl DosSetMem(void *base, O2ULONG size, O2ULONG flags)
+ {
+-    DWORD oldprotect;
+-    DWORD protect;
+-
+-    if (!base || size == 0)
+-        return O2_ERROR_INVALID_PARAMETER;
+-
+-    if (flags & O2_PAG_DECOMMIT) {
+-        if (!VirtualFree(base, size, MEM_DECOMMIT))
+-            return (O2APIRET)GetLastError();
+-        return O2_NO_ERROR;
+-    }
+-
+-    if (flags & O2_PAG_COMMIT) {
+-        protect = protect_from_flags(flags);
+-        if (protect == PAGE_NOACCESS)
+-            protect = PAGE_READWRITE;
+-        if (!VirtualAlloc(base, size, MEM_COMMIT, protect))
+-            return (O2APIRET)GetLastError();
+-        return O2_NO_ERROR;
+-    }
+-
+-    protect = protect_from_flags(flags);
+-    if (!VirtualProtect(base, size, protect, &oldprotect))
+-        return (O2APIRET)GetLastError();
+-    return O2_NO_ERROR;
++    return (O2APIRET)os2_core_DosSetMem(
++        &o2_personality_context, o2_pointer_address(base),
++        (uint32_t)size, (uint32_t)flags);
+ }
+ 
+ /* 306 - query attributes for a contiguous virtual-memory range. */
+@@ -4486,27 +4572,9 @@ O2APIRET __cdecl DosAcknowledgeSignalException(O2ULONG signalNum)
+ O2APIRET __cdecl DosQuerySysInfo(O2ULONG first, O2ULONG last,
+                                   void *buffer, O2ULONG cb)
+ {
+-    O2ULONG *out;
+-    O2ULONG i;
+-    O2ULONG n;
+-
+-    if (!buffer || first == 0 || last < first)
+-        return O2_ERROR_INVALID_PARAMETER;
+-    n = last - first + 1;
+-    if (cb < n * sizeof(O2ULONG))
+-        return O2_ERROR_INVALID_PARAMETER;
+-
+-    out = (O2ULONG *)buffer;
+-    for (i = first; i <= last; ++i) {
+-        switch (i) {
+-        case 10: *out++ = 4096; break;
+-        case 11: *out++ = 20;   break;
+-        case 12: *out++ = 0;    break;
+-        case 13: *out++ = 0;    break;
+-        default: *out++ = 0;    break;
+-        }
+-    }
+-    return O2_NO_ERROR;
++    return (O2APIRET)os2_core_DosQuerySysInfo(
++        &o2_personality_context, (uint32_t)first, (uint32_t)last,
++        o2_pointer_address(buffer), (uint32_t)cb);
+ }
+ 
+ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
+diff --git a/docs/current/API-ORDINAL-CATALOG.md b/docs/current/API-ORDINAL-CATALOG.md
+new file mode 100644
+index 0000000..daf2dd9
+--- /dev/null
++++ b/docs/current/API-ORDINAL-CATALOG.md
+@@ -0,0 +1,33 @@
++# API ordinal catalogue
++
++The canonical catalogue is `common/api/os2_api_catalog.inc`.
++
++Current inventory:
++
++| Route | Entries | Meaning |
++|---|---:|---|
++| `SHARED` | 8 | One common implementation is used by native DOSCALLS and WHP. |
++| `BACKEND` | 188 | Catalogued subsystem API with backend-specific implementation remaining. |
++| `INTRINSIC` | 21 | Loader/scheduler/process operation which is intentionally execution-engine-specific. |
++| `NATIVE_ONLY` | 30 | Present in the native DLL export set but not yet exposed by WHP. |
++| **Total** | **247** | All catalogue entries. |
++
++Module inventory:
++
++| Module | Entries |
++|---|---:|
++| DOSCALLS | 79 |
++| KBDCALLS | 6 |
++| VIOCALLS | 5 |
++| QUECALLS | 4 |
++| SESMGR | 4 |
++| NLS | 3 |
++| PMWIN | 91 |
++| PMGPI | 43 |
++| PMSHAPI | 8 |
++| PMWP | 1 |
++| HELPMGR | 3 |
++
++Run `make catalog-check` after editing a DEF file or the catalogue.  The check
++rejects duplicate module/ordinal keys, malformed entries, non-DWORD-aligned known
++argument sizes, missing DEF exports, and name mismatches.
+diff --git a/docs/current/SHARED-PERSONALITY-ARCHITECTURE.md b/docs/current/SHARED-PERSONALITY-ARCHITECTURE.md
+new file mode 100644
+index 0000000..db10a95
+--- /dev/null
++++ b/docs/current/SHARED-PERSONALITY-ARCHITECTURE.md
+@@ -0,0 +1,152 @@
++# Shared OS/2 personality architecture
++
++## Purpose
++
++The native OS2HOST32 path and the Win64/WHP path originally implemented OS/2
++system calls in separate worlds:
++
++```text
++transformed PE -> 32-bit compatibility DLL -> native implementation
++untouched LE   -> WHP hypercall dispatcher -> private WHP implementation
++```
++
++That was useful for proving WHP quickly, but every corrected flag, error path,
++structure layout, or ordinal name then had to be changed twice.  This revision
++introduces a common personality layer used by both execution backends.
++
++## Resulting call paths
++
++```text
++Native transformed program
++    -> DOSCALLS.DLL export veneer
++    -> common DOSCALLS implementation
++    -> native adapter operations
++
++Untouched WHP guest
++    -> synthetic ordinal veneer / OUT 0xF0
++    -> WHP ordinal dispatcher
++    -> the same common DOSCALLS implementation
++    -> guest-safe WHP adapter operations
++```
++
++The common implementation is source code, not a DLL binary.  A Win64 WHP process
++cannot load the project's 32-bit `DOSCALLS.DLL`, and compiling the old DLL source
++unchanged as Win64 would be unsafe because its OS/2 pointers are direct process
++pointers.  Both products therefore compile the same common source with different
++address-space adapters.
++
++## Pointer contract
++
++All application addresses crossing the shared boundary are represented as
++`os2_addr32_t`, never as host pointers.
++
++- The native 32-bit adapter maps the address to the transformed process directly.
++- The WHP adapter bounds-checks the address against guest RAM and then maps or
++  copies it through `Runtime.ram`.
++
++The common code performs null, length, overflow, and output-buffer validation
++before invoking backend operations.  This keeps guest-pointer rules consistent
++without allowing a malformed guest address to be dereferenced by Win64 code.
++
++## Canonical ordinal catalogue
++
++`common/api/os2_api_catalog.inc` is the project-wide module/ordinal/name catalogue.
++It currently contains 247 entries:
++
++- 245 entries represented by native compatibility DLL DEF exports;
++- `DOSCALLS.336` (`DosQueryMutexSem`) and `DOSCALLS.349`
++  (`DosWaitThread`), which are present in the WHP execution path.
++
++Each entry has one route:
++
++- `SHARED` — one common semantic implementation is compiled into both products.
++- `BACKEND` — the API is catalogued but still uses subsystem/backend-specific
++  implementation code.
++- `INTRINSIC` — the operation controls the loader or scheduler and must remain
++  execution-engine-specific.
++- `NATIVE_ONLY` — currently exported only by the native compatibility DLL set.
++
++An argument-byte value of zero means that the ABI has not yet been canonicalised
++or has known historical variants.  `DosOpen`, for example, appears in both
++8-argument and pre-release 9-argument forms and is deliberately not assigned a
++misleading fixed byte count.
++
++The catalogue is used by:
++
++- `le2pe386`, when reporting ordinal imports;
++- WHP import resolution and runtime diagnostics;
++- validation tools which compare catalogue entries against DLL DEF exports.
++
++## Initial shared DOSCALLS set
++
++| Ordinal | API | Common responsibility | Backend responsibility |
++|---:|---|---|---|
++| 224 | `DosQueryHType` | pointer/result contract | translate OS/2 HFILE and classify native handle |
++| 230 | `DosGetDateTime` | exact 12-byte OS/2 DATETIME layout | acquire local Win32 time/time-zone data |
++| 256 | `DosSetFilePtr` | origin validation and result writeback | translate HFILE and seek the host handle |
++| 282 | `DosWrite` | buffer validation/mapping and count writeback | translate HFILE and perform host write |
++| 299 | `DosAllocMem` | request validation and pointer writeback/rollback | allocate native or guest address space |
++| 304 | `DosFreeMem` | common null contract | release native allocation or WHP allocation record |
++| 305 | `DosSetMem` | common range contract | change native protection/commit or WHP guest state |
++| 348 | `DosQuerySysInfo` | QSV values and packed output | monotonic millisecond clock |
++
++The Win32 time service used by ordinals 230 and 348 is itself shared under
++`common/win32/`.
++
++## Deliberately loader-specific operations
++
++The following classes remain loader intrinsics:
++
++- process and thread exit;
++- guest thread creation, waiting, suspension, and scheduling;
++- event/mutex semaphore waits and wakeups;
++- process creation and child waiting;
++- callback transitions between guest and host execution;
++- `DosSleep` and the WHP blocking portion of `DosBeep`;
++- 16-bit/far-pointer transitions.
++
++Keeping these local is not accidental duplication: the native path delegates to
++Windows threads/processes, while WHP must save guest CPU state and schedule
++multiple OS/2 contexts on one virtual processor.
++
++## Build integration
++
++The root build compiles:
++
++```text
++common/doscalls/os2_doscalls_core.c
++common/win32/os2_win32_services.c
++    -> DOSCALLS.DLL
++```
++
++The WHP build compiles:
++
++```text
++common/doscalls/os2_doscalls_core.c
++common/api/os2_api_catalog.c
++common/win32/os2_win32_services.c
++    -> whp/whp_os2_v2_hi.exe
++```
++
++The WHP Makefile still has one production output only.
++
++## Verification
++
++`make verify` checks three independent properties:
++
++1. common API behaviour using a bounded mock address space;
++2. catalogue uniqueness and coverage of all native ordinal exports;
++3. wiring: every API marked `SHARED` must call the common implementation from
++   both the native DLL export and the WHP ordinal dispatcher.
++
++The common test is C89-clean under GCC and Clang and has also been exercised with
++AddressSanitizer/UndefinedBehaviorSanitizer.  Windows runtime regression remains
++required after building with MinGW and the x64 Visual Studio/WHP toolchain.
++
++## Next migration rule
++
++A new API should not be marked `SHARED` merely because both loaders implement it.
++First define a pointer-safe backend contract, move the common validation and OS/2
++semantics into `common/`, make both paths call it, and then change its catalogue
++route.  The wiring checker will thereafter prevent either path from silently
++forking it again.
+diff --git a/tests/common/personality-core-check.c b/tests/common/personality-core-check.c
+new file mode 100644
+index 0000000..c7be556
+--- /dev/null
++++ b/tests/common/personality-core-check.c
+@@ -0,0 +1,308 @@
++#include "os2_api_catalog.h"
++#include "os2_doscalls_core.h"
++
++#include <stdio.h>
++#include <string.h>
++
++#define MOCK_MEMORY_SIZE 65536u
++
++struct MockBackend {
++    unsigned char memory[MOCK_MEMORY_SIZE];
++    unsigned char output[256];
++    uint32_t output_length;
++    uint32_t file_position;
++    uint32_t allocated_base;
++    uint32_t allocated_size;
++    int allocation_live;
++    uint32_t set_base;
++    uint32_t set_size;
++    uint32_t set_flags;
++    os2_addr32_t fail_write_address;
++    int allocation_returns_zero;
++};
++
++static os2_api_ret_t mock_validate(void *opaque, os2_addr32_t address,
++                                   uint32_t length, uint32_t access)
++{
++    struct MockBackend *mock;
++    (void)access;
++    mock = (struct MockBackend *)opaque;
++    if (mock == NULL || (length != 0u && address == 0u))
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    if (address >= MOCK_MEMORY_SIZE || length > MOCK_MEMORY_SIZE - address)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t mock_write_memory(void *opaque, os2_addr32_t address,
++                                       const void *source, uint32_t length)
++{
++    struct MockBackend *mock;
++    mock = (struct MockBackend *)opaque;
++    if (mock_validate(opaque, address, length, OS2_MEMORY_WRITE) != 0u)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    if (mock->fail_write_address != 0u &&
++        address == mock->fail_write_address)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    if (length != 0u)
++        memcpy(mock->memory + address, source, (size_t)length);
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t mock_map_read(void *opaque, os2_addr32_t address,
++                                   uint32_t length,
++                                   const void **host_pointer)
++{
++    struct MockBackend *mock;
++    mock = (struct MockBackend *)opaque;
++    if (host_pointer == NULL ||
++        mock_validate(opaque, address, length, OS2_MEMORY_READ) != 0u)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    *host_pointer = mock->memory + address;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t mock_query_type(void *opaque, os2_handle32_t handle,
++                                     uint32_t *type, uint32_t *attributes)
++{
++    (void)opaque;
++    if (handle != 1u)
++        return OS2_PERSONALITY_ERROR_INVALID_HANDLE;
++    *type = 1u;
++    *attributes = 0u;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t mock_write_handle(void *opaque, os2_handle32_t handle,
++                                       const void *buffer, uint32_t length,
++                                       uint32_t *actual)
++{
++    struct MockBackend *mock;
++    uint32_t room;
++    mock = (struct MockBackend *)opaque;
++    if (handle != 1u)
++        return OS2_PERSONALITY_ERROR_INVALID_HANDLE;
++    room = (uint32_t)sizeof(mock->output) - mock->output_length;
++    if (length > room)
++        length = room;
++    if (length != 0u)
++        memcpy(mock->output + mock->output_length, buffer, (size_t)length);
++    mock->output_length += length;
++    *actual = length;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t mock_seek(void *opaque, os2_handle32_t handle,
++                               os2_long32_t distance, uint32_t method,
++                               uint32_t *new_position)
++{
++    struct MockBackend *mock;
++    mock = (struct MockBackend *)opaque;
++    if (handle != 1u)
++        return OS2_PERSONALITY_ERROR_INVALID_HANDLE;
++    if (method == 0u)
++        mock->file_position = (uint32_t)distance;
++    else if (method == 1u)
++        mock->file_position += (uint32_t)distance;
++    else
++        mock->file_position = 1000u + (uint32_t)distance;
++    *new_position = mock->file_position;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t mock_allocate(void *opaque, uint32_t size,
++                                   uint32_t flags, uint32_t reserved,
++                                   os2_addr32_t *base)
++{
++    struct MockBackend *mock;
++    (void)flags;
++    (void)reserved;
++    mock = (struct MockBackend *)opaque;
++    if (mock->allocation_live)
++        return OS2_PERSONALITY_ERROR_NOT_ENOUGH_MEMORY;
++    if (mock->allocation_returns_zero) {
++        *base = 0u;
++        return OS2_PERSONALITY_NO_ERROR;
++    }
++    mock->allocated_base = 0x2000u;
++    mock->allocated_size = size;
++    mock->allocation_live = 1;
++    *base = mock->allocated_base;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t mock_free(void *opaque, os2_addr32_t base)
++{
++    struct MockBackend *mock;
++    mock = (struct MockBackend *)opaque;
++    if (!mock->allocation_live || base != mock->allocated_base)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    mock->allocation_live = 0;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t mock_set_memory(void *opaque, os2_addr32_t base,
++                                     uint32_t size, uint32_t flags)
++{
++    struct MockBackend *mock;
++    mock = (struct MockBackend *)opaque;
++    mock->set_base = base;
++    mock->set_size = size;
++    mock->set_flags = flags;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t mock_datetime(void *opaque,
++                                        struct Os2LocalDateTime *value)
++{
++    (void)opaque;
++    value->hours = 23u;
++    value->minutes = 58u;
++    value->seconds = 57u;
++    value->hundredths = 42u;
++    value->day = 31u;
++    value->month = 12u;
++    value->year = 1999u;
++    value->timezone_minutes_west = -60;
++    value->weekday = 5u;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static uint64_t mock_milliseconds(void *opaque)
++{
++    (void)opaque;
++    return 123456u;
++}
++
++static const struct Os2PersonalityOps mock_ops = {
++    mock_validate,
++    mock_write_memory,
++    mock_map_read,
++    mock_query_type,
++    mock_write_handle,
++    mock_seek,
++    mock_allocate,
++    mock_free,
++    mock_set_memory,
++    mock_datetime,
++    mock_milliseconds
++};
++
++static uint32_t load_u32(const unsigned char *memory, uint32_t address)
++{
++    uint32_t value;
++    memcpy(&value, memory + address, sizeof(value));
++    return value;
++}
++
++static int check(int condition, const char *message)
++{
++    if (!condition) {
++        fprintf(stderr, "FAIL: %s\n", message);
++        return 0;
++    }
++    return 1;
++}
++
++int main(void)
++{
++    struct MockBackend mock;
++    struct Os2PersonalityContext context;
++    const struct Os2ApiDescriptor *api;
++    os2_api_ret_t rc;
++    int ok;
++
++    memset(&mock, 0, sizeof(mock));
++    os2_personality_context_init(&context, &mock, &mock_ops);
++    ok = 1;
++
++    api = os2_api_lookup("doscalls", 282u);
++    ok &= check(api != NULL && strcmp(api->api_name, "DosWrite") == 0,
++                "catalog resolves DOSCALLS.282");
++    ok &= check(api != NULL && api->route == OS2_API_ROUTE_SHARED,
++                "DOSCALLS.282 is marked shared");
++    ok &= check(os2_api_lookup("PMWIN", 763u) != NULL,
++                "catalog covers system DLL ordinals");
++
++    rc = os2_core_DosGetDateTime(&context, 0x180u);
++    ok &= check(rc == 0u &&
++                mock.memory[0x180u] == 23u &&
++                mock.memory[0x181u] == 58u &&
++                mock.memory[0x182u] == 57u &&
++                mock.memory[0x183u] == 42u &&
++                mock.memory[0x184u] == 31u &&
++                mock.memory[0x185u] == 12u &&
++                mock.memory[0x186u] == 0xcfu &&
++                mock.memory[0x187u] == 0x07u &&
++                mock.memory[0x188u] == 0xc4u &&
++                mock.memory[0x189u] == 0xffu &&
++                mock.memory[0x18au] == 5u &&
++                mock.memory[0x18bu] == 0u,
++                "DosGetDateTime has one shared byte layout");
++
++    rc = os2_core_DosQueryHType(&context, 1u, 0x100u, 0x104u);
++    ok &= check(rc == 0u && load_u32(mock.memory, 0x100u) == 1u &&
++                load_u32(mock.memory, 0x104u) == 0u,
++                "DosQueryHType writes shared results");
++
++    memcpy(mock.memory + 0x200u, "hello", 5u);
++    rc = os2_core_DosWrite(&context, 1u, 0x200u, 5u, 0x108u);
++    ok &= check(rc == 0u && mock.output_length == 5u &&
++                memcmp(mock.output, "hello", 5u) == 0 &&
++                load_u32(mock.memory, 0x108u) == 5u,
++                "DosWrite maps an application buffer through the backend");
++    rc = os2_core_DosWrite(&context, 1u, 0u, 1u, 0x108u);
++    ok &= check(rc == OS2_PERSONALITY_ERROR_INVALID_PARAMETER,
++                "DosWrite rejects a null non-empty buffer");
++
++    rc = os2_core_DosSetFilePtr(&context, 1u, 25, 0u, 0x10cu);
++    ok &= check(rc == 0u && load_u32(mock.memory, 0x10cu) == 25u,
++                "DosSetFilePtr shares method validation and result storage");
++    rc = os2_core_DosSetFilePtr(&context, 1u, 0, 3u, 0x10cu);
++    ok &= check(rc == OS2_PERSONALITY_ERROR_INVALID_PARAMETER,
++                "DosSetFilePtr rejects an invalid origin");
++
++    rc = os2_core_DosAllocMem(&context, 0x110u, 8192u, 0x13u, 0u);
++    ok &= check(rc == 0u && load_u32(mock.memory, 0x110u) == 0x2000u &&
++                mock.allocation_live,
++                "DosAllocMem stores the backend address token");
++    rc = os2_core_DosSetMem(&context, 0x2000u, 4096u, 0x11u);
++    ok &= check(rc == 0u && mock.set_base == 0x2000u &&
++                mock.set_size == 4096u && mock.set_flags == 0x11u,
++                "DosSetMem delegates loader-specific page work");
++    rc = os2_core_DosFreeMem(&context, 0x2000u);
++    ok &= check(rc == 0u && !mock.allocation_live,
++                "DosFreeMem delegates loader-specific allocation tracking");
++
++    mock.allocation_returns_zero = 1;
++    rc = os2_core_DosAllocMem(&context, 0x114u, 4096u, 0x13u, 0u);
++    ok &= check(rc == OS2_PERSONALITY_ERROR_NOT_ENOUGH_MEMORY &&
++                !mock.allocation_live,
++                "DosAllocMem rejects a successful backend with a null token");
++    mock.allocation_returns_zero = 0;
++
++    mock.fail_write_address = 0x114u;
++    rc = os2_core_DosAllocMem(&context, 0x114u, 4096u, 0x13u, 0u);
++    ok &= check(rc == OS2_PERSONALITY_ERROR_INVALID_PARAMETER &&
++                !mock.allocation_live,
++                "DosAllocMem rolls back when pointer writeback fails");
++    mock.fail_write_address = 0u;
++
++    rc = os2_core_DosGetDateTime(&context, 0u);
++    ok &= check(rc == OS2_PERSONALITY_ERROR_INVALID_PARAMETER,
++                "DosGetDateTime rejects a null output pointer");
++
++    rc = os2_core_DosQuerySysInfo(&context, 10u, 14u, 0x300u, 20u);
++    ok &= check(rc == 0u &&
++                load_u32(mock.memory, 0x300u) == 4096u &&
++                load_u32(mock.memory, 0x304u) == 20u &&
++                load_u32(mock.memory, 0x308u) == 0u &&
++                load_u32(mock.memory, 0x30cu) == 0u &&
++                load_u32(mock.memory, 0x310u) == 123456u,
++                "DosQuerySysInfo produces one common value set");
++
++    if (!ok)
++        return 1;
++    printf("PASS: shared DOSCALLS personality core and ordinal catalogue\n");
++    return 0;
++}
+diff --git a/tools/check_api_catalog.py b/tools/check_api_catalog.py
+new file mode 100755
+index 0000000..cee00a8
+--- /dev/null
++++ b/tools/check_api_catalog.py
+@@ -0,0 +1,102 @@
++#!/usr/bin/env python3
++"""Check that ordinal exports remain represented by the shared API catalogue."""
++
++from __future__ import annotations
++
++import re
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++ENTRY_RE = re.compile(
++    r'^OS2_API\("([^"]+)",\s*(\d+)u,\s*"([^"]+)",\s*'
++    r'(\d+)u,\s*(OS2_API_ROUTE_[A-Z_]+)\)$'
++)
++
++
++def read_catalog() -> dict[tuple[str, int], tuple[str, int, str]]:
++    result: dict[tuple[str, int], tuple[str, int, str]] = {}
++    path = ROOT / "common/api/os2_api_catalog.inc"
++    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
++        line = raw.strip()
++        if not line or line.startswith("/*"):
++            continue
++        match = ENTRY_RE.match(line)
++        if not match:
++            raise SystemExit(f"{path}:{number}: malformed catalogue entry")
++        module, ordinal_text, name, argbytes_text, route = match.groups()
++        key = (module.upper(), int(ordinal_text))
++        if key in result:
++            raise SystemExit(f"duplicate catalogue key {module}.{ordinal_text}")
++        argbytes = int(argbytes_text)
++        if argbytes and argbytes % 4:
++            raise SystemExit(f"{module}.{ordinal_text}: argument byte count is not DWORD aligned")
++        result[key] = (name, argbytes, route)
++    return result
++
++
++def read_def_exports() -> list[tuple[str, int, str, Path]]:
++    exports: list[tuple[str, int, str, Path]] = []
++    for path in sorted((ROOT / "dlls").glob("*/*.def")):
++        module: str | None = None
++        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
++            line = raw.split(";", 1)[0].strip()
++            if not line:
++                continue
++            library = re.match(r"LIBRARY\s+(\S+)", line, re.IGNORECASE)
++            if library:
++                module = library.group(1).upper()
++                continue
++            ordinal = re.search(r"@\s*(\d+)", line)
++            if module is None or ordinal is None:
++                continue
++            symbol = line[: ordinal.start()].strip().split()[0]
++            if "=" in symbol:
++                _public, symbol = symbol.split("=", 1)
++            exports.append((module, int(ordinal.group(1)), symbol, path))
++    return exports
++
++
++def main() -> int:
++    catalog = read_catalog()
++    exports = read_def_exports()
++    errors: list[str] = []
++    for module, ordinal, symbol, path in exports:
++        key = (module, ordinal)
++        entry = catalog.get(key)
++        if entry is None:
++            errors.append(f"missing {module}.{ordinal} ({symbol}) from {path.relative_to(ROOT)}")
++            continue
++        if entry[0].lower() != symbol.lower():
++            errors.append(
++                f"name mismatch {module}.{ordinal}: catalogue={entry[0]} def={symbol}"
++            )
++
++    required_shared = {
++        230: "DosGetDateTime",
++        224: "DosQueryHType",
++        256: "DosSetFilePtr",
++        282: "DosWrite",
++        299: "DosAllocMem",
++        304: "DosFreeMem",
++        305: "DosSetMem",
++        348: "DosQuerySysInfo",
++    }
++    for ordinal, name in required_shared.items():
++        entry = catalog.get(("DOSCALLS", ordinal))
++        if entry is None or entry[0] != name or entry[2] != "OS2_API_ROUTE_SHARED":
++            errors.append(f"DOSCALLS.{ordinal} must identify {name} as shared")
++
++    if errors:
++        print("API catalogue check failed:")
++        for error in errors:
++            print(f"  {error}")
++        return 1
++    print(
++        f"PASS: {len(catalog)} catalogue entries cover "
++        f"{len(exports)} ordinal DLL exports"
++    )
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tools/check_shared_personality.py b/tools/check_shared_personality.py
+new file mode 100755
+index 0000000..2f88540
+--- /dev/null
++++ b/tools/check_shared_personality.py
+@@ -0,0 +1,134 @@
++#!/usr/bin/env python3
++"""Static wiring checks for the shared native/WHP OS/2 personality layer.
++
++This is intentionally toolchain-independent: it catches a common failure mode
++where an API is marked shared in the ordinal catalogue but one loader silently
++falls back to a private implementation.
++"""
++
++from __future__ import annotations
++
++import re
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++
++SHARED_DOSCALLS = {
++    224: "DosQueryHType",
++    230: "DosGetDateTime",
++    256: "DosSetFilePtr",
++    282: "DosWrite",
++    299: "DosAllocMem",
++    304: "DosFreeMem",
++    305: "DosSetMem",
++    348: "DosQuerySysInfo",
++}
++
++
++def read(path: str) -> str:
++    return (ROOT / path).read_text(encoding="utf-8", errors="replace")
++
++
++def exported_function_body(source: str, name: str) -> str | None:
++    match = re.search(
++        rf"O2APIRET\s+__cdecl\s+{re.escape(name)}\s*\([^)]*\)\s*\{{",
++        source,
++        re.MULTILINE,
++    )
++    if match is None:
++        return None
++    start = match.end()
++    depth = 1
++    index = start
++    while index < len(source) and depth:
++        if source[index] == "{":
++            depth += 1
++        elif source[index] == "}":
++            depth -= 1
++        index += 1
++    return source[start : index - 1] if depth == 0 else None
++
++
++def main() -> int:
++    catalog = read("common/api/os2_api_catalog.inc")
++    core_header = read("common/include/os2_doscalls_core.h")
++    core_source = read("common/doscalls/os2_doscalls_core.c")
++    native = read("dlls/doscalls/doscalls.c")
++    whp = read("whp/src/whp_os2_v2_hi.c")
++    whp_fileio = read("whp/src/v2_fileio.h")
++    root_make = read("Makefile")
++    whp_make = read("whp/Makefile")
++    transformer = read("transformer/le2pe386.c")
++
++    errors: list[str] = []
++
++    for ordinal, name in SHARED_DOSCALLS.items():
++        catalog_pattern = re.compile(
++            rf'OS2_API\("DOSCALLS",\s*{ordinal}u,\s*"{re.escape(name)}",'
++            rf".*OS2_API_ROUTE_SHARED\)"
++        )
++        if catalog_pattern.search(catalog) is None:
++            errors.append(f"catalogue does not mark DOSCALLS.{ordinal} {name} shared")
++
++        core_name = f"os2_core_{name}"
++        if core_name not in core_header:
++            errors.append(f"missing declaration for {core_name}")
++        if re.search(rf"\b{re.escape(core_name)}\s*\(", core_source) is None:
++            errors.append(f"missing implementation for {core_name}")
++
++        body = exported_function_body(native, name)
++        if body is None:
++            errors.append(f"native DOSCALLS export {name} was not found")
++        elif core_name not in body:
++            errors.append(f"native {name} does not call {core_name}")
++
++        whp_case = re.search(
++            rf"case\s+{ordinal}\s*:.*?{re.escape(core_name)}\s*\(",
++            whp,
++            re.DOTALL,
++        )
++        if whp_case is None:
++            errors.append(f"WHP DOSCALLS.{ordinal} does not call {core_name}")
++
++    if "case 230:" in whp_fileio or "GetLocalTime" in whp_fileio:
++        errors.append("WHP v2_fileio.h still contains a private DosGetDateTime path")
++
++    required_root_fragments = (
++        "common/doscalls/os2_doscalls_core.c",
++        "common/win32/os2_win32_services.c",
++        "dlls/doscalls/doscalls.c $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC)",
++    )
++    for fragment in required_root_fragments:
++        if fragment not in root_make:
++            errors.append(f"root Makefile is missing shared wiring: {fragment}")
++
++    required_whp_fragments = (
++        "TARGET = whp_os2_v2_hi.exe",
++        "../common/doscalls/os2_doscalls_core.c",
++        "../common/api/os2_api_catalog.c",
++        "../common/win32/os2_win32_services.c",
++    )
++    for fragment in required_whp_fragments:
++        if fragment not in whp_make:
++            errors.append(f"WHP Makefile is missing shared wiring: {fragment}")
++
++    if "os2_api_name" not in transformer:
++        errors.append("LE transformer is not using the canonical ordinal catalogue")
++    if "os2_api_lookup" not in whp:
++        errors.append("WHP import diagnostics are not using the canonical ordinal catalogue")
++
++    if errors:
++        print("Shared personality wiring check failed:")
++        for error in errors:
++            print(f"  {error}")
++        return 1
++
++    print(
++        "PASS: native DOSCALLS and WHP share "
++        f"{len(SHARED_DOSCALLS)} catalogued DOSCALLS implementations"
++    )
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/transformer/le2pe386.c b/transformer/le2pe386.c
+index 7e33782..e717f53 100644
+--- a/transformer/le2pe386.c
++++ b/transformer/le2pe386.c
+@@ -26,6 +26,8 @@
+ #include <string.h>
+ #include <limits.h>
+ 
++#include "os2_api_catalog.h"
++
+ #if UINT_MAX == 0xffffffffU
+ typedef unsigned int U32;
+ typedef signed int S32;
+@@ -870,6 +872,7 @@ static void build_pe(struct Context *c, const char *out_name)
+     U8 *out;
+     U8 *boot;
+     const char *bn;
++    const char *api_name;
+     size_t bnlen;
+     struct LeObject *to;
+     struct LeObject *dobj;
+@@ -1233,8 +1236,15 @@ static void build_pe(struct Context *c, const char *out_name)
+             continue;
+         printf("    %s:", c->modules[m].name);
+         for (i = c->modules[m].first_import;
+-             i < c->modules[m].first_import + c->modules[m].nimports; ++i)
+-            printf(" %lu", (unsigned long)c->imports[i].ordinal);
++             i < c->modules[m].first_import + c->modules[m].nimports; ++i) {
++            api_name = os2_api_name(c->modules[m].name,
++                                    (uint32_t)c->imports[i].ordinal);
++            if (api_name != NULL)
++                printf(" %lu(%s)", (unsigned long)c->imports[i].ordinal,
++                       api_name);
++            else
++                printf(" %lu", (unsigned long)c->imports[i].ordinal);
++        }
+         printf("\n");
+     }
+     printf("  Win32 bootstrap imports: KERNEL32.GetCommandLineA, GetEnvironmentStringsA\n");
+diff --git a/whp/DIRECTORY_LAYOUT.md b/whp/DIRECTORY_LAYOUT.md
+index 41c326f..48f0514 100644
+--- a/whp/DIRECTORY_LAYOUT.md
++++ b/whp/DIRECTORY_LAYOUT.md
+@@ -1,22 +1,39 @@
+ # WHP subtree organisation
+ 
+-The WHP runtime is deliberately a self-contained loader subtree.  Its development
+-history moves at a different pace from the native OS2HOST32 loader, so WHP material
+-must remain under `whp/` unless it is genuinely shared project documentation.
++The WHP runtime is a self-contained loader subtree.  Its execution-engine
++history moves at a different pace from the native OS2HOST32 loader, so WHP
++milestone material stays under `whp/`.  Code which is genuinely shared by both
++loaders belongs in the repository-level `common/` tree.
+ 
+ ## Active product
+ 
+-`src/` contains only source required to build `whp_os2_v2_hi.exe`.  Keep private
+-WHP implementation headers beside the host source here.  Do not put guest test
++`src/` contains only source private to building `whp_os2_v2_hi.exe`: the WHP
++loader, guest scheduler, guest process/thread state, synthetic import veneers,
++guest-memory adapters, callbacks, and subsystem backends.  Do not put guest test
+ programs or milestone backup copies in `src/`.
+ 
+-The top-level WHP `Makefile` must remain a production build: its default build is
+-only `whp_os2_v2_hi.exe`.  Test compilation belongs in scripts/tests and must not
+-silently become part of the loader build.
++The top-level WHP `Makefile` must remain a production build whose default and
++only product is `whp_os2_v2_hi.exe`.  It may compile source from `../common/`, but
++must not grow test binaries or copied native DLL outputs as incidental targets.
++
++## Shared personality boundary
++
++Ordinary OS/2 semantics which both loaders can implement through a pointer-safe
++backend contract belong under `../common/`.  WHP provides adapter operations for:
++
++- validating, reading, mapping, and writing 32-bit guest addresses;
++- translating guest HFILE values;
++- performing host I/O for a guest request;
++- allocating and tracking guest linear memory;
++- loader-specific state required by otherwise common semantics.
++
++Execution-engine operations remain under `whp/src/`: virtual-thread scheduling,
++blocking waits, process creation, callback transitions, guest exit, and far/16-bit
++transitions.  Do not move those into `common/` merely to make source names match.
+ 
+ ## Historical material
+ 
+-`docs/current/` is for the current WHP milestone handoff and snapshot notes.
++`docs/current/` is for the current WHP milestone handoff and validation notes.
+ Superseded milestone packages go to `docs/milestones/`; revision-series notes and
+ patches go to `docs/milestones/revisions/`.
+ 
+@@ -25,19 +42,22 @@ history merely because both loaders implement OS/2 behaviour.
+ 
+ ## Tests and evidence
+ 
+-`tests/guest/` is for OS/2 binaries/source whose purpose is to exercise the WHP
+-runtime.  `tests/host/` is for host-side mocks and regression checks.
++`tests/guest/` is for OS/2 binaries/source whose purpose is to exercise WHP.
++`tests/host/` is for WHP-specific host-side mocks and regression checks.  Portable
++shared-personality tests belong at repository level under `tests/common/`.
+ 
+-`fixtures/` is for stable guest executables/input material.  `validation/` is for
+-captured results proving a particular WHP revision worked.  Neither is product
+-source.
++`fixtures/` contains stable guest executables/input material.  `validation/`
++contains captured results proving a particular WHP revision worked.  Neither is
++product source.
+ 
+-`scripts/` retains build/run helpers for guest programs and historical reproduction.
+-They may describe old layouts; retain them rather than rewriting history unless a
+-new canonical script is explicitly being added.
++`scripts/` retains build/run helpers for guest programs and historical
++reproduction.  They may describe old layouts; retain them rather than rewriting
++history unless a new canonical script is explicitly added.
+ 
+-## Source preservation
++## Source and milestone hygiene
+ 
+-Repository-layout changes move files but do not rewrite the supplied `.c`, `.h`,
+-or `.def` sources.  Functional WHP changes should be made as their own development
+-step so layout cleanup and runtime changes remain independently auditable.
++Layout-only work should preserve supplied source contents.  Functional WHP
++changes should have their own milestone note, catalogue/wiring validation, and
++Windows regression results.  When a new milestone replaces the current handoff,
++move the old current files into a named directory below `docs/milestones/` rather
++than leaving mixed generations in `docs/current/`.
+diff --git a/whp/Makefile b/whp/Makefile
+index 8ab0cf8..6f263c5 100644
+--- a/whp/Makefile
++++ b/whp/Makefile
+@@ -1,17 +1,27 @@
+ # WHP OS/2 V2 loader build
+ #
+ # Build from an x64 Visual Studio Developer Command Prompt.
+-# This Makefile intentionally builds only the active WHP host loader.
+-# Guest test programs, historical probes, and validation tools are retained
+-# under tests/, scripts/, and validation/ but are not production targets.
++# This Makefile intentionally produces only whp_os2_v2_hi.exe.  The loader
++# links the same common DOSCALLS personality sources used by DOSCALLS.DLL;
++# loader-specific scheduling, process and callback operations remain in whp/.
+ 
+ CC := cl
+ CFLAGS ?= /nologo /W4 /O2 /D_CRT_SECURE_NO_WARNINGS
++CPPFLAGS = /I src /I ../common/include
+ LDLIBS ?= WinHvPlatform.lib User32.lib Gdi32.lib
+ 
+ TARGET = whp_os2_v2_hi.exe
+-SRC = src/whp_os2_v2_hi.c
++SRC = \
++	src/whp_os2_v2_hi.c \
++	../common/doscalls/os2_doscalls_core.c \
++	../common/api/os2_api_catalog.c \
++	../common/win32/os2_win32_services.c
+ HEADERS = \
++	../common/include/os2_personality.h \
++	../common/include/os2_doscalls_core.h \
++	../common/include/os2_api_catalog.h \
++	../common/include/os2_win32_services.h \
++	../common/api/os2_api_catalog.inc \
+ 	src/v2_beep.h \
+ 	src/v2_callback.h \
+ 	src/v2_cmdfs.h \
+@@ -33,7 +43,7 @@ HEADERS = \
+ all: $(TARGET)
+ 
+ $(TARGET): $(SRC) $(HEADERS)
+-	$(CC) $(CFLAGS) /I src /Fe:$@ $(SRC) /link $(LDLIBS)
++	$(CC) $(CFLAGS) $(CPPFLAGS) /Fe:$@ $(SRC) /link $(LDLIBS)
+ 
+ clean:
+-	-del /Q $(TARGET) whp_os2_v2_hi.obj 2>NUL
++	-del /Q $(TARGET) whp_os2_v2_hi.obj os2_doscalls_core.obj os2_api_catalog.obj os2_win32_services.obj 2>NUL
+diff --git a/whp/README.md b/whp/README.md
+index 3b339e7..a63cc62 100644
+--- a/whp/README.md
++++ b/whp/README.md
+@@ -1,9 +1,13 @@
+-# WHP OS/2 V2 loader
++# WHP OS/2 V2 loader — Milestone 3 shared personality
+ 
+-This directory contains the Windows Hypervisor Platform (WHP) execution path for
+-OS2HOST32.  It is an active alternative loader/runtime, but it intentionally keeps
+-its own milestone history, regression material, and guest-side experiments separate
+-from the native Win32 loader's project history.
++This directory contains the Windows Hypervisor Platform execution backend for
++OS2HOST32.  It runs untouched flat 32-bit OS/2 LE/LX guest code in a Win64 host
++and crosses into the host personality through synthetic ordinal veneers.
++
++WHP keeps its own loader milestones, guest tests, validation captures, and
++experiments under this directory.  Ordinary system-call semantics which are
++shared with the native loader now live in the repository-level `../common/`
++tree rather than being copied into WHP.
+ 
+ ## Build
+ 
+@@ -15,41 +19,52 @@ The WHP Makefile intentionally has one production output only:
+ 
+     whp_os2_v2_hi.exe
+ 
+-It compiles `src/whp_os2_v2_hi.c` and its private `v2_*.h` implementation headers,
+-linking against Windows Hypervisor Platform plus the Win32 User/GDI libraries.
+-Guest test applications and historical build scripts are retained for reproducibility
+-but are not dependencies of the production build.
++It compiles the active WHP source plus:
++
++    ../common/doscalls/os2_doscalls_core.c
++    ../common/api/os2_api_catalog.c
++    ../common/win32/os2_win32_services.c
++
++The native 32-bit compatibility DLL binaries are not loaded into the Win64 WHP
++process.  Both products compile the same common source with different adapters.
+ 
+ From the repository root, the same build can be entered with:
+ 
+     make whp
+ 
+-The normal root `make all` does not implicitly build WHP because the native loader
+-uses the MinGW toolchain while WHP requires the Win64 Microsoft toolchain and WHP SDK
+-libraries.
++The normal root `make all` does not build WHP implicitly because the native
++runtime uses 32-bit MinGW while WHP requires the Win64 Microsoft toolchain and
++`WinHvPlatform.lib`.
++
++## Shared and intrinsic calls
++
++The first common DOSCALLS set is ordinals 224, 230, 256, 282, 299, 304, 305,
++and 348.  WHP supplies guest-memory, guest-handle, and guest-allocation adapter
++operations to those implementations.
++
++Thread/process exit, guest scheduling, process creation, event/mutex waits,
++callbacks, sleep, and blocking beep behaviour remain WHP intrinsics.  They must
++save or resume virtual CPU state and therefore cannot be replaced by a native
++DLL call.
++
++WHP import output now uses the canonical ordinal catalogue and prints API names
++plus routes such as `[shared]`, `[backend]`, or `[intrinsic]`.
+ 
+ ## Directory layout
+ 
+-- `src/` — active WHP host loader/runtime source.
+-- `docs/current/` — current Milestone 2 handoff, checksum, and process notes.
+-- `docs/milestones/` — earlier WHP milestones and transition patches.
++- `src/` — active WHP loader/runtime and WHP-private implementation headers.
++- `docs/current/` — current Milestone 3 handoff and validation notes.
++- `docs/milestones/` — superseded WHP packages and transition patches.
++- `docs/milestones/m2-package/` — the former current Milestone 2 package,
++  preserved byte-for-byte.
+ - `docs/milestones/revisions/` — R3 through R12 development history.
+ - `tests/guest/` — OS/2 guest programs used to exercise WHP facilities.
+-- `tests/guest/cmd32/` — the guest CMD32 source snapshot used by the WHP milestone.
+-- `tests/host/` — host-side/mock regression checks from the WHP package.
+-- `scripts/` — historical guest build/run command files, including the original
+-  `build-v2.cmd`; these are retained as evidence/workflow helpers, not as the
+-  canonical production build entry point.
+-- `fixtures/` — known guest executable fixtures supplied with the milestone.
+-- `validation/` — captured validation output and Windows test results.
+-- `archive/` — reserved for WHP-specific superseded artifacts that should be kept
+-  but no longer participate in active work.
+-
+-## Organisation rule
+-
+-WHP-specific notes, patches, tests, validation captures, and experimental guest
+-programs stay below `whp/`.  Do not place WHP milestone material in the main
+-project's `docs/milestones/`, and do not move native-loader history into this tree.
+-
+-The WHP source files copied from the Milestone 2 package are preserved without
+-source edits as part of this repository-integration cleanup.
++- `tests/host/` — host-side/mock regression checks retained from WHP work.
++- `scripts/` — historical build/run command files and reproduction helpers.
++- `fixtures/` — stable guest executables supplied with milestones.
++- `validation/` — captured Windows results.
++- `archive/` — superseded WHP-specific artifacts retained outside active work.
++
++See [`DIRECTORY_LAYOUT.md`](DIRECTORY_LAYOUT.md) for subtree rules and
++[`docs/current/README-FIRST.md`](docs/current/README-FIRST.md) for the current
++handoff.
+diff --git a/whp/docs/current/MILESTONE3-SHARED-PERSONALITY.md b/whp/docs/current/MILESTONE3-SHARED-PERSONALITY.md
+new file mode 100644
+index 0000000..59285a2
+--- /dev/null
++++ b/whp/docs/current/MILESTONE3-SHARED-PERSONALITY.md
+@@ -0,0 +1,87 @@
++# WHP Milestone 3 — shared OS/2 personality core
++
++## Milestone statement
++
++The WHP loader no longer owns private implementations of every OS/2 system call.
++For the first migrated API set, untouched guest code and native transformed code
++execute the same loader-neutral DOSCALLS semantics.
++
++## Shared API set
++
++| Ordinal | API | WHP adapter responsibility |
++|---:|---|---|
++| 224 | `DosQueryHType` | guest HFILE to Win32 HANDLE |
++| 230 | `DosGetDateTime` | safe guest write; common Win32 clock service |
++| 256 | `DosSetFilePtr` | guest HFILE seek |
++| 282 | `DosWrite` | map bounded guest buffer and write host handle |
++| 299 | `DosAllocMem` | allocate tracked guest linear range |
++| 304 | `DosFreeMem` | release guest allocation record |
++| 305 | `DosSetMem` | validate guest range; backend commit/protection policy |
++| 348 | `DosQuerySysInfo` | safe result write and shared monotonic clock |
++
++The same `os2_core_*` functions are called from the native `DOSCALLS.DLL`
++exports.  `make wiring-check` enforces both paths.
++
++## Ordinal catalogue
++
++`../common/api/os2_api_catalog.inc` is linked into WHP.  Import resolution,
++`--check`, startup import summaries, and unsupported-call diagnostics can now
++report the API name and its route rather than a bare ordinal.
++
++Catalogue routes are:
++
++- `shared` — common implementation currently active;
++- `backend` — catalogued but still subsystem-specific;
++- `intrinsic` — must control loader/scheduler state;
++- `native-only` — not presently exposed by WHP.
++
++## Memory safety boundary
++
++Every common API receives 32-bit OS/2 addresses.  WHP validates each range
++against the 64 MiB guest RAM mapping before converting it to `Runtime.ram + va`.
++The common implementation cannot receive or dereference a fabricated Win64 host
++pointer from guest code.
++
++## What remains local
++
++WHP still owns process and thread creation/exit, virtual-thread scheduling,
++semaphore wait/wakeup logic, callbacks, far/16-bit transitions, guest DLL mapping,
++`DosSleep`, and the blocking/scheduling portion of `DosBeep`.
++
++Most file/path APIs remain marked `backend` for this milestone.  The catalogue
++makes that remaining migration work visible; they must not be relabelled shared
++until native and WHP actually call one common implementation.
++
++## Build composition
++
++The WHP executable is built from its active loader source plus:
++
++```text
++../common/doscalls/os2_doscalls_core.c
++../common/api/os2_api_catalog.c
++../common/win32/os2_win32_services.c
++```
++
++No x64 clone of the native system DLLs is produced, and no 32-bit DLL is loaded
++into the Win64 process.
++
++## Verification completed in the package workspace
++
++The following toolchain-independent checks pass:
++
++```text
++make verify
++PASS: shared DOSCALLS personality core and ordinal catalogue
++PASS: 247 catalogue entries cover 245 ordinal DLL exports
++PASS: native DOSCALLS and WHP share 8 catalogued DOSCALLS implementations
++```
++
++The common test also passes under GCC and Clang with strict C89 warnings, and
++under AddressSanitizer/UndefinedBehaviorSanitizer.  `le2pe386` plus the catalogue
++compiles cleanly with both host compilers.  Root and WHP production builds pass
++complete dry runs.
++
++This packaging environment does not contain MinGW, Visual C++, Windows headers,
++or Windows Hypervisor Platform, so actual Windows binaries and guest runtime
++results are not claimed here.  Those are the first required Windows validation
++steps in the handoff.
+diff --git a/whp/docs/current/NEXT-CHAT-HANDOFF.md b/whp/docs/current/NEXT-CHAT-HANDOFF.md
+index a8a1f4a..0758b5d 100644
+--- a/whp/docs/current/NEXT-CHAT-HANDOFF.md
++++ b/whp/docs/current/NEXT-CHAT-HANDOFF.md
+@@ -1,75 +1,68 @@
+-# Next-chat handoff — WHP OS/2 V2 Milestone 2
++# WHP Milestone 3 handoff
+ 
+-## Resume instruction
++## Proven before this source migration
+ 
+-This is the known-working checkpoint for Jason Stevens / neozeed's WHP OS/2 runtime. Read MILESTONE2.md, this file, README-M2-PROCESS-R2.md, and README-M2-CMD-R1.md. Inspect the source before changing behavior. Preserve this baseline and make subsequent changes in a new release directory. Do not restart from the older os2host32 native host; it is a reference implementation, not the current execution backend.
++The supplied WHP milestone already proved untouched OS/2 LE execution, DOSCALLS
++hypercall veneers, guest threads, event/mutex synchronization, guest DLL loading,
++file I/O, callbacks, PM/GPI work, and the single-WHP-VP/multiple-saved-context
++scheduler architecture.  The previous handoff remains under
++`whp/docs/milestones/m2-package/` and revision notes remain under
++`whp/docs/milestones/revisions/`.
+ 
+-The user asked to wrap up and freeze this pass, not implement another feature. Future phase selection is still open. Suggested next work is a focused CMD process/pipeline regression pass, then SESMGR/START and PM launch integration. Do not interpret suggestions as already implemented or tested.
++## New architecture to preserve
+ 
+-## Project goal and execution model
++Do not put ordinary DOSCALLS semantics back into the main WHP switch when an API
++is marked `OS2_API_ROUTE_SHARED`.
+ 
+-Run OS/2 binaries on modern 64-bit Windows through a Win64 Windows Hypervisor Platform host. Guest x86 instructions run inside WHP. OS/2 APIs are serviced in the host using synthetic imports: MOV EAX, encoded API / OUT 0xF0 / RET. This is an OS/2 personality, not a booted OS/2 kernel.
++For a new shared API:
+ 
+-Main source: whp_os2_v2_hi.c. One virtual processor per guest process; cooperative guest thread scheduler. Child processes run independent instances of the same Win64 host. Guest RAM is 64 MiB with flat protected-mode addressing; no guest paging. Guest pointers must always be range-checked and translated through guest RAM, never cast directly to host pointers.
++1. Define the pointer-safe backend operation in `common/include/`.
++2. Implement validation and OS/2 semantics in `common/<subsystem>/`.
++3. Make the native DLL export a thin veneer over that implementation.
++4. Make WHP call the same implementation through its guest adapter.
++5. Change the ordinal catalogue route to `SHARED`.
++6. Extend `tests/common/` and `tools/check_shared_personality.py`.
++7. Run `make verify` and both Windows regression paths.
+ 
+-Milestone1 includes LE/LX loading, guest DLLs, thread/process information, file I/O and directory search, event/mutex/queue waits, thread-slot/stack recycling, host-to-guest callbacks, PM windows/input/painting, GPI bitmaps and Sarien support. Read the historical release notes for their precise scope; it is not complete OS/2 compatibility.
++Do not force thread/process/scheduler operations through the common layer.  Those
++remain loader intrinsics.
+ 
+-## Milestone2 source map
++## Immediate Windows validation
+ 
+-- v2_far16.h: recognizes the C/386 migration-thunk patterns in the supplied CMD32. Installs guest veneers for seven VIO/KBD imports. This is not general 16-bit execution. The original executable file is never rewritten.
+-- v2_console.h: keyboard, cursor, TTY, mode/scroll support; guest-aware WAIT_KBD and console mode restoration.
+-- v2_cmdfs.h: CMD filesystem/current-directory/standard-handle duplication/pipe/app-type subset.
+-- v2_process_boot.h: private parent-to-child shared mapping, bounded startup packet validation, guest arguments/environment transfer, diagnostic/guest-stderr separation. The final warning fix initializes guest_err=NULL and guards the final SetStdHandle with that saved handle.
+-- v2_process.h: DosExecPgm (DOSCALLS.283), DosWaitChild (.280), child tracking, completion polling and collection.
+-- whp_os2_v2_hi.c: dispatch and scheduler integration; THREAD_WAIT_PROCESS; child startup switch --whp-child; PID/PPID and child completion publication.
+-- cmd32-source/: recovered CMD32 source and bridge probe. The supplied cmd32os2_os2.exe is the binary exercised by the user.
+-- process1.c / execchild.c: C/386 guest process regression fixtures.
+-- tests/process-check.inc and tests/process-mock.h: native process behavior checks with mocked Windows process APIs.
++Build native artifacts with 32-bit MinGW and run at least:
+ 
+-## Process semantics and limits
++```text
++hi.exe
++thread1.exe
++memory torture
++CMD32 file-I/O smoke tests
++phoon/Sarien regressions as applicable
++```
+ 
+-EXEC_SYNC=0 waits cooperatively; EXEC_ASYNCRESULT=2 returns a waitable PID after child startup acknowledgment. RESULTCODES for async launch carries PID in codeTerminate and zero codeResult. DosWaitChild supports DCWA_PROCESS, WAIT/NOWAIT, PID-specific or any direct child (PID zero). It returns 129 when a matching child is still running and NOWAIT was requested, 128 when no eligible child exists. Completed results are collected once. A signaled process is checked before reading its exit code, preserving legitimate exit code 259.
++Build WHP from an x64 Visual Studio Developer Command Prompt and run untouched:
+ 
+-Up to 32 tracked children; slots recycle on collection. Async children are not killed when their parent closes tracking handles. Program paths, the original argument block, environment block, current directory and standard handles 0/1/2 are conveyed to the child host. CRT diagnostics use a separate inherited handle so guest redirection stays clean. Host PID and parent PID are exposed in the guest PIB.
++```text
++whp_os2_v2_hi.exe hi.exe
++whp_os2_v2_hi.exe thread1.exe
++whp_os2_v2_hi.exe <event/mutex torture executable>
++whp_os2_v2_hi.exe <memory torture executable>
++whp_os2_v2_hi.exe --check <representative LE/LX image>
++```
+ 
+-No SESMGR START implementation yet. No general EXEC_ASYNC/background/trace/load modes, process-tree waits, signals/kill, cross-process shared memory or nonstandard guest-file-handle inheritance. Pipes have plumbing, but full CMD pipelines have not been certified on this WHP backend. The CMD welcome banner advertises historical native-host features and still mentions OS2HOST32; it does not establish WHP feature coverage.
++Expected import output now includes names and routes, for example:
+ 
+-## ABI/toolchain rules
++```text
++DOSCALLS .282 DosWrite [shared]
++DOSCALLS .311 DosCreateThread [intrinsic]
++```
+ 
+-Guest compiler is Microsoft C/386 6.00.081 with old OS/2 includes/libs. Use INCL_DOSPROCESS / INCL_DOSFILEMGR and official os2.h declarations; don't hand-declare Dos APIs (wrong decoration/calling convention previously caused unresolved symbols). M_I386 is predefined by the real compiler. Keep tests C89-compatible. Link through the user's LINK386 shim (run286), libc.lib and os2386.lib; C386LIB defaults to \c386\lib. Both old LE and newer LX linkers have been used successfully.
++## Recommended next migration
+ 
+-Host uses modern x64 MSVC and Windows SDK, linking WinHvPlatform, User32 and Gdi32. It does not build with the guest compiler. This workspace's Linux native harness is not a full MSVC or WHP execution substitute.
++The next useful common cut is the nonblocking file-handle layer: `DosRead`,
++`DosClose`, `DosSetFileSize`, and file-status packing.  Treat `DosOpen` carefully:
++the tree contains both the common eight-argument ABI and a pre-release
++nine-argument C/386 form, so its catalogue argument size is intentionally zero
++until the ABI adapter is explicit.
+ 
+-## Compatibility details worth preserving
+-
+-CMD uses GA directory-find layout via run-cmd32.cmd (`WHP_OS2_FIND_LAYOUT=GA`). Sarien uses the beta compatibility path and launcher-specific options; do not globally switch structure layout to fix one program.
+-
+-The seven recognized migration imports are KBDCALLS.4 KbdCharIn, .13 KbdFlushBuffer; VIOCALLS.7 VioScrollUp, .9 VioGetCurPos, .15 VioSetCurPos, .19 VioWrtTTY, .21 VioGetMode. DOSCALLS.425 is the recognized C/386 pointer-token helper with register ABI. Don't replace its behavior with an ordinary stack-argument API stub.
+-
+-Console cleanup restores cooked mode before child launch so child DosRead can work. Child CRT stderr descriptor replacement must preserve a distinct guest handle 2, including restoring the Win32 standard handle after _dup2. The warning-fixed code was built cleanly on Windows and rechecked with phoon.
+-
+-## Verification and known evidence
+-
+-MILESTONE2.md records exactly what Jason validated. Full Windows build/testing remains on his machine; don't claim local WHP tests. Native harness checks cover process packet transfer, cooperative waiting, PID/wait/nowait, single collection, exit259, startup failure and bounds, plus console, callbacks, scheduler, PM and GPI helpers. Loader checks exercise supplied CMD32/hello LE/LX and reject a corrupted recognized thunk. These are unit/harness checks, not full-system certification.
+-
+-Useful Linux commands from the extracted release root:
+-
+-    ASAN_OPTIONS=detect_leaks=0 python3 tests/run-sync-check.py
+-    ASAN_OPTIONS=detect_leaks=0 python3 tests/run-loader-check.py cmd32os2_os2.exe hi.exe hi-lx.exe
+-
+-Windows commands:
+-
+-    build-v2.cmd
+-    build-c386-process.cmd
+-    run-process.cmd
+-    run-cmd32.cmd -c "hi.exe"
+-    run-cmd32.cmd -c "execchild.exe 37"
+-    run-cmd32.cmd
+-
+-Use the appropriate host/guest compiler environment for each build command. To explicitly validate shell status next time, type execchild.exe 37 followed by echo %ERRORLEVEL% inside the guest CMD, avoiding accidental expansion by an outer host command shell.
+-
+-## Suggested next bounded task
+-
+-Add focused tests for stdin/stdout/stderr inheritance, a small producer | consumer pipeline with EOF/handle-close behavior, and interactive ERRORLEVEL. Address observed failures before broadening process semantics. Then design SESMGR/START support and PM launch routing for Sarien; be explicit about console/session ownership and whether parents wait. Full 16-bit execution and a software CPU fallback are separate future projects.
+-
+-Use short practical test suites; Jason already ran many regressions and stopped a long 50-run torture loop after repeated 30-worker/1000-round passes. Preserve existing milestone archives and avoid requiring needless full torture reruns for small changes.
++`DosSleep`, process APIs, thread APIs, and blocking semaphore calls should stay
++intrinsic because WHP must deschedule and later restore a guest CPU context.
+diff --git a/whp/docs/current/README-FIRST.md b/whp/docs/current/README-FIRST.md
+index 02ad29f..b3d0e19 100644
+--- a/whp/docs/current/README-FIRST.md
++++ b/whp/docs/current/README-FIRST.md
+@@ -1,5 +1,43 @@
+-# WHP OS/2 V2 Milestone 2 — frozen checkpoint
++# Read first — WHP Milestone 3 shared personality
+ 
+-Start with MILESTONE2.md, then NEXT-CHAT-HANDOFF.md.
++Milestone 3 removes the first duplicated DOSCALLS implementations from the WHP
++loader and makes native `DOSCALLS.DLL` and WHP compile the same common source.
+ 
+-This is the Windows-validated M2 process R2 warning-fixed runtime, frozen without further code changes. README-M2-PROCESS-R2.md supplies build/test instructions; older notes are historical.
++## Build
++
++From an x64 Visual Studio Developer Command Prompt:
++
++    cd whp
++    make clean
++    make
++
++Only `whp_os2_v2_hi.exe` is produced.
++
++From the repository root, `make whp` invokes the same build.
++
++## What changed
++
++- A canonical API ordinal catalogue now names and classifies all compatibility
++  DLL exports plus the WHP-only DOSCALLS ordinals.
++- Eight DOSCALLS implementations are shared by native and WHP.
++- WHP uses a guest-safe adapter; no common routine dereferences a guest address
++  as a Win64 pointer.
++- Date/time acquisition and monotonic time are common Win32 services.
++- The transformer and WHP diagnostics resolve ordinal imports to API names.
++- Threading, processes, semaphores, callbacks, sleep, and other virtual-CPU
++  operations remain WHP intrinsics.
++
++Read `MILESTONE3-SHARED-PERSONALITY.md` for the detailed boundary and
++`NEXT-CHAT-HANDOFF.md` before continuing development.
++
++For review and archival:
++
++- `M2-TO-M3-SHARED-PERSONALITY.patch` is the complete source/documentation
++  transition from the integrated Milestone 2 tree to this milestone.  It does
++  not include itself or the checksum manifest.
++- `SHA256SUMS-MILESTONE3.txt` covers every packaged file except itself and the
++  repository's private `.git/` directory.
++
++The previous current handoff is preserved unchanged under:
++
++    whp/docs/milestones/m2-package/
+diff --git a/whp/docs/current/VALIDATION.md b/whp/docs/current/VALIDATION.md
+new file mode 100644
+index 0000000..8f36c76
+--- /dev/null
++++ b/whp/docs/current/VALIDATION.md
+@@ -0,0 +1,27 @@
++# Milestone 3 validation status
++
++## Passed in the packaging environment
++
++- `make verify`
++- GCC strict-C89 common-core build and execution
++- Clang strict-C89 common-core build and execution
++- GCC AddressSanitizer/UndefinedBehaviorSanitizer common-core execution
++- GCC and Clang host builds of `le2pe386` with the ordinal catalogue
++- transformation of `whp/fixtures/hi.exe` with both host builds; the import
++  summary resolved all eight DOSCALLS ordinals by API name
++- Python syntax checks for catalogue and wiring validators
++- complete `make -n all` and `make -n whp` dependency dry runs
++- whitespace/error check with `git diff --check`
++
++## Not available in the packaging environment
++
++The environment does not contain:
++
++- `i686-w64-mingw32-gcc`;
++- Microsoft `cl`/linker;
++- Windows SDK or `WinHvPlatform.h`;
++- a Windows Hypervisor Platform runtime.
++
++Therefore this package does not claim that fresh Windows binaries were linked or
++that the guest regressions were rerun after refactoring.  Perform the Windows
++validation sequence in `NEXT-CHAT-HANDOFF.md` before declaring runtime parity.
+diff --git a/whp/docs/current/MILESTONE2.md b/whp/docs/milestones/m2-package/MILESTONE2.md
+similarity index 100%
+rename from whp/docs/current/MILESTONE2.md
+rename to whp/docs/milestones/m2-package/MILESTONE2.md
+diff --git a/whp/docs/milestones/m2-package/NEXT-CHAT-HANDOFF.md b/whp/docs/milestones/m2-package/NEXT-CHAT-HANDOFF.md
+new file mode 100644
+index 0000000..a8a1f4a
+--- /dev/null
++++ b/whp/docs/milestones/m2-package/NEXT-CHAT-HANDOFF.md
+@@ -0,0 +1,75 @@
++# Next-chat handoff — WHP OS/2 V2 Milestone 2
++
++## Resume instruction
++
++This is the known-working checkpoint for Jason Stevens / neozeed's WHP OS/2 runtime. Read MILESTONE2.md, this file, README-M2-PROCESS-R2.md, and README-M2-CMD-R1.md. Inspect the source before changing behavior. Preserve this baseline and make subsequent changes in a new release directory. Do not restart from the older os2host32 native host; it is a reference implementation, not the current execution backend.
++
++The user asked to wrap up and freeze this pass, not implement another feature. Future phase selection is still open. Suggested next work is a focused CMD process/pipeline regression pass, then SESMGR/START and PM launch integration. Do not interpret suggestions as already implemented or tested.
++
++## Project goal and execution model
++
++Run OS/2 binaries on modern 64-bit Windows through a Win64 Windows Hypervisor Platform host. Guest x86 instructions run inside WHP. OS/2 APIs are serviced in the host using synthetic imports: MOV EAX, encoded API / OUT 0xF0 / RET. This is an OS/2 personality, not a booted OS/2 kernel.
++
++Main source: whp_os2_v2_hi.c. One virtual processor per guest process; cooperative guest thread scheduler. Child processes run independent instances of the same Win64 host. Guest RAM is 64 MiB with flat protected-mode addressing; no guest paging. Guest pointers must always be range-checked and translated through guest RAM, never cast directly to host pointers.
++
++Milestone1 includes LE/LX loading, guest DLLs, thread/process information, file I/O and directory search, event/mutex/queue waits, thread-slot/stack recycling, host-to-guest callbacks, PM windows/input/painting, GPI bitmaps and Sarien support. Read the historical release notes for their precise scope; it is not complete OS/2 compatibility.
++
++## Milestone2 source map
++
++- v2_far16.h: recognizes the C/386 migration-thunk patterns in the supplied CMD32. Installs guest veneers for seven VIO/KBD imports. This is not general 16-bit execution. The original executable file is never rewritten.
++- v2_console.h: keyboard, cursor, TTY, mode/scroll support; guest-aware WAIT_KBD and console mode restoration.
++- v2_cmdfs.h: CMD filesystem/current-directory/standard-handle duplication/pipe/app-type subset.
++- v2_process_boot.h: private parent-to-child shared mapping, bounded startup packet validation, guest arguments/environment transfer, diagnostic/guest-stderr separation. The final warning fix initializes guest_err=NULL and guards the final SetStdHandle with that saved handle.
++- v2_process.h: DosExecPgm (DOSCALLS.283), DosWaitChild (.280), child tracking, completion polling and collection.
++- whp_os2_v2_hi.c: dispatch and scheduler integration; THREAD_WAIT_PROCESS; child startup switch --whp-child; PID/PPID and child completion publication.
++- cmd32-source/: recovered CMD32 source and bridge probe. The supplied cmd32os2_os2.exe is the binary exercised by the user.
++- process1.c / execchild.c: C/386 guest process regression fixtures.
++- tests/process-check.inc and tests/process-mock.h: native process behavior checks with mocked Windows process APIs.
++
++## Process semantics and limits
++
++EXEC_SYNC=0 waits cooperatively; EXEC_ASYNCRESULT=2 returns a waitable PID after child startup acknowledgment. RESULTCODES for async launch carries PID in codeTerminate and zero codeResult. DosWaitChild supports DCWA_PROCESS, WAIT/NOWAIT, PID-specific or any direct child (PID zero). It returns 129 when a matching child is still running and NOWAIT was requested, 128 when no eligible child exists. Completed results are collected once. A signaled process is checked before reading its exit code, preserving legitimate exit code 259.
++
++Up to 32 tracked children; slots recycle on collection. Async children are not killed when their parent closes tracking handles. Program paths, the original argument block, environment block, current directory and standard handles 0/1/2 are conveyed to the child host. CRT diagnostics use a separate inherited handle so guest redirection stays clean. Host PID and parent PID are exposed in the guest PIB.
++
++No SESMGR START implementation yet. No general EXEC_ASYNC/background/trace/load modes, process-tree waits, signals/kill, cross-process shared memory or nonstandard guest-file-handle inheritance. Pipes have plumbing, but full CMD pipelines have not been certified on this WHP backend. The CMD welcome banner advertises historical native-host features and still mentions OS2HOST32; it does not establish WHP feature coverage.
++
++## ABI/toolchain rules
++
++Guest compiler is Microsoft C/386 6.00.081 with old OS/2 includes/libs. Use INCL_DOSPROCESS / INCL_DOSFILEMGR and official os2.h declarations; don't hand-declare Dos APIs (wrong decoration/calling convention previously caused unresolved symbols). M_I386 is predefined by the real compiler. Keep tests C89-compatible. Link through the user's LINK386 shim (run286), libc.lib and os2386.lib; C386LIB defaults to \c386\lib. Both old LE and newer LX linkers have been used successfully.
++
++Host uses modern x64 MSVC and Windows SDK, linking WinHvPlatform, User32 and Gdi32. It does not build with the guest compiler. This workspace's Linux native harness is not a full MSVC or WHP execution substitute.
++
++## Compatibility details worth preserving
++
++CMD uses GA directory-find layout via run-cmd32.cmd (`WHP_OS2_FIND_LAYOUT=GA`). Sarien uses the beta compatibility path and launcher-specific options; do not globally switch structure layout to fix one program.
++
++The seven recognized migration imports are KBDCALLS.4 KbdCharIn, .13 KbdFlushBuffer; VIOCALLS.7 VioScrollUp, .9 VioGetCurPos, .15 VioSetCurPos, .19 VioWrtTTY, .21 VioGetMode. DOSCALLS.425 is the recognized C/386 pointer-token helper with register ABI. Don't replace its behavior with an ordinary stack-argument API stub.
++
++Console cleanup restores cooked mode before child launch so child DosRead can work. Child CRT stderr descriptor replacement must preserve a distinct guest handle 2, including restoring the Win32 standard handle after _dup2. The warning-fixed code was built cleanly on Windows and rechecked with phoon.
++
++## Verification and known evidence
++
++MILESTONE2.md records exactly what Jason validated. Full Windows build/testing remains on his machine; don't claim local WHP tests. Native harness checks cover process packet transfer, cooperative waiting, PID/wait/nowait, single collection, exit259, startup failure and bounds, plus console, callbacks, scheduler, PM and GPI helpers. Loader checks exercise supplied CMD32/hello LE/LX and reject a corrupted recognized thunk. These are unit/harness checks, not full-system certification.
++
++Useful Linux commands from the extracted release root:
++
++    ASAN_OPTIONS=detect_leaks=0 python3 tests/run-sync-check.py
++    ASAN_OPTIONS=detect_leaks=0 python3 tests/run-loader-check.py cmd32os2_os2.exe hi.exe hi-lx.exe
++
++Windows commands:
++
++    build-v2.cmd
++    build-c386-process.cmd
++    run-process.cmd
++    run-cmd32.cmd -c "hi.exe"
++    run-cmd32.cmd -c "execchild.exe 37"
++    run-cmd32.cmd
++
++Use the appropriate host/guest compiler environment for each build command. To explicitly validate shell status next time, type execchild.exe 37 followed by echo %ERRORLEVEL% inside the guest CMD, avoiding accidental expansion by an outer host command shell.
++
++## Suggested next bounded task
++
++Add focused tests for stdin/stdout/stderr inheritance, a small producer | consumer pipeline with EOF/handle-close behavior, and interactive ERRORLEVEL. Address observed failures before broadening process semantics. Then design SESMGR/START support and PM launch routing for Sarien; be explicit about console/session ownership and whether parents wait. Full 16-bit execution and a software CPU fallback are separate future projects.
++
++Use short practical test suites; Jason already ran many regressions and stopped a long 50-run torture loop after repeated 30-worker/1000-round passes. Preserve existing milestone archives and avoid requiring needless full torture reruns for small changes.
+diff --git a/whp/docs/milestones/m2-package/README-FIRST.md b/whp/docs/milestones/m2-package/README-FIRST.md
+new file mode 100644
+index 0000000..02ad29f
+--- /dev/null
++++ b/whp/docs/milestones/m2-package/README-FIRST.md
+@@ -0,0 +1,5 @@
++# WHP OS/2 V2 Milestone 2 — frozen checkpoint
++
++Start with MILESTONE2.md, then NEXT-CHAT-HANDOFF.md.
++
++This is the Windows-validated M2 process R2 warning-fixed runtime, frozen without further code changes. README-M2-PROCESS-R2.md supplies build/test instructions; older notes are historical.
+diff --git a/whp/docs/current/README-M2-PROCESS-R2.md b/whp/docs/milestones/m2-package/README-M2-PROCESS-R2.md
+similarity index 100%
+rename from whp/docs/current/README-M2-PROCESS-R2.md
+rename to whp/docs/milestones/m2-package/README-M2-PROCESS-R2.md
+diff --git a/whp/docs/current/SHA256SUMS-MILESTONE2.txt b/whp/docs/milestones/m2-package/SHA256SUMS-MILESTONE2.txt
+similarity index 100%
+rename from whp/docs/current/SHA256SUMS-MILESTONE2.txt
+rename to whp/docs/milestones/m2-package/SHA256SUMS-MILESTONE2.txt
+diff --git a/whp/src/v2_fileio.h b/whp/src/v2_fileio.h
+index 6d3c01e..144077b 100644
+--- a/whp/src/v2_fileio.h
++++ b/whp/src/v2_fileio.h
+@@ -192,25 +192,6 @@ static uint32_t dispatch_fileio(struct Runtime *rt, uint32_t ordinal,
+             return file_status(rt->ram + a3, fi.dwFileAttributes, fi.nFileSizeHigh,
+                                fi.nFileSizeLow, &fi.ftCreationTime, &fi.ftLastAccessTime, &fi.ftLastWriteTime);
+         }
+-    case 230:
+-        if (!file_buffer(a1, 12)) return OS2_ERROR_INVALID_PARAMETER;
+-        {
+-            SYSTEMTIME st;
+-            TIME_ZONE_INFORMATION tz;
+-            DWORD id;
+-            LONG bias;
+-            uint8_t *p = rt->ram + a1;
+-            GetLocalTime(&st);
+-            id = GetTimeZoneInformation(&tz);
+-            bias = id == TIME_ZONE_ID_INVALID ? -1 : tz.Bias;
+-            if (id == TIME_ZONE_ID_STANDARD) bias += tz.StandardBias;
+-            if (id == TIME_ZONE_ID_DAYLIGHT) bias += tz.DaylightBias;
+-            p[0]=(uint8_t)st.wHour; p[1]=(uint8_t)st.wMinute; p[2]=(uint8_t)st.wSecond;
+-            p[3]=(uint8_t)(st.wMilliseconds/10u); p[4]=(uint8_t)st.wDay; p[5]=(uint8_t)st.wMonth;
+-            file_put16(p+6,st.wYear); file_put16(p+8,(uint16_t)bias);
+-            p[10]=(uint8_t)st.wDayOfWeek; p[11]=0;
+-        }
+-        return 0;
+     default: return OS2_ERROR_INVALID_FUNCTION;
+     }
+ }
+diff --git a/whp/src/whp_os2_v2_hi.c b/whp/src/whp_os2_v2_hi.c
+index 3c31ff9..ec1b089 100644
+--- a/whp/src/whp_os2_v2_hi.c
++++ b/whp/src/whp_os2_v2_hi.c
+@@ -1,29 +1,22 @@
+ /*
+  * whp_os2_v2_hi.c
+  *
+- * OS/2 V2 experimental runtime: execute untouched flat 32-bit OS/2 LE code
+- * directly under Windows Hypervisor Platform from a Win64 host.
++ * OS/2 V2 experimental runtime: execute untouched flat 32-bit OS/2 LE/LX
++ * code under Windows Hypervisor Platform from a Win64 host.
+  *
+- * R4 adds normal/zero LX pages and --check; R3 extends the proven hi.exe/thread/event-semaphore path with real guest
+- * OS/2 user DLL loading. DLL code/data are mapped into the same guest process
+- * address space as the EXE and are therefore visible to every virtual thread.
++ * Milestone 3 links the loader-neutral OS/2 personality core also used by
++ * native DOSCALLS.DLL.  Ordinary shared APIs receive explicit 32-bit guest
++ * addresses through a bounded WHP adapter; scheduler, process, callback, and
++ * synchronization operations remain WHP intrinsics.
+  *
+- * What this prototype does:
+- *   - maps the main EXE at preferred guest addresses and rebases user DLLs
+- *   - applies internal OFF32 relocations
+- *   - resolves DOSCALLS REL32 imports to shared synthetic guest stubs
+- *   - loads flat 32-bit user DLLs into a reserved guest module arena
+- *   - resolves EXE/DLL imports by ordinal and by name to guest export addresses
+- *   - recursively resolves a guest DLL's own imports
+- *   - each stub performs: MOV EAX, hypercall-id / OUT 0xF0,EAX / RET
+- *   - builds the same OS/2 C/386 startup environment/stack used by V1
+- *   - enters the real LE entry point in flat 32-bit protected mode under WHP
+- *   - implements the DOSCALLS subset needed by hi/thread/event-sem tests
++ * The loader also retains the proven LE/LX object mapper, fixups, synthetic
++ * ordinal veneers, guest DLL loading, saved guest-thread contexts, file/path
++ * backends, synchronization, console, PM/GPI, and callback machinery from the
++ * earlier WHP revisions.
+  *
+  * Build from an x64 Visual Studio Developer Command Prompt:
+  *
+- *   cl /nologo /W4 /O2 /D_CRT_SECURE_NO_WARNINGS whp_os2_v2_hi.c ^
+- *      /link WinHvPlatform.lib User32.lib Gdi32.lib
++ *   make
+  *
+  * Run:
+  *
+@@ -56,6 +49,10 @@
+ #include <io.h>
+ #include <fcntl.h>
+ 
++#include "os2_api_catalog.h"
++#include "os2_doscalls_core.h"
++#include "os2_win32_services.h"
++
+ #pragma comment(lib, "WinHvPlatform.lib")
+ 
+ #define RAM_SIZE            0x04000000u  /* 64 MiB */
+@@ -1105,6 +1102,7 @@ static int check_image(const char *path)
+ {
+     struct LeImage x;
+     struct Runtime rt;
++    const struct Os2ApiDescriptor *api;
+     uint32_t i;
+     memset(&x, 0, sizeof(x));
+     memset(&rt, 0, sizeof(rt));
+@@ -1124,8 +1122,16 @@ static int check_image(const char *path)
+     fprintf(stderr, "fixups: %u internal records / %u sites; %u external sites\n",
+            x.internal_records, x.internal_sites, x.external_sites);
+     for (i = 0; i < x.nimports; ++i) {
+-        fprintf(stderr, "  %s.%u (%u sites)\n", x.modules[x.imports[i].module].name,
+-               x.imports[i].ordinal, x.imports[i].sites);
++        const char *module_name;
++        module_name = x.modules[x.imports[i].module].name;
++        api = os2_api_lookup(module_name, x.imports[i].ordinal);
++        if (api != NULL)
++            fprintf(stderr, "  %s.%u %s [%s] (%u sites)\n",
++                    module_name, x.imports[i].ordinal, api->api_name,
++                    os2_api_route_name(api->route), x.imports[i].sites);
++        else
++            fprintf(stderr, "  %s.%u [uncatalogued] (%u sites)\n",
++                    module_name, x.imports[i].ordinal, x.imports[i].sites);
+         x.imports[i].address = GUEST_STUB_BASE + i * 8u;
+     }
+     for (i = 0; i < x.nname_imports; ++i)
+@@ -1388,6 +1394,7 @@ static void resolve_imports(struct Runtime *rt, struct LeImage *x,
+ 
+     for (i = 0; i < x->nimports; ++i) {
+         const char *mod = x->modules[x->imports[i].module].name;
++        const struct Os2ApiDescriptor *api;
+         if (_stricmp(mod, "DOSCALLS") == 0) {
+             addr = hostcall_stub(rt, HC_DOSCALLS, x->imports[i].ordinal);
+         } else if (_stricmp(mod,"VIOCALLS")==0 || _stricmp(mod,"KBDCALLS")==0) {
+@@ -1414,9 +1421,20 @@ static void resolve_imports(struct Runtime *rt, struct LeImage *x,
+             fatal("guest DLL ordinal import resolution failed");
+         }
+         x->imports[i].address = addr;
+-        fprintf(stderr, "v2: resolve %-12s .%-4u -> %08X  (%u site%s) [%s]\n",
+-               mod, x->imports[i].ordinal, addr, x->imports[i].sites,
+-               x->imports[i].sites == 1 ? "" : "s", owner);
++        api = os2_api_lookup(mod, x->imports[i].ordinal);
++        if (api != NULL)
++            fprintf(stderr,
++                    "v2: resolve %-12s .%-4u %-24s [%-11s] -> %08X  (%u site%s) [%s]\n",
++                    mod, x->imports[i].ordinal, api->api_name,
++                    os2_api_route_name(api->route), addr,
++                    x->imports[i].sites,
++                    x->imports[i].sites == 1 ? "" : "s", owner);
++        else
++            fprintf(stderr,
++                    "v2: resolve %-12s .%-4u %-24s [%-11s] -> %08X  (%u site%s) [%s]\n",
++                    mod, x->imports[i].ordinal, "?", "uncatalogued", addr,
++                    x->imports[i].sites,
++                    x->imports[i].sites == 1 ? "" : "s", owner);
+     }
+ 
+     for (i = 0; i < x->nname_imports; ++i) {
+@@ -1704,6 +1722,178 @@ static struct GuestAlloc *find_alloc(struct Runtime *rt, uint32_t base)
+     return NULL;
+ }
+ 
++/* WHP adapter for the loader-neutral OS/2 personality core. */
++static os2_api_ret_t whp_validate_memory(void *opaque,
++                                         os2_addr32_t address,
++                                         uint32_t length,
++                                         uint32_t access)
++{
++    struct Runtime *rt;
++    (void)access;
++    rt = (struct Runtime *)opaque;
++    if (rt == NULL)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    if (length != 0u && address == 0u)
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    return guest_range(address, length) ? OS2_PERSONALITY_NO_ERROR :
++                                         OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++}
++
++static os2_api_ret_t whp_write_memory(void *opaque,
++                                      os2_addr32_t address,
++                                      const void *source,
++                                      uint32_t length)
++{
++    struct Runtime *rt;
++    rt = (struct Runtime *)opaque;
++    if (rt == NULL || (length != 0u && !guest_range(address, length)))
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    if (length != 0u)
++        memcpy(rt->ram + address, source, (size_t)length);
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t whp_map_read_memory(void *opaque,
++                                         os2_addr32_t address,
++                                         uint32_t length,
++                                         const void **host_pointer)
++{
++    struct Runtime *rt;
++    rt = (struct Runtime *)opaque;
++    if (rt == NULL || host_pointer == NULL ||
++        (length != 0u && !guest_range(address, length)))
++        return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
++    *host_pointer = length != 0u ? (const void *)(rt->ram + address) : NULL;
++    return OS2_PERSONALITY_NO_ERROR;
++}
++
++static os2_api_ret_t whp_query_handle_type(void *opaque,
++                                           os2_handle32_t hfile,
++                                           uint32_t *type,
++                                           uint32_t *attributes)
++{
++    struct Runtime *rt;
++    HANDLE h;
++    DWORD native_type;
++    rt = (struct Runtime *)opaque;
++    h = os2_handle(rt, hfile);
++    if (h == INVALID_HANDLE_VALUE)
++        return OS2_ERROR_INVALID_HANDLE;
++    native_type = GetFileType(h);
++    *type = native_type == FILE_TYPE_CHAR ? 1u :
++            (native_type == FILE_TYPE_PIPE ? 2u : 0u);
++    *attributes = 0u;
++    return OS2_NO_ERROR;
++}
++
++static os2_api_ret_t whp_write_handle(void *opaque,
++                                      os2_handle32_t hfile,
++                                      const void *buffer,
++                                      uint32_t length,
++                                      uint32_t *actual)
++{
++    struct Runtime *rt;
++    HANDLE h;
++    DWORD done;
++    const void *native_buffer;
++    rt = (struct Runtime *)opaque;
++    h = os2_handle(rt, hfile);
++    if (h == INVALID_HANDLE_VALUE)
++        return OS2_ERROR_INVALID_HANDLE;
++    done = 0;
++    native_buffer = length != 0u ? buffer : (const void *)"";
++    if (!WriteFile(h, native_buffer, (DWORD)length, &done, NULL)) {
++        *actual = (uint32_t)done;
++        return (os2_api_ret_t)GetLastError();
++    }
++    *actual = (uint32_t)done;
++    return OS2_NO_ERROR;
++}
++
++static os2_api_ret_t whp_set_file_pointer(void *opaque,
++                                          os2_handle32_t hfile,
++                                          os2_long32_t distance,
++                                          uint32_t method,
++                                          uint32_t *new_position)
++{
++    struct Runtime *rt;
++    HANDLE h;
++    DWORD native_method;
++    DWORD position;
++    rt = (struct Runtime *)opaque;
++    h = os2_handle(rt, hfile);
++    if (h == INVALID_HANDLE_VALUE)
++        return OS2_ERROR_INVALID_HANDLE;
++    native_method = method == 0u ? FILE_BEGIN :
++                    (method == 1u ? FILE_CURRENT : FILE_END);
++    SetLastError(NO_ERROR);
++    position = SetFilePointer(h, (LONG)distance, NULL, native_method);
++    if (position == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR)
++        return (os2_api_ret_t)GetLastError();
++    *new_position = (uint32_t)position;
++    return OS2_NO_ERROR;
++}
++
++static os2_api_ret_t whp_allocate_memory(void *opaque,
++                                         uint32_t size,
++                                         uint32_t flags,
++                                         uint32_t reserved,
++                                         os2_addr32_t *base)
++{
++    struct Runtime *rt;
++    uint32_t address;
++    (void)flags;
++    (void)reserved;
++    rt = (struct Runtime *)opaque;
++    address = alloc_guest(rt, size);
++    if (address == 0u)
++        return OS2_ERROR_NOT_ENOUGH_MEMORY;
++    *base = address;
++    fprintf(stderr, "v2:              -> guest %08X\n", address);
++    return OS2_NO_ERROR;
++}
++
++static os2_api_ret_t whp_free_memory(void *opaque, os2_addr32_t base)
++{
++    struct Runtime *rt;
++    struct GuestAlloc *allocation;
++    rt = (struct Runtime *)opaque;
++    allocation = find_alloc(rt, base);
++    if (allocation == NULL || !allocation->used)
++        return OS2_ERROR_INVALID_PARAMETER;
++    allocation->used = 0;
++    return OS2_NO_ERROR;
++}
++
++static os2_api_ret_t whp_set_memory(void *opaque,
++                                    os2_addr32_t base,
++                                    uint32_t size,
++                                    uint32_t flags)
++{
++    struct Runtime *rt;
++    (void)flags;
++    rt = (struct Runtime *)opaque;
++    if (rt == NULL || !guest_range(base, size))
++        return OS2_ERROR_INVALID_PARAMETER;
++    /* Guest RAM is already host-backed.  Protection/commit tracking remains
++       a WHP backend concern and can be tightened without changing semantics. */
++    return OS2_NO_ERROR;
++}
++
++static const struct Os2PersonalityOps whp_personality_ops = {
++    whp_validate_memory,
++    whp_write_memory,
++    whp_map_read_memory,
++    whp_query_handle_type,
++    whp_write_handle,
++    whp_set_file_pointer,
++    whp_allocate_memory,
++    whp_free_memory,
++    whp_set_memory,
++    os2_win32_query_local_datetime,
++    os2_win32_monotonic_milliseconds
++};
++
+ static HRESULT get_reg64(WHV_PARTITION_HANDLE p, WHV_REGISTER_NAME n, UINT64 *v)
+ {
+     WHV_REGISTER_VALUE r;
+@@ -2081,55 +2271,17 @@ static void dump_regs(struct Runtime *rt, const char *why)
+ 
+ static const char *dos_name(uint32_t ordinal)
+ {
+-    switch (ordinal) {
+-    case 223: return "DosQueryPathInfo";
+-    case 230: return "DosGetDateTime";
+-    case 229: return "DosSleep";
+-    case 286: return "DosBeep";
+-    case 257: return "DosClose";
+-    case 259: return "DosDelete";
+-    case 272: return "DosSetFileSize";
+-    case 273: return "DosOpen";
+-    case 279: return "DosQueryFileInfo";
+-    case 281: return "DosRead";
+-    case 263: return "DosFindClose";
+-    case 264: return "DosFindFirst";
+-    case 265: return "DosFindNext";
+-    case 224: return "DosQueryHType";
+-    case 234: return "DosExit";
+-    case 256: return "DosSetFilePtr";
+-    case 282: return "DosWrite";
+-    case 299: return "DosAllocMem";
+-    case 304: return "DosFreeMem";
+-    case 305: return "DosSetMem";
+-    case 311: return "DosCreateThread";
+-    case 312: return "DosGetInfoBlocks";
+-    case 324: return "DosCreateEventSem";
+-    case 325: return "DosOpenEventSem";
+-    case 326: return "DosCloseEventSem";
+-    case 327: return "DosResetEventSem";
+-    case 328: return "DosPostEventSem";
+-    case 329: return "DosWaitEventSem";
+-    case 330: return "DosQueryEventSem";
+-    case 331: return "DosCreateMutexSem";
+-    case 332: return "DosOpenMutexSem";
+-    case 333: return "DosCloseMutexSem";
+-    case 334: return "DosRequestMutexSem";
+-    case 335: return "DosReleaseMutexSem";
+-    case 336: return "DosQueryMutexSem";
+-    case 348: return "DosQuerySysInfo";
+-    case 349: return "DosWaitThread";
+-    default:  return "?";
+-    }
++    const char *name;
++    name = os2_api_name("DOSCALLS", ordinal);
++    return name != NULL ? name : "?";
+ }
+ 
+ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t esp)
+ {
+     uint32_t a1, a2, a3, a4, a5;
+-    HANDLE h;
+-    DWORD done, e, ft, method, pos;
+-    struct GuestAlloc *ga;
++    struct Os2PersonalityContext personality;
+ 
++    os2_personality_context_init(&personality, rt, &whp_personality_ops);
+     a1 = guest_u32(rt, esp + 4u);
+     a2 = guest_u32(rt, esp + 8u);
+     a3 = guest_u32(rt, esp + 12u);
+@@ -2147,24 +2299,20 @@ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t
+         fprintf(stderr, "v2: DOSCALLS.%u -> rc=%u\n", ordinal, find_rc);
+         return find_rc;
+     }
+-    case 223: case 230: case 257: case 259:
++    case 223: case 257: case 259:
+     case 272: case 273: case 279: case 281:
+     {
+         uint32_t file_rc = dispatch_fileio(rt, ordinal, esp);
+         fprintf(stderr, "v2: DOSCALLS.%u -> rc=%u\n", ordinal, file_rc);
+         return file_rc;
+     }
++    case 230: /* DosGetDateTime(PDATETIME) */
++        fprintf(stderr, "v2: DOSCALLS.230 DosGetDateTime(%08X) [shared]\n", a1);
++        return os2_core_DosGetDateTime(&personality, a1);
++
+     case 224: /* DosQueryHType(HFILE, PULONG type, PULONG attr) */
+-        fprintf(stderr, "v2: DOSCALLS.224 DosQueryHType(%u,%08X,%08X)\n", a1, a2, a3);
+-        if (!guest_range(a2, 4) || !guest_range(a3, 4))
+-            return OS2_ERROR_INVALID_PARAMETER;
+-        h = os2_handle(rt, a1);
+-        if (h == INVALID_HANDLE_VALUE)
+-            return OS2_ERROR_INVALID_HANDLE;
+-        ft = GetFileType(h);
+-        guest_put_u32(rt, a2, ft == FILE_TYPE_CHAR ? 1u : (ft == FILE_TYPE_PIPE ? 2u : 0u));
+-        guest_put_u32(rt, a3, 0);
+-        return OS2_NO_ERROR;
++        fprintf(stderr, "v2: DOSCALLS.224 DosQueryHType(%u,%08X,%08X) [shared]\n", a1, a2, a3);
++        return os2_core_DosQueryHType(&personality, a1, a2, a3);
+ 
+     case 234: /* DosExit(action,result), does not return */
+         fprintf(stderr, "v2: DOSCALLS.234 DosExit(action=%u,result=%u)\n", a1, a2);
+@@ -2183,69 +2331,27 @@ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t
+         return OS2_NO_ERROR;
+ 
+     case 256: /* DosSetFilePtr(HFILE,LONG,method,PULONG) */
+-        fprintf(stderr, "v2: DOSCALLS.256 DosSetFilePtr(%u,%ld,%u,%08X)\n",
++        fprintf(stderr, "v2: DOSCALLS.256 DosSetFilePtr(%u,%ld,%u,%08X) [shared]\n",
+                a1, (long)(int32_t)a2, a3, a4);
+-        if (!guest_range(a4, 4))
+-            return OS2_ERROR_INVALID_PARAMETER;
+-        h = os2_handle(rt, a1);
+-        if (h == INVALID_HANDLE_VALUE)
+-            return OS2_ERROR_INVALID_HANDLE;
+-        method = (a3 == 0u) ? FILE_BEGIN : (a3 == 1u ? FILE_CURRENT : (a3 == 2u ? FILE_END : 0xffffffffu));
+-        if (method == 0xffffffffu)
+-            return OS2_ERROR_INVALID_PARAMETER;
+-        SetLastError(NO_ERROR);
+-        pos = SetFilePointer(h, (LONG)(int32_t)a2, NULL, method);
+-        if (pos == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR)
+-            return (uint32_t)GetLastError();
+-        guest_put_u32(rt, a4, (uint32_t)pos);
+-        return OS2_NO_ERROR;
++        return os2_core_DosSetFilePtr(&personality, a1,
++                                      (int32_t)a2, a3, a4);
+ 
+     case 282: /* DosWrite(HFILE,buffer,count,PULONG actual) */
+-        fprintf(stderr, "v2: DOSCALLS.282 DosWrite(%u,%08X,%u,%08X)\n", a1, a2, a3, a4);
+-        if (!file_buffer(a4, 4) || (a3 != 0 && !file_buffer(a2, a3)))
+-            return OS2_ERROR_INVALID_PARAMETER;
+-        h = os2_handle(rt, a1);
+-        if (h == INVALID_HANDLE_VALUE)
+-            return OS2_ERROR_INVALID_HANDLE;
+-        done = 0;
+-        if (!WriteFile(h, a3 ? rt->ram + a2 : rt->ram, (DWORD)a3, &done, NULL)) {
+-            e = GetLastError();
+-            guest_put_u32(rt, a4, (uint32_t)done);
+-            return (uint32_t)e;
+-        }
+-        guest_put_u32(rt, a4, (uint32_t)done);
+-        return OS2_NO_ERROR;
++        fprintf(stderr, "v2: DOSCALLS.282 DosWrite(%u,%08X,%u,%08X) [shared]\n", a1, a2, a3, a4);
++        return os2_core_DosWrite(&personality, a1, a2, a3, a4);
+ 
+     case 299: /* prerelease C/386 ABI: ppBase,size,flags,reserved */
+-    {
+-        uint32_t base;
+-        fprintf(stderr, "v2: DOSCALLS.299 DosAllocMem(pp=%08X,size=%u,flags=%08X,res=%08X)\n",
++        fprintf(stderr, "v2: DOSCALLS.299 DosAllocMem(pp=%08X,size=%u,flags=%08X,res=%08X) [shared]\n",
+                a1, a2, a3, a4);
+-        if (!guest_range(a1, 4) || a2 == 0)
+-            return OS2_ERROR_INVALID_PARAMETER;
+-        base = alloc_guest(rt, a2);
+-        if (!base)
+-            return OS2_ERROR_NOT_ENOUGH_MEMORY;
+-        guest_put_u32(rt, a1, base);
+-        fprintf(stderr, "v2:              -> guest %08X\n", base);
+-        return OS2_NO_ERROR;
+-    }
++        return os2_core_DosAllocMem(&personality, a1, a2, a3, a4);
+ 
+     case 304: /* DosFreeMem(base) */
+-        fprintf(stderr, "v2: DOSCALLS.304 DosFreeMem(%08X)\n", a1);
+-        ga = find_alloc(rt, a1);
+-        if (!ga || !ga->used)
+-            return OS2_ERROR_INVALID_PARAMETER;
+-        ga->used = 0;
+-        return OS2_NO_ERROR;
++        fprintf(stderr, "v2: DOSCALLS.304 DosFreeMem(%08X) [shared]\n", a1);
++        return os2_core_DosFreeMem(&personality, a1);
+ 
+     case 305: /* DosSetMem(base,size,flags) */
+-        fprintf(stderr, "v2: DOSCALLS.305 DosSetMem(%08X,%u,%08X)\n", a1, a2, a3);
+-        if (a1 == 0 || a2 == 0 || !guest_range(a1, a2))
+-            return OS2_ERROR_INVALID_PARAMETER;
+-        /* RAM is already host-backed. The first prototype accepts protection/
+-           commit changes while preserving the guest address contract. */
+-        return OS2_NO_ERROR;
++        fprintf(stderr, "v2: DOSCALLS.305 DosSetMem(%08X,%u,%08X) [shared]\n", a1, a2, a3);
++        return os2_core_DosSetMem(&personality, a1, a2, a3);
+ 
+     case 229: return guest_sleep(rt, a1);
+     case 286: return guest_beep(rt,a1,a2);
+@@ -2431,35 +2537,15 @@ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t
+     }
+ 
+     case 348: /* DosQuerySysInfo(first,last,buffer,cb) */
+-    {
+-        uint32_t n, i, out;
+-        fprintf(stderr, "v2: DOSCALLS.348 DosQuerySysInfo(%u,%u,%08X,%u)\n", a1, a2, a3, a4);
+-        if (a1 == 0 || a2 < a1)
+-            return OS2_ERROR_INVALID_PARAMETER;
+-        n = a2 - a1 + 1u;
+-        if (a4 < n * 4u || !guest_range(a3, n * 4u))
+-            return OS2_ERROR_INVALID_PARAMETER;
+-        out = a3;
+-        for (i = a1; i <= a2; ++i) {
+-            uint32_t v;
+-            switch (i) {
+-            case 10: v = 4096; break;
+-            case 11: v = 20; break;
+-            case 12: v = 0; break;
+-            case 13: v = 0; break;
+-            case 14: v = (uint32_t)GetTickCount64(); break;
+-            default: v = 0; break;
+-            }
+-            guest_put_u32(rt, out, v);
+-            out += 4u;
+-        }
+-        return OS2_NO_ERROR;
+-    }
++        fprintf(stderr, "v2: DOSCALLS.348 DosQuerySysInfo(%u,%u,%08X,%u) [shared]\n",
++               a1, a2, a3, a4);
++        return os2_core_DosQuerySysInfo(&personality, a1, a2, a3, a4);
+ 
+     case 349: return guest_wait_thread(rt, a1, a2);
+ 
+     default:
+-        fprintf(stderr, "v2: unsupported DOSCALLS ordinal %u\n", ordinal);
++        fprintf(stderr, "v2: unsupported DOSCALLS ordinal %u (%s)\n",
++                ordinal, dos_name(ordinal));
+         return OS2_ERROR_INVALID_FUNCTION;
+     }
+ }
+@@ -2735,7 +2821,7 @@ int main(int argc, char **argv)
+         return 1;
+     }
+ 
+-    fprintf(stderr, "WHP OS/2 V2 M2 process R2 - LE/LX loader + threads + events + guest DLLs + file I/O\n");
++    fprintf(stderr, "WHP OS/2 V2 M3 - common OS/2 personality + LE/LX loader + threads + guest DLLs\n");
+     fprintf(stderr, "v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);
+@@ -2803,10 +2889,23 @@ int main(int argc, char **argv)
+     fprintf(stderr, "v2: imports          = %u ordinal + %u named / %u sites\n",
+            x.nimports, x.nname_imports, x.external_sites);
+     for (i = 0; i < x.nimports; ++i) {
+-        fprintf(stderr, "v2:   %-12s .%-4u -> %08X (%u site%s)\n",
+-               x.modules[x.imports[i].module].name,
+-               x.imports[i].ordinal, x.imports[i].address,
+-               x.imports[i].sites, x.imports[i].sites == 1 ? "" : "s");
++        const char *module_name;
++        const struct Os2ApiDescriptor *api;
++        module_name = x.modules[x.imports[i].module].name;
++        api = os2_api_lookup(module_name, x.imports[i].ordinal);
++        if (api != NULL)
++            fprintf(stderr,
++                    "v2:   %-12s .%-4u %-24s [%-11s] -> %08X (%u site%s)\n",
++                    module_name, x.imports[i].ordinal, api->api_name,
++                    os2_api_route_name(api->route), x.imports[i].address,
++                    x.imports[i].sites,
++                    x.imports[i].sites == 1 ? "" : "s");
++        else
++            fprintf(stderr,
++                    "v2:   %-12s .%-4u %-24s [%-11s] -> %08X (%u site%s)\n",
++                    module_name, x.imports[i].ordinal, "?", "uncatalogued",
++                    x.imports[i].address, x.imports[i].sites,
++                    x.imports[i].sites == 1 ? "" : "s");
+     }
+     for (i = 0; i < x.nname_imports; ++i) {
+         char nbuf[256];

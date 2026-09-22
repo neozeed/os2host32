@@ -1,0 +1,15 @@
+Comments about OPENDLG
+
+
+OPENDLG is a dll which is copied to the ..\dll directory.  Programs
+which use OPENDLG will need the files OPENDLG.LIB and OPENDLG.H. This
+is taken care of in the make files of the samples that use OPENDLG.
+
+OPENDLG contains the code for two dialog boxes, one for opening files
+for reading, and the other for opening/creating files for writing (saving).
+These dialogs shoud not be used for new samples, as they are replaced
+by standard system dialogs in OS/2 2.0.  Refer to the TEMPLATE sample
+for the use of standard dialogs.
+
+HELLO is a sample app which illustrates each kind of dialog box.  This
+sample is in the HELLO subdirectory; to run it type HELLO\HELLO.

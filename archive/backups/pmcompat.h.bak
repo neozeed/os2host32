@@ -1,0 +1,42 @@
+#ifndef OS2HOST32_PMCOMPAT_H
+#define OS2HOST32_PMCOMPAT_H
+
+/*
+ * pmcompat.h - private PMWIN/PMGPI bridge used by the Win32-backed PM layer.
+ *
+ * OS/2 HPS values created by either PMWIN (WinGetPS/WinBeginPaint) or PMGPI
+ * (GpiCreatePS) are represented by this structure.  Keeping the first fields
+ * shared lets the two compatibility DLLs exchange an HPS just as real PM
+ * applications do, without teaching the loader about presentation spaces.
+ */
+
+#define PMCOMPAT_PS_MAGIC          0x5350324fUL /* "O2PS" */
+#define PMCOMPAT_PS_RELEASE_DC     0x00000001UL
+#define PMCOMPAT_PS_END_PAINT      0x00000002UL
+
+struct CompatBitmap {
+    DWORD magic;
+    LONG width;
+    LONG height;
+    LONG stride;
+    WORD bitcount;
+    WORD reserved;
+    BYTE *bits;
+    RGBQUAD palette[256];
+};
+
+struct CompatPS {
+    DWORD magic;
+    HDC dc;
+    struct CompatBitmap *bitmap;
+    LONG color;
+    LONG current_x;
+    LONG current_y;
+    LONG line_type;
+    HWND hwnd;
+    DWORD flags;
+    int saved_dc;
+    PAINTSTRUCT paint;
+};
+
+#endif

@@ -1,0 +1,28 @@
+/*
+    WMChar resource file
+    Created by Microsoft, IBM Corporation 1990
+*/
+#include <os2.h>
+#include "wmchar.h"
+
+ICON	ID_RESOURCES	wmchar.ico
+
+MENU ID_RESOURCES
+BEGIN
+    SUBMENU "~Actions", IDM_ACTIONS
+    BEGIN
+        MENUITEM "~Clear List", IDM_CLEAR
+        MENUITEM "Log ~KeyUps", IDM_KEYUPS
+	MENUITEM SEPARATOR
+	MENUITEM "E~xit",	SC_CLOSE,	MIS_SYSCOMMAND
+    END
+    SUBMENU "~Display", IDM_DISPLAY
+    BEGIN
+        MENUITEM "~Number", IDM_NUMBER
+        MENUITEM "~Virtual Key", IDM_VIRTUALKEY
+        MENUITEM "~Character", IDM_CHAR
+        MENUITEM "~Scancode", IDM_SCANCODE
+        MENUITEM "~Repeat Count", IDM_REPEAT
+        MENUITEM "~Flags", IDM_FLAGS
+    END
+END

@@ -1,0 +1,83 @@
+--- ../m30e/doscalls.c	2026-09-17 17:59:57.000000000 +0000
++++ doscalls.c	2026-09-17 18:03:55.838127269 +0000
+@@ -296,6 +296,13 @@
+ };
+ static struct O2ExceptionRegistrationRecord *o2_exception_head =
+     (struct O2ExceptionRegistrationRecord *)(ULONG_PTR)0xffffffffUL;
++
++/* M30F: process-level Ctrl-C/Ctrl-Break signal-exception focus nesting.
++ * OS/2 exposes this as a get/release count through DosSetSignalExceptionFocus.
++ * The current host is single-console/single-process, so no session-manager
++ * arbitration is needed yet; retaining the count preserves the API contract
++ * EMX checks during startup/teardown. */
++static O2ULONG o2_signal_exception_focus_count;
+ static char o2_info_env[O2_INFO_ENV_MAX];
+ static char o2_info_cmd[O2_INFO_CMD_MAX];
+ static char o2_scan_env[O2_INFO_ENV_MAX];
+@@ -3459,6 +3466,56 @@
+     }
+     return O2_NO_ERROR;
+ }
++
++/* 378 - DosSetSignalExceptionFocus.
++ *
++ * Full-screen/console OS/2 applications acquire signal-exception focus to
++ * receive Ctrl-C and Ctrl-Break as exceptions.  The API is nestable and
++ * returns the resulting acquire-minus-release count through pulTimes.
++ *
++ * M30F models the bookkeeping faithfully for the current single-console
++ * guest.  Actual Win32 console-control delivery into the guest exception
++ * chain is intentionally deferred until a program requires it.
++ */
++O2APIRET __cdecl DosSetSignalExceptionFocus(O2ULONG enable, O2ULONG *pulTimes)
++{
++    if (!pulTimes || (enable != 0U && enable != 1U))
++        return O2_ERROR_INVALID_PARAMETER;
++
++    if (enable != 0U) {
++        if (o2_signal_exception_focus_count != 0xffffffffUL)
++            ++o2_signal_exception_focus_count;
++    } else if (o2_signal_exception_focus_count != 0U) {
++        --o2_signal_exception_focus_count;
++    }
++
++    *pulTimes = o2_signal_exception_focus_count;
++
++    if (emx_self_trace_enabled()) {
++        fprintf(stderr,
++                "M30F SIGNAL: DosSetSignalExceptionFocus enable=%lu times=%lu\n",
++                (unsigned long)enable,
++                (unsigned long)o2_signal_exception_focus_count);
++    }
++    return O2_NO_ERROR;
++}
++
++/* 418 - DosAcknowledgeSignalException.
++ *
++ * Acknowledging a delivered signal tells OS/2 that subsequent occurrences
++ * may be dispatched.  M30 does not deliver host console controls into the
++ * guest yet, so there is no pending bit to clear; accepting the acknowledgement
++ * is nevertheless the correct normal-path behavior for EMX initialization.
++ */
++O2APIRET __cdecl DosAcknowledgeSignalException(O2ULONG signalNum)
++{
++    if (emx_self_trace_enabled()) {
++        fprintf(stderr,
++                "M30F SIGNAL: DosAcknowledgeSignalException signal=%08lX\n",
++                (unsigned long)signalNum);
++    }
++    return O2_NO_ERROR;
++}
+ 
+ O2APIRET __cdecl DosQuerySysInfo(O2ULONG first, O2ULONG last,
+                                   void *buffer, O2ULONG cb)
+--- ../m30e/doscalls.def	2026-09-17 17:59:57.000000000 +0000
++++ doscalls.def	2026-09-17 18:03:55.839555681 +0000
+@@ -59,5 +59,7 @@
+     DosQuerySysInfo    @348 NONAME
+     DosSetExceptionHandler @354 NONAME
+     DosUnsetExceptionHandler @355 NONAME
++    DosSetSignalExceptionFocus @378 NONAME
++    DosAcknowledgeSignalException @418 NONAME
+     DosFlatToSel       @425 NONAME
+     DosSelToFlat       @426 NONAME

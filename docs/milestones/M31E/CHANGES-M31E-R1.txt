@@ -1,0 +1,12 @@
+M31E R1 - OPENDLG real guest PM DLL
+
+* Publishes guest-DLL PM resources by synthetic module handle before DLL INIT.
+* Adds per-module PM resource unregister so main resource publication does not wipe DLL resources.
+* Corrects OS/2 type-5 RT_STRING bundle parsing (real id 0 supported).
+* Adds native listbox controls and OPENDLG LM_/LN_ messaging subset.
+* Adds WinEnableWindowUpdate, WinQueryPointer, WinQuerySysPointer,
+  WinQueryWindowULong, WinSetPointer, WinSetWindowText, WinSetWindowULong.
+* Adds DOSCALLS.228 DosSearchPath.
+* Adds Beta-2 packed 279-byte FILEFINDBUF output for DosFindFirst/Next.
+* Adds PMGPI.588 GpiSetAttrs character-color subset used by HELLO.
+* Preserves untouched OPENDLG.DLL and HELLO.EXE from the SDK sample tree.

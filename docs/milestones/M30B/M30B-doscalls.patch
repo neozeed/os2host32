@@ -1,0 +1,198 @@
+--- /tmp/doscalls.a2.c	2026-09-17 17:06:37.026212250 +0000
++++ m30b/doscalls.c	2026-09-17 17:06:37.017487464 +0000
+@@ -301,6 +301,26 @@
+     return GetEnvironmentVariableA("OS2_TRACE_IO", b, sizeof(b)) != 0;
+ }
+ 
++/* M30B: focused trace for EMX inspecting its bound executable.  This is
++ * intentionally separate from the older general I/O trace so a normal guest
++ * is not made noisy unless the test driver explicitly asks for it. */
++static int emx_self_trace_enabled(void)
++{
++    char b[4];
++    return GetEnvironmentVariableA("OS2_TRACE_EMX_SELF", b, sizeof(b)) != 0;
++}
++
++static void trace_hex16(const unsigned char *p, O2ULONG n)
++{
++    O2ULONG i;
++    O2ULONG lim;
++    lim = n < 16UL ? n : 16UL;
++    for (i = 0; i < lim; ++i)
++        fprintf(stderr, "%s%02X", i ? " " : "", (unsigned)p[i]);
++    if (n > lim)
++        fprintf(stderr, " ...");
++}
++
+ /*
+  * M29J2 process-launch tracing.  Keep it opt-in because DosExecPgm is used by
+  * normal guests as well as the reconstructed shell.
+@@ -1747,6 +1767,13 @@
+         return (O2APIRET)e;
+     }
+     *newpos = (O2ULONG)r;
++    if (emx_self_trace_enabled()) {
++        fprintf(stderr,
++                "M30B SELF: DosSetFilePtr hfile=%lu dist=%ld method=%lu -> rc=0 pos=%lu\n",
++                (unsigned long)hFile, (long)distance,
++                (unsigned long)method, (unsigned long)*newpos);
++        fflush(stderr);
++    }
+     if (io_trace_enabled()) {
+         fprintf(stderr,
+                 "DOSCALLS IO: SEEK hfile=%lu handle=%p native=%s dist=%ld method=%lu -> pos=%lu\n",
+@@ -1763,6 +1790,11 @@
+     HANDLE h;
+ 
+     h = os2_handle(hFile);
++    if (emx_self_trace_enabled()) {
++        fprintf(stderr, "M30B SELF: DosClose hfile=%lu handle=%p\n",
++                (unsigned long)hFile, (void *)h);
++        fflush(stderr);
++    }
+     if (h == INVALID_HANDLE_VALUE)
+         return O2_ERROR_INVALID_HANDLE;
+ 
+@@ -1994,6 +2026,18 @@
+     if (!path || !phFile || !pAction)
+         return O2_ERROR_INVALID_PARAMETER;
+ 
++    if (emx_self_trace_enabled()) {
++        char full[MAX_PATH];
++        DWORD fn;
++        fn = GetFullPathNameA(path, (DWORD)sizeof(full), full, NULL);
++        fprintf(stderr,
++                "M30B SELF: DosOpen path=\"%s\" full=\"%s\" cbFile=%lu attr=%08lX openFlags=%08lX openMode=%08lX\n",
++                path, (fn != 0 && fn < (DWORD)sizeof(full)) ? full : "<unresolved>",
++                (unsigned long)cbFile, (unsigned long)attr,
++                (unsigned long)openFlags, (unsigned long)openMode);
++        fflush(stderr);
++    }
++
+     switch (openMode & 7UL) {
+     case O2_OPEN_ACCESS_READONLY:
+         access = GENERIC_READ;
+@@ -2055,8 +2099,16 @@
+ 
+     flags = win32_attrs_from_o2(attr);
+     h = CreateFileA(path, access, share, NULL, creation, flags, NULL);
+-    if (h == INVALID_HANDLE_VALUE)
+-        return (O2APIRET)GetLastError();
++    if (h == INVALID_HANDLE_VALUE) {
++        O2APIRET eopen;
++        eopen = (O2APIRET)GetLastError();
++        if (emx_self_trace_enabled()) {
++            fprintf(stderr, "M30B SELF: DosOpen -> rc=%lu (CreateFile failed)\n",
++                    (unsigned long)eopen);
++            fflush(stderr);
++        }
++        return eopen;
++    }
+ 
+     oh = alloc_os2_handle(h);
+     if (oh == (O2HFILE)0xffffffffUL) {
+@@ -2094,6 +2146,15 @@
+     }
+ 
+     *phFile = oh;
++    if (emx_self_trace_enabled()) {
++        DWORD sz;
++        sz = GetFileSize(h, NULL);
++        fprintf(stderr,
++                "M30B SELF: DosOpen -> rc=0 hfile=%lu handle=%p action=%lu size=%lu\n",
++                (unsigned long)oh, (void *)h, (unsigned long)*pAction,
++                (unsigned long)sz);
++        fflush(stderr);
++    }
+     return O2_NO_ERROR;
+ }
+ 
+@@ -2173,7 +2234,28 @@
+     if (h == INVALID_HANDLE_VALUE)
+         return O2_ERROR_INVALID_HANDLE;
+ 
+-    return fill_fil_standard_handle((unsigned char *)buffer, h);
++    {
++        O2APIRET rc;
++        rc = fill_fil_standard_handle((unsigned char *)buffer, h);
++        if (emx_self_trace_enabled()) {
++            fprintf(stderr,
++                    "M30B SELF: DosQueryFileInfo hfile=%lu level=%lu cb=%lu -> rc=%lu",
++                    (unsigned long)hFile, (unsigned long)level,
++                    (unsigned long)cb, (unsigned long)rc);
++            if (rc == O2_NO_ERROR) {
++                const unsigned char *q;
++                O2ULONG fsize;
++                q = (const unsigned char *)buffer;
++                fsize = (O2ULONG)q[12] | ((O2ULONG)q[13] << 8) |
++                        ((O2ULONG)q[14] << 16) | ((O2ULONG)q[15] << 24);
++                fprintf(stderr, " size=%lu bytes=", (unsigned long)fsize);
++                trace_hex16(q, cb < 24UL ? cb : 24UL);
++            }
++            fprintf(stderr, "\n");
++            fflush(stderr);
++        }
++        return rc;
++    }
+ }
+ 
+ /* Append a Windows command-line argument with quotes around it.  This is
+@@ -2241,6 +2323,15 @@
+     if (h == INVALID_HANDLE_VALUE)
+         return O2_ERROR_INVALID_HANDLE;
+     done = 0;
++    if (emx_self_trace_enabled()) {
++        DWORD before;
++        SetLastError(NO_ERROR);
++        before = SetFilePointer(h, 0, NULL, FILE_CURRENT);
++        fprintf(stderr, "M30B SELF: DosRead hfile=%lu pos=%lu ask=%lu\n",
++                (unsigned long)hFile, (unsigned long)before,
++                (unsigned long)count);
++        fflush(stderr);
++    }
+     if (!ReadFile(h, buffer, (DWORD)count, &done, NULL)) {
+         e = GetLastError();
+         *actual = (O2ULONG)done;
+@@ -2262,6 +2353,16 @@
+                 (unsigned long)count, (unsigned long)*actual);
+         fflush(stderr);
+     }
++    if (emx_self_trace_enabled()) {
++        DWORD after;
++        after = SetFilePointer(h, 0, NULL, FILE_CURRENT);
++        fprintf(stderr, "M30B SELF: DosRead -> rc=0 actual=%lu pos_after=%lu bytes=",
++                (unsigned long)*actual, (unsigned long)after);
++        if (buffer && *actual != 0UL)
++            trace_hex16((const unsigned char *)buffer, *actual);
++        fprintf(stderr, "\n");
++        fflush(stderr);
++    }
+     return O2_NO_ERROR;
+ }
+ 
+@@ -3168,7 +3269,24 @@
+         return O2_ERROR_INVALID_PARAMETER;
+     if (!o2_resolve_module_bridge())
+         return O2_ERROR_INVALID_FUNCTION;
+-    return g_o2_module_bridge.query_name(moduleHandle, cb, buffer);
++    {
++        O2APIRET rc;
++        rc = g_o2_module_bridge.query_name(moduleHandle, cb, buffer);
++        if (emx_self_trace_enabled()) {
++            char full[MAX_PATH];
++            DWORD fn;
++            full[0] = 0;
++            fn = (rc == O2_NO_ERROR)
++                 ? GetFullPathNameA(buffer, (DWORD)sizeof(full), full, NULL) : 0;
++            fprintf(stderr,
++                    "M30B SELF: DosQueryModuleName hmod=%08lX cb=%lu -> rc=%lu name=\"%s\" full=\"%s\"\n",
++                    (unsigned long)moduleHandle, (unsigned long)cb,
++                    (unsigned long)rc, rc == O2_NO_ERROR ? buffer : "",
++                    (fn != 0 && fn < (DWORD)sizeof(full)) ? full : "<unresolved>");
++            fflush(stderr);
++        }
++        return rc;
++    }
+ }
+ 
+ /* 321 - DosQueryProcAddr (the 32-bit successor of DosGetProcAddr). */

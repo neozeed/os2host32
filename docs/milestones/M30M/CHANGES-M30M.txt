@@ -1,0 +1,17 @@
+M30M
+====
+
+* Rebased the active development line on M30J; K/K1/K2*/L low-address and PEB
+  experiments are not carried into the loader.
+* Added RESEARCH-M30K-M30L.md documenting what those experiments established.
+* Added opt-in bound-EXE EMX absolute-relocation inference:
+    OS2_EMX_INFER_RELOCS=audit  - classify only, do not patch/execute inferred sites
+    OS2_EMX_INFER_RELOCS=1      - patch inferred sites
+* Recovery sources are i386 imm32/disp32 operands, aligned TEXT pointer-table
+  runs, and aligned DATA/BSS pointer cells.
+* Inference takes precedence over the M30C a.out sidecar so tests cannot
+  accidentally succeed because a sidecar was present.
+* Retained the old hello a.out as hi.aout-oracle, not as sibling `hi`.
+* Added tools/emx_reloc_oracle.py.  Against that oracle the first classifier
+  recovers all 372 required absolute internal sites with two TEXT false
+  positives and zero misses.

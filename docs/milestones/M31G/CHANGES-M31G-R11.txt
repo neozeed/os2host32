@@ -1,0 +1,32 @@
+M31G R11 - HELPMGR native personality / ordinal 52
+===================================================
+
+Parent: M31G R10.  Frozen M31F behavior remains unchanged.
+
+Why R11 exists
+--------------
+After PMSHAPI.102, NEKO reaches HELPMGR.52.  The original OS/2 2.0 GA
+HELPMGR.DLL is not a V1 direct-host candidate: its scan contains a 16-bit
+object plus SEL16, PTR16:32, alias fixups, and additional system-DLL
+relationships.  Loading that original module would cross into the deferred
+mixed-mode execution problem.
+
+Generic compatibility change
+----------------------------
+* Adds HELPMGR.dll as a native Win32 compatibility personality.
+* Adds only ordinal 52: WinDestroyHelpInstance(HWND) -> BOOL.
+* Adds HELPMGR to os2host32's host-personality routing.
+* Adds a small compatibility-owned help-instance registry.  R11 has no
+  creator yet, so unknown handles correctly return FALSE.  A later
+  WinCreateHelpInstance implementation can allocate from this registry.
+* Leaves HELPMGR.51 WinCreateHelpInstance and HELPMGR.54
+  WinAssociateHelpInstance deliberately unresolved until the untouched
+  import/runtime walk reaches them.
+
+No NEKO checks or executable-name behavior are present in the implementation.
+
+Important when testing
+----------------------
+If the historical IBM HELPMGR.DLL was copied into the working directory for
+inspection, rename it (for example HELPMGR-GA.DLL) before building.  The name
+HELPMGR.dll must refer to the native compatibility personality in a V1 run.

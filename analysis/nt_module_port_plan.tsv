@@ -1,0 +1,31 @@
+module	strategy	text_rva	text_size	rationale
+cmd.c	keep	0x00010000	0x12A4	core dispatch, redirection, tree execution
+cop.c	keep	0x00011410	0x538	operators, pipes, parentheses; adapt process/pipe glue
+ctools2.c	mixed	0x00011950	0xB88	I/O handles, messages, process wait/kill and helpers
+cinit.c	replace	0x000124E6	0x524	NT/host initialization is personality-specific
+ctools3.c	mixed	0x00012A16	0x7B8	paths, file/device/pipe helpers
+cenv.c	keep	0x000131D6	0x53C	PATH/PROMPT/SET/environment shell semantics
+cbatch.c	keep	0x00013716	0x1CE8	batch language: FOR/GOTO/IF/CALL/SHIFT/SETLOCAL
+cmem.c	keep	0x00015406	0x264	shell allocation helpers
+string.c	keep	0x00015676	0x2D0	shell string helpers
+cext.c	adapt	0x0001594C	0xEB8	external-command path; map to DosExecPgm/OS2SS
+clex.c	keep	0x0001680C	0xEAC	lexer/tokenizer/prompt variable expansion
+ckeys.c	adapt	0x000176BC	0x130	KEYS and keyboard behavior; map to KBDCALLS
+ffirst.c	adapt	0x000177EC	0x288	file enumeration; map to OS/2 find APIs
+cpwork.c	mixed	0x00017AF4	0x18F4	COPY/DEL/RENAME/MOVE logic with OS-facing file wrappers
+cclock.c	adapt	0x000193F4	0x6E0	DATE/TIME APIs
+cother.c	mixed	0x00019ADA	0x144	CLS/EXIT/VERIFY and small built-ins
+cparse.c	keep	0x00019C3C	0x1148	parser and parse tree construction
+ctools1.c	mixed	0x0001AD92	0xB0C	filesystem and command-line helper logic
+cfile.c	mixed	0x0001E5CA	0x1804	COPY/DELETE/RENAME/MOVE implementation
+cchcp.c	adapt	0x0001FDDA	0x14	code-page command; NLS/VIO/KBD mapping
+start.c	adapt	0x0001FE00	0x6E0	START/session semantics; SESMGR later
+cpath.c	mixed	0x000204E0	0x4B0	directory stack/path commands; OS file APIs
+cinfo.c	mixed	0x0002099C	0x4A0	DIR/TYPE/VER/VOL front-end helpers
+dir.c	mixed	0x00020E3C	0x19CC	directory listing logic; enumeration/free-space adapters
+display.c	adapt	0x00022812	0xA58	display formatting output; route to VIO/console personality
+console.c	adapt	0x00023272	0x48C	NT console glue; replace with VIO/KBD personality
+uipriv.c	replace	0x00024690	0x3A8	NT privilege-specific code, not OS/2 shell core
+cpparse.c	keep	0x00025CF4	0x3F8	command-line parser helper
+csig.c	adapt	0x000112B0	0x158	signal/control handling
+cdata.c	keep	0x00011410	0x0	global shell data/tables

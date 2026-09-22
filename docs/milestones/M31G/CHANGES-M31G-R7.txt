@@ -1,0 +1,9 @@
+M31G R7
+- Added PMWIN ordinal 909: WinCreateWindow.
+- Added generic mapping for common OS/2 predefined WC_* public controls.
+- Added OS/2 parent-relative bottom-left to Win32 top-left coordinate conversion.
+- Added HWND_TOP/HWND_BOTTOM z-order compatibility handles.
+- WC_STATIC/SS_ICON "#N" now resolves the executable's registered RT_POINTER resource.
+- Registered private classes continue through the existing pm_wndproc path.
+- Added R7 static regression check and NEKO smoke-test command.
+- No application-name/resource-ID hacks.

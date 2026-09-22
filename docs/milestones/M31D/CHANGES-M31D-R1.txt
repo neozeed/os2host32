@@ -1,0 +1,1 @@
+M31D R1: BIO sample-driven PM expansion. Adds multiple guest PM classes/windows, text/line/region GPI, string resources, profile persistence, clipboard bitmap support, child show/hide, scroll/mouse/resize translation, and all BIO-imported ordinals.

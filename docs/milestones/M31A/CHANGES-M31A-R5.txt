@@ -1,0 +1,31 @@
+M31A WMCHAR R5 - defer native visibility until PM bookkeeping is published
+==========================================================================
+
+Evidence from R4
+----------------
+The original WMCHAR.EXE now reaches WinCreateStdWindow and successfully runs
+its first host -> guest -> PMWIN round trip:
+
+  native WM_CREATE
+    -> MainWndProc
+      -> WinDefWindowProc
+    <- MainWndProc returns 0
+
+The process then disappeared before CreateWindowA returned to PMWIN.
+
+R5 change
+---------
+WinCreateStdWindow no longer passes WS_VISIBLE to CreateWindowA.  It creates
+the native peer hidden, publishes g_frame_hwnd and *clientOut, then calls
+ShowWindow/UpdateWindow if the OS/2 frame requested WS_VISIBLE.
+
+This prevents USER32's synchronous show/activation/size traffic from seeing a
+half-created PM frame/client relationship.  WM_CREATE remains synchronous.
+
+Tracing
+-------
+While CreateWindowA is active, OS2_PM_TRACE=1 now prints every native message
+as "native create msg".  Additional markers bracket CreateWindowA,
+ShowWindow and UpdateWindow and show when PM handles become visible.
+
+No loader, DOSCALLS, EMX, or historical WMCHAR sample changes are made.

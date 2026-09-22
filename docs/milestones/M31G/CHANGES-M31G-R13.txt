@@ -1,0 +1,10 @@
+M31G R13 - NEKO import-complete tranche
+
+* Covers all 13 ordinals still missing from untouched GA NEKO.EXE after R12.
+* Adds real generic PMWIN enumeration/drawing/visibility/pointer/modal APIs.
+* Adds PMGPI.399 GpiLoadBitmap using registered OS/2 RT_BITMAP resources.
+* Adds PMSHAPI.117/.118 binary profile data using the existing HINI registry.
+* Completes HELPMGR create/associate/destroy lifetime at 51/52/54.
+* Adds DOSCALLS.212 DosError for the independent e.exe path.
+* Adds a monotonic R13 regression gate requiring zero uncovered NEKO imports.
+* No executable-name checks or NEKO-specific resource IDs.

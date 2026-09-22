@@ -1,0 +1,10 @@
+M29B2 - historical LINK386 response-file build fix
+
+- No loader, DOSCALLS, VIOCALLS, bridge, or guest-execution code changed.
+- build-c386-far16-vio.cmd now invokes LINK386 through @m29b-far16-vio.lnk.
+- This avoids the short DOS/RUN286 command-tail path where long absolute C386ROOT
+  library paths can leave the final module-definition filename missing/truncated.
+- The response file uses the five interactive LINK386 fields: object, output,
+  map, libraries, and definition file.
+- The .lnk file is deliberately retained after a successful build for archaeology
+  and debugging.

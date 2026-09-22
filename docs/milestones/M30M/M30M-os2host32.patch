@@ -1,0 +1,393 @@
+--- /mnt/data/m30j/m30j/os2host32.c	2026-09-17 18:11:56.000000000 +0000
++++ /mnt/data/m30m/m30m/os2host32.c	2026-09-17 21:32:03.923130637 +0000
+@@ -3219,6 +3219,362 @@
+     }
+ }
+ 
++
++/*
++ * M30M: infer the absolute internal relocation sites that old emxbind dropped.
++ *
++ * Classic EMX bound LX executables carry their TEXT/DATA/BSS contents but, as
++ * demonstrated by the M30K..M30L research branch, they may carry no usable LX
++ * internal fixups for the a.out absolute relocations.  Modern WOW64 cannot be
++ * relied on to reproduce the original low OS/2 address space, so M30M starts a
++ * sidecarless recovery path.
++ *
++ * This is deliberately conservative and opt-in.  Set OS2_EMX_INFER_RELOCS=1.
++ * The recovery pass only considers 32-bit values that point into the original
++ * EMX TEXT or DATA/BSS objects, then accepts them when either:
++ *
++ *   - they occur at a recognizable i386 imm32/disp32 operand site;
++ *   - they form an aligned run of at least two pointer-looking dwords in TEXT
++ *     (jump/function-pointer tables); or
++ *   - they are an aligned pointer-looking dword in the DATA/BSS object.
++ *
++ * A literal equal to the old TEXT base in an isolated TEXT instruction is
++ * treated as ambiguous rather than patched.  EMX code often uses 0x10000 as a
++ * size constant, and the lost relocation information is exactly what used to
++ * distinguish that constant from a pointer.
++ */
++static int emx_infer_mode(void)
++{
++    const char *p;
++    p = getenv("OS2_EMX_INFER_RELOCS");
++    if (p == 0 || p[0] == 0 || (p[0] == '0' && p[1] == 0))
++        return 0;
++    if (strcmp(p, "audit") == 0 || strcmp(p, "AUDIT") == 0)
++        return 2;
++    return 1;
++}
++
++static int emx_infer_enabled(void)
++{
++    return emx_infer_mode() != 0;
++}
++
++static int emx_old_value_is_internal(struct LxImage *x, U32 v)
++{
++    U32 i, lo, hi;
++    if (x->object_count < 2)
++        return 0;
++    for (i = 0; i < 2UL; ++i) {
++        lo = x->objects[i].base;
++        if (x->objects[i].size > 0xffffffffUL - lo)
++            continue;
++        hi = lo + x->objects[i].size;
++        /* End pointers are valid a.out relocation results too. */
++        if (v >= lo && v <= hi)
++            return 1;
++    }
++    return 0;
++}
++
++static int emx_onebyte_modrm_opcode(U8 op)
++{
++    U8 lo;
++    lo = (U8)(op & 7U);
++    if (op <= 0x3bU && lo <= 3U)
++        return 1;
++    if (op == 0x62U || op == 0x63U || op == 0x69U || op == 0x6bU)
++        return 1;
++    if (op >= 0x80U && op <= 0x8fU)
++        return 1;
++    if (op == 0xc0U || op == 0xc1U || op == 0xc6U || op == 0xc7U)
++        return 1;
++    if (op >= 0xd0U && op <= 0xd3U)
++        return 1;
++    if (op >= 0xd8U && op <= 0xdfU)
++        return 1;
++    if (op == 0xf6U || op == 0xf7U || op == 0xfeU || op == 0xffU)
++        return 1;
++    return 0;
++}
++
++static int emx_twobyte_modrm_opcode(U8 op)
++{
++    if (op >= 0x80U && op <= 0x8fU)
++        return 0; /* Jcc rel32 */
++    switch (op) {
++    case 0x05: case 0x06: case 0x07: case 0x08: case 0x09: case 0x0b:
++    case 0x30: case 0x31: case 0x32: case 0x33: case 0x34: case 0x35:
++    case 0x77: case 0xa0: case 0xa1: case 0xa2: case 0xa8: case 0xa9:
++    case 0xaa:
++        return 0;
++    }
++    return 1;
++}
++
++static int emx_modrm_has_disp32(U8 modrm, int have_sib, U8 sib)
++{
++    U8 mod, rm;
++    mod = (U8)(modrm >> 6);
++    rm = (U8)(modrm & 7U);
++    if (mod == 2U)
++        return 1;
++    if (mod == 0U) {
++        if (rm == 5U)
++            return 1;
++        if (rm == 4U && have_sib && (sib & 7U) == 5U)
++            return 1;
++    }
++    return 0;
++}
++
++static int emx_pointer_imm_opcode(U8 op)
++{
++    if (op == 0x68U || (op >= 0xa0U && op <= 0xa3U) ||
++        (op >= 0xb8U && op <= 0xbfU))
++        return 1;
++    /* EAX imm32 arithmetic/compare forms seen in the old EMX libraries.
++     * 0x2d (SUB EAX,imm32) is intentionally omitted: in the retained hello
++     * oracle it produced a false positive inside non-code bytes. */
++    if (op == 0x05U || op == 0x0dU || op == 0x15U || op == 0x1dU ||
++        op == 0x25U || op == 0x35U || op == 0x3dU)
++        return 1;
++    return 0;
++}
++
++static int emx_c7_immediate_site(const U8 *text, U32 size, U32 site)
++{
++    U32 start, s, q;
++    U8 m, mod, rm, reg, sib, base;
++
++    start = site > 8UL ? site - 8UL : 0UL;
++    for (s = start; s < site; ++s) {
++        if (text[s] != 0xc7U || s + 1UL >= size)
++            continue;
++        m = text[s + 1UL];
++        mod = (U8)(m >> 6);
++        rm = (U8)(m & 7U);
++        reg = (U8)((m >> 3) & 7U);
++        if (reg != 0U)
++            continue;
++        q = s + 2UL;
++        base = 0xffU;
++        if (mod != 3U && rm == 4U) {
++            if (q >= size)
++                continue;
++            sib = text[q++];
++            base = (U8)(sib & 7U);
++        }
++        if (mod == 0U) {
++            if (rm == 5U || (rm == 4U && base == 5U))
++                q += 4UL;
++        } else if (mod == 1U) {
++            q += 1UL;
++        } else if (mod == 2U) {
++            q += 4UL;
++        }
++        if (q == site)
++            return 1;
++    }
++    return 0;
++}
++
++static int emx_text_operand_site(const U8 *text, U32 size, U32 site)
++{
++    U8 op, modrm, sib;
++
++    if (site >= 1UL && emx_pointer_imm_opcode(text[site - 1UL]))
++        return 1;
++
++    /* one-byte opcode + ModR/M + disp32 */
++    if (site >= 2UL) {
++        op = text[site - 2UL];
++        modrm = text[site - 1UL];
++        if (emx_onebyte_modrm_opcode(op) && (modrm & 7U) != 4U &&
++            emx_modrm_has_disp32(modrm, 0, 0))
++            return 1;
++    }
++
++    /* one-byte opcode + ModR/M + SIB + disp32 */
++    if (site >= 3UL) {
++        op = text[site - 3UL];
++        modrm = text[site - 2UL];
++        sib = text[site - 1UL];
++        if (emx_onebyte_modrm_opcode(op) && (modrm & 7U) == 4U &&
++            emx_modrm_has_disp32(modrm, 1, sib))
++            return 1;
++    }
++
++    /* 0F xx + ModR/M [+ SIB] + disp32 */
++    if (site >= 3UL && text[site - 3UL] == 0x0fU) {
++        op = text[site - 2UL];
++        modrm = text[site - 1UL];
++        if (emx_twobyte_modrm_opcode(op) && (modrm & 7U) != 4U &&
++            emx_modrm_has_disp32(modrm, 0, 0))
++            return 1;
++    }
++    if (site >= 4UL && text[site - 4UL] == 0x0fU) {
++        op = text[site - 3UL];
++        modrm = text[site - 2UL];
++        sib = text[site - 1UL];
++        if (emx_twobyte_modrm_opcode(op) && (modrm & 7U) == 4U &&
++            emx_modrm_has_disp32(modrm, 1, sib))
++            return 1;
++    }
++
++    if (emx_c7_immediate_site(text, size, site))
++        return 1;
++    return 0;
++}
++
++static int emx_text_site_is_isolated_text_base_literal(struct LxImage *x,
++                                                        const U8 *text,
++                                                        U32 site, U32 value)
++{
++    U8 op;
++    if (value != x->objects[0].base)
++        return 0;
++    if (site == 0)
++        return 0;
++    op = text[site - 1UL];
++    if (op == 0x68U || (op >= 0xb8U && op <= 0xbfU))
++        return 1;
++    if (emx_c7_immediate_site(text, x->objects[0].size, site))
++        return 1;
++    return 0;
++}
++
++static void apply_emx_inferred_relocs(struct LxImage *x)
++{
++    U8 *text, *data, *mark;
++    U32 text_size, data_size, p, q, value, delta_text, delta_data;
++    U32 run_start, run_count, code_count, table_count, data_count;
++    U32 ambiguous, raw_candidates, applied, selected;
++    int mode;
++
++    mode = emx_infer_mode();
++    if (mode == 0)
++        return;
++    if (x->format != FORMAT_LX || !image_imports_module(x, "EMX"))
++        return;
++    if (x->object_count < 2UL || !x->objects[0].mapped || !x->objects[1].mapped)
++        fail("M30M EMX inference needs mapped TEXT and DATA objects");
++
++    delta_text = (U32)(unsigned long)x->objects[0].mapped - x->objects[0].base;
++    delta_data = (U32)(unsigned long)x->objects[1].mapped - x->objects[1].base;
++    if (delta_text == 0UL && delta_data == 0UL) {
++        if (!g_quiet)
++            printf("M30M EMX infer   : preferred addresses already exact; no recovery needed\n");
++        return;
++    }
++    if (delta_text != delta_data)
++        fail("M30M EMX inference currently requires one common image delta");
++
++    text = x->objects[0].mapped;
++    data = x->objects[1].mapped;
++    text_size = x->objects[0].size;
++    data_size = x->objects[1].size;
++    mark = (U8 *)calloc((size_t)(text_size ? text_size : 1UL), 1);
++    if (!mark)
++        fail("M30M out of memory building inferred relocation map");
++
++    code_count = table_count = data_count = ambiguous = 0;
++    raw_candidates = applied = selected = 0;
++
++    /* First mark recognizable i386 address-bearing operands in TEXT. */
++    for (p = 0; p + 4UL <= text_size; ++p) {
++        value = rd32(text + p);
++        if (!emx_old_value_is_internal(x, value))
++            continue;
++        ++raw_candidates;
++        if (!emx_text_operand_site(text, text_size, p))
++            continue;
++        if (emx_text_site_is_isolated_text_base_literal(x, text, p, value)) {
++            ++ambiguous;
++            continue;
++        }
++        mark[p] = 1U;
++        ++code_count;
++    }
++
++    /* Then recover aligned pointer/jump tables embedded in the TEXT object.
++     * Isolated aligned pointer-looking dwords are not trusted: normal machine
++     * code can accidentally form one when read on a four-byte boundary. */
++    p = 0UL;
++    while (p + 4UL <= text_size) {
++        if ((p & 3UL) != 0UL || mark[p] != 0U ||
++            !emx_old_value_is_internal(x, rd32(text + p))) {
++            ++p;
++            continue;
++        }
++        run_start = p;
++        run_count = 0UL;
++        q = p;
++        while (q + 4UL <= text_size && (q & 3UL) == 0UL &&
++               mark[q] == 0U &&
++               emx_old_value_is_internal(x, rd32(text + q))) {
++            ++run_count;
++            q += 4UL;
++        }
++        if (run_count >= 2UL) {
++            for (q = run_start; q < run_start + run_count * 4UL; q += 4UL) {
++                mark[q] = 2U;
++                ++table_count;
++            }
++        }
++        p = run_start + (run_count ? run_count * 4UL : 4UL);
++    }
++
++    /* Patch accepted TEXT sites. */
++    for (p = 0; p + 4UL <= text_size; ++p) {
++        if (mark[p] == 0U)
++            continue;
++        value = rd32(text + p);
++        ++selected;
++        if (mode == 1) {
++            wr32(text + p, value + delta_text);
++            ++applied;
++        }
++    }
++
++    /* DATA/BSS object: old EMX/linker pointer cells are naturally aligned.
++     * The BSS portion is zero-filled and therefore contributes no candidates. */
++    for (p = 0; p + 4UL <= data_size; p += 4UL) {
++        value = rd32(data + p);
++        if (!emx_old_value_is_internal(x, value))
++            continue;
++        ++data_count;
++        ++selected;
++        if (mode == 1) {
++            wr32(data + p, value + delta_text);
++            ++applied;
++        }
++    }
++
++    if (mode == 1)
++        FlushInstructionCache(GetCurrentProcess(), text, (SIZE_T)text_size);
++
++    if (!g_quiet) {
++        printf("M30M EMX infer   : mode=%s delta=%08lX code=%lu tables=%lu data=%lu selected=%lu applied=%lu ambiguous=%lu raw=%lu\n",
++               mode == 2 ? "audit" : "patch",
++               (unsigned long)delta_text,
++               (unsigned long)code_count,
++               (unsigned long)table_count,
++               (unsigned long)data_count,
++               (unsigned long)selected,
++               (unsigned long)applied,
++               (unsigned long)ambiguous,
++               (unsigned long)raw_candidates);
++        printf("M30M EMX infer   : bound LX only; no a.out sidecar was consulted\n");
++        if (mode == 2)
++            printf("M30M EMX infer   : AUDIT ONLY - guest bytes were not modified\n");
++        if (ambiguous != 0UL)
++            printf("M30M EMX infer   : %lu TEXT-base literal(s) deliberately left unchanged\n",
++                   (unsigned long)ambiguous);
++    }
++
++    free(mark);
++}
++
+ /*
+  * M30C: classic EMX executables are produced by emxbind from an i386 a.out
+  * image.  The LX wrapper deliberately contains few/no internal fixups because
+@@ -3401,6 +3757,11 @@
+     int saw_first;
+ 
+     mode = getenv("OS2_EMX_AOUT_SIDECAR");
++    if (emx_infer_enabled()) {
++        if (mode != 0 && mode[0] != 0 && !(mode[0] == '0' && mode[1] == 0) && !g_quiet)
++            printf("M30M EMX infer   : ignoring a.out sidecar because inference is enabled\n");
++        return;
++    }
+     if (mode == 0 || mode[0] == 0 || (mode[0] == '0' && mode[1] == 0))
+         return;
+     if (x->format != FORMAT_LX || !image_imports_module(x, "EMX"))
+@@ -3850,6 +4211,7 @@
+                                     g_main_guest_stack_low) / 1024UL));
+         resolve_imports(&x);
+         apply_fixups(&x);
++        apply_emx_inferred_relocs(&x);
+         apply_emx_aout_sidecar_relocs(&x, name);
+         if (x.c386_bridges_complete && x.c386_bridge_count != 0)
+             install_c386_far16_bridges(&x);
+@@ -3899,6 +4261,7 @@
+                                     g_main_guest_stack_low) / 1024UL));
+         resolve_imports(&x);
+         apply_fixups(&x);
++        apply_emx_inferred_relocs(&x);
+         apply_emx_aout_sidecar_relocs(&x, name);
+         if (x.c386_bridges_complete && x.c386_bridge_count != 0)
+             install_c386_far16_bridges(&x);

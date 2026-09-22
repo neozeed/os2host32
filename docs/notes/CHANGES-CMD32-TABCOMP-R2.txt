@@ -1,0 +1,20 @@
+CMD32 TABCOMP R2 - DIR trailing-separator fix
+
+Based on TABCOMP R1 / PMAUTO R2.
+
+Fix:
+  DIR path\ now enumerates path\* directly instead of first probing
+  path attributes.  This matches DIR path and makes the trailing backslash
+  automatically appended by unique-directory Tab completion immediately
+  usable with DIR.
+
+Examples:
+  DIR BIN       -> contents of BIN
+  DIR BIN\      -> contents of BIN
+  DIR C:\      -> contents of drive root
+
+Regression:
+  cmd32-tabcomp-host-test now proves DIR bin\ reaches FindFirst(bin\*)
+  without requiring QueryPathAttr(bin\).
+
+No PM/loader/DOSCALLS semantics are changed.

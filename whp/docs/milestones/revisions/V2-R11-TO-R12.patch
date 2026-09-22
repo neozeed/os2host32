@@ -1,0 +1,1045 @@
+--- a/README-V2-SARIEN-R12.txt
++++ b/README-V2-SARIEN-R12.txt
+@@ -0,0 +1,197 @@
++WHP OS/2 V2 R12 - first Sarien integration attempt
++================================================
++R12 FIX 2 - preserve Sarien's 320x200 client area
++User confirmed SQ2 runs, beeps, and restores saved games after fix 1.
++Side-by-side screenshots then exposed clipped top menus and the right edge.
++Sarien requests width 320 and height 200+SV_CYTITLEBAR-2 for its frame.
++Passing these directly as Windows outer dimensions subtracts native borders
++and caption from the intended client image. Bottom-aligned GPI output then
++clips at the top as well as the right.
++
++run-sarien.cmd now also sets WHP_OS2_SARIEN_GEOMETRY=1 inside SETLOCAL.
++For frame sizing with that setting, the host derives the intended client
++height and uses AdjustWindowRectEx with the window's actual styles to obtain
++native outer dimensions. This follows the earlier runner's Sarien sizing
++convention, scoped explicitly to the launcher. Default frame sizing and
++client-handle requests retain their existing behavior. Move-only calls do
++not apply this conversion. No bitmap rescaling or guest binary edit is used.
++
++Rebuild with build-v2.cmd, then use the updated run-sarien.cmd with the same
++arguments as before. Look for "Sarien geometry: client=320x200" in the trace.
++Confirm the entire top menu and right edge are visible during play/restore.
++For manual launches, also set WHP_OS2_SARIEN_GEOMETRY=1; clear it afterward.
++
++Native ASan/UBSan checks pass for the 320x200 client with nonzero simulated
++borders/caption, bottom-origin placement, size-only/move-only calls, default
++mode, client handles and adjustment failures. Existing scheduler/PM/GPI
++checks pass in the same run; see validation/r12-geometry-fix.*.
++Real Windows rendering of fix 2 remains to be confirmed by the user.
++
++R12 FIX 1 - Sarien's uninitialized find count
++The supplied live trace showed the first DOSCALLS.264 returning 87, followed
++by successful *.* and *vol.0 searches. Disassembly of sarienlx.exe at guest
++0x16028 confirms the existence helper passes the uninitialized DWORD at
++EBP-4 as its in/out count; it returns true only when the output is nonzero.
++A zero first count therefore rejects v2, while a subsequent nonzero stack
++value permits v3 detection. The resulting v3 CRC sums different files, and
++its loader then requests the nonexistent dir. file.
++
++run-sarien.cmd now sets WHP_OS2_FIND_ZERO_COUNT=1 within SETLOCAL. This explicit
++compatibility setting lets DosFindFirst treat a zero input count as one.
++Other arguments, buffer bounds, filters and failures are still validated;
++missing matches still return no files. DosFindNext and default strict behavior
++are unchanged. Each first search now logs path/count/buffer size/attributes/
++level, plus any compatibility fallback. There is no fabricated game match.
++Sarien's existing binary and game data are not modified.
++
++Rebuild the host with build-v2.cmd and use the updated run-sarien.cmd.
++For a manual launch, first run: set WHP_OS2_FIND_ZERO_COUNT=1
++Clear it afterward with: set WHP_OS2_FIND_ZERO_COUNT=
++Native directory/file dispatcher checks passed under ASan/UBSan for strict
++mode, opt-in zero-count success, missing files, invalid sizes/levels and
++unchanged FindNext behavior. See validation/r12-find-fix.*. The subsequent user run reached SQ2 gameplay with sound and working restore.
++
++Cumulative source package based on user-verified R11, including its corrected
++16-entry palette fixture. Live result supplied by the user:
++  gpi1 PASS (3 paints; bitmap readback, copy and cleanup)
++Screenshots confirmed orientation, palette colors, scaling and window title.
++
++R12 fills the remaining imported calls and graphics behaviors identified
++from the supplied sarienlx.exe import scan and the older sarienPM.zip source,
++especially nullvid.c. That archive predates the executable's queue/audio
++imports, so the binary remains the final integration test. The interpreter
++executable is unchanged. No Windows host or new guest executable is prebuilt.
++
++BUILD AND TRY
++  build-v2.cmd                  (x64 MSVC developer prompt)
++
++Optional short focused check, using your C/386 environment:
++  build-c386-sarprep.cmd
++  run-sarprep.cmd --auto
++Expected:
++  sarprep1 PASS (<n> worker frames, <n> ticks, <n> paints, <n> keys)
++The automatic run checks exactly 40 worker frames; tick/paint counts vary.
++A brief 880 Hz tone is requested while another guest thread keeps ticking.
++
++Interactive variant:
++  run-sarprep.cmd
++Shows an animated black/cyan/magenta/white checkerboard for about a second,
++then leaves the last frame visible. Press arrow keys: the console should
++report virtual values 21/22/23/24 for left/up/right/down. Printable keys
++report their character value. Escape or the close button ends the test.
++Diagnostics: sarprep1-trace.txt, overwritten each run.
++
++To try the actual Sarien binary, put sarienlx.exe beside the host, then:
++  run-sarien.cmd C:\path\to\your\AGI-game
++Or specify its existing location:
++  run-sarien.cmd C:\path\to\your\AGI-game C:\sar\sarienlx.exe
++
++The script changes to the game directory and launches the host/guest by
++absolute path. This matters because the supplied source discovers the game
++from its current directory. It does not assume the first guest argument is
++a game path; the older PM wrapper uses that argument for frame skipping.
++Host diagnostics go to sarien-trace.txt beside the script; guest console
++output remains visible. No game data or interpreter binary is bundled.
++The equivalent manual command from inside a game directory is:
++  C:\proj\whp\whp_os2_v2_hi.exe C:\sar\sarienlx.exe 2>sarien-trace.txt
++
++For the first real run, check the initial game screen, typing, arrow movement,
++Escape/menu interaction and closing the window. If it stops, send the console
++output and sarien-trace.txt. Trace records identify failed/unsupported calls.
++There is no claim here that Sarien itself has run on WHP yet.
++
++NEW CALLS
++  PMWIN.746 WinFocusChange
++  PMWIN.794 WinOpenWindowDC
++  PMWIN.829 WinQuerySysValue
++  PMWIN.875 WinSetWindowPos
++  DOSCALLS.286 DosBeep
++The existing directory, file, memory, mutex, thread and QUECALLS paths cover
++the remaining imported base services in the supplied scan.
++
++SARIEN-SPECIFIC BEHAVIOR NOW COVERED
++- WinOpenWindowDC returns an opaque guest window-DC token. GpiCreatePS accepts
++  it to make a persistent window PS, as well as the existing memory PS.
++- GpiBitBlt to that PS works outside BeginPaint, including from the interpreter
++  worker thread. A native DC is acquired/released for that individual call.
++  During a matching paint operation, it reuses the current paint DC.
++- WinBeginPaint accepts the caller's window PS; WinEndPaint accepts the same
++  HPS. The R10/R11 zero-HPS path continues to work.
++- GPI presentation spaces are shared within the guest process. One VP executes
++  guest code at a time, and Sarien's guest mutex serializes bitmap updates
++  against main-thread painting. GPI calls do not themselves yield or invoke
++  guest code. This is cooperative scheduling, not native parallel GPI access.
++- GpiCreateLogColorTable supports LCOLF_CONSECRGB with up to 256 supplied RGB
++  entries and the PURECOLOR flag. Indexed GpiSetColor resolves through that
++  logical table. Selected indexed bitmap palettes receive the table, allowing
++  Sarien's SetPel -> QueryBitmapBits sequence to discover its color indices.
++- GpiQueryBitmapInfoHeader supports the requested 16-byte prefix. It writes
++  exactly 16 bytes and retains cbFix=16, rather than overrunning the caller
++  with a full header. Query/SetBitmapBits support the corresponding RGB2 table
++  immediately after that prefix. Existing 12/64-byte headers remain supported.
++- Repeated WinInitialize on the PM owner is accepted. Secondary threads can
++  initialize/terminate an anchor without destroying the owner's queue/window.
++  Secondary anchors have distinct guest tokens. Shared GPI calls may use
++  existing PSs even when the worker has not initialized its own anchor, as in
++  the older Sarien source. Creating new PSs still uses the main process HAB.
++- Worker PostMsg/PostQueueMsg can wake the owner's queue. Cross-thread
++  synchronous SendMsg and multiple independent PM window trees remain deferred.
++- Arrow, Home/End, Page Up/Down, Insert/Delete and F1-F12 events translate to
++  OS/2 virtual keys, including key-up. Characters arrive through WM_CHAR;
++  Escape, Enter and Backspace also carry their OS/2 virtual value. Shift/Ctrl/
++  Alt flags are sampled. This is not full keyboard-layout/dead-key support.
++- WinQuerySysValue covers screen dimensions, size borders, borders and title
++  height. WinSetWindowPos implements the needed SHORT-coordinate move/size
++  path and basic show/hide/redraw/activation flags; Y is converted from the
++  OS/2 desktop's bottom-left convention. WinFocusChange targets the client.
++
++TONE IMPLEMENTATION
++DosBeep validates 37..32767 Hz and supports durations up to 60000 ms. A zero
++duration succeeds immediately. A short-lived native worker calls Windows
++Beep; the guest caller sleeps through the existing scheduler for the requested
++duration, allowing other guests and the Windows message pump to progress.
++Tone workers own no Runtime or guest-memory pointers. Their thread handles
++are closed immediately; completed workers free their own job storage. Up to
++32 can be active, with allocation/capacity failures returning an error.
++
++Native audio is best effort: Windows Beep failures are logged, and guest
++sleep timing remains intact. Guest completion follows the requested deadline,
++not a confirmed hardware playback completion. This is not the persistent
++WinMM PCM implementation used by V1, so audible quality/gaps may differ. Audio
++workers end with the host process; this adds no new link-library requirement.
++
++FOCUSED GUEST TEST
++sarprep1.c follows Sarien's sequence: standard-window WM_CREATE creates the
++window/memory PSs, selects an 8-bpp bitmap and installs 33 logical colors.
++SetPel probes are read back through a 16-byte bitmap header and checked
++against the returned palette. A painter thread repeatedly uploads and blits
++under a guest mutex, outside WM_PAINT, while a ticker thread sleeps/runs.
++The paint callback uses the supplied window PS and the same mutex. The tone
++check verifies ticker progress while the painter is blocked. The automatic
++close is posted from the worker. Main joins both threads before destroying
++graphics resources, the mutex, window, queue and anchor.
++
++VALIDATION PERFORMED HERE
++- Production helpers pass ASan/UBSan execution with Windows/WHP doubles:
++  logical colors, short-header bounds, palette roundtrip, shared window PS,
++  supplied paint PS, worker posting, anchors, native coordinate conversion,
++  arrow/key-up/Escape/character translation, and guest timing during Beep.
++- Existing R7-R11 native scheduler/info/mutex/queue/callback/PM/GPI regression
++  checks pass in the same suite. Logs: validation/r12-native-check.*
++  Reproduce with GCC on Linux:
++    ASAN_OPTIONS=detect_leaks=0 python3 tests/run-sync-check.py
++  LeakSanitizer is disabled for the ptrace-based execution environment.
++- sarprep1.c, gpi1.c and pmhello.c pass GCC -m32 C89 type/syntax checking against
++  the supplied Beta2 SDK, with legacy keywords removed and existing SDK
++  comment/pragma warnings suppressed. This does not claim a C/386 build/link.
++- No actual MSVC build, Windows rendering/audio, or WHP execution was possible
++  here. Source inspection/native doubles cannot establish that the compiled
++  Sarien variant follows every assumption; its first live trace is needed.
++
++BOUNDARIES RETAINED
++One PM owner/window pair; no general controls/resources, mouse input, arbitrary
++GPI primitives/fonts, other raster ops, FPU/SIMD thread-context switching or
++preemption of compute-only guest loops. Sarien's inspected timer loop calls
++DosSleep, so it cooperates with the scheduler. Unsupported calls/modes remain
++visible in traces. Previous release notes are historical and some of their
++listed limitations are superseded by the behavior above.
+--- a/build-c386-sarprep.cmd
++++ b/build-c386-sarprep.cmd
+@@ -0,0 +1,13 @@
++@echo off
++setlocal
++if "%C386LIB%"=="" set C386LIB=\c386\lib
++cl386 -c -Gs -Od -W3 -B1 C1_386 sarprep1.c
++if errorlevel 1 exit /b %errorlevel%
++>sarprep1.lnk echo sarprep1.obj
++>>sarprep1.lnk echo sarprep1.exe
++>>sarprep1.lnk echo sarprep1.map
++>>sarprep1.lnk echo %C386LIB%\libc.lib %C386LIB%\os2386.lib
++>>sarprep1.lnk echo sarprep1.def
++link386 @sarprep1.lnk
++if errorlevel 1 exit /b %errorlevel%
++exit /b 0
+--- a/run-sarien.cmd
++++ b/run-sarien.cmd
+@@ -0,0 +1,28 @@
++@echo off
++setlocal
++rem Sarien leaves DosFindFirst input count uninitialized.
++set "WHP_OS2_FIND_ZERO_COUNT=1"
++rem Preserve the 320x200 client area expected by this Sarien port.
++set "WHP_OS2_SARIEN_GEOMETRY=1"
++rem Usage: run-sarien.cmd GAME_DIRECTORY [SARIEN_EXE]
++rem The original interpreter discovers the game from its current directory.
++if "%~1"=="" goto usage
++set "SARIEN_HOST=%~dp0whp_os2_v2_hi.exe"
++set "SARIEN_GUEST=%~dp0sarienlx.exe"
++if not "%~2"=="" set "SARIEN_GUEST=%~f2"
++if not exist "%SARIEN_HOST%" goto missing
++if not exist "%SARIEN_GUEST%" goto missing
++pushd "%~1"
++if errorlevel 1 exit /b 1
++"%SARIEN_HOST%" "%SARIEN_GUEST%" 2>"%~dp0sarien-trace.txt"
++set "SARIEN_RESULT=%errorlevel%"
++popd
++if not "%SARIEN_RESULT%"=="0" echo Sarien returned %SARIEN_RESULT% - inspect sarien-trace.txt
++exit /b %SARIEN_RESULT%
++:missing
++echo Need whp_os2_v2_hi.exe and sarienlx.exe beside this script, or supply the guest path.
++exit /b 1
++:usage
++echo Usage: run-sarien.cmd GAME_DIRECTORY [SARIEN_EXE]
++echo Example: run-sarien.cmd C:\games\agi-demo C:\sar\sarienlx.exe
++exit /b 1
+--- a/run-sarprep.cmd
++++ b/run-sarprep.cmd
+@@ -0,0 +1,11 @@
++@echo off
++setlocal
++pushd "%~dp0"
++whp_os2_v2_hi.exe sarprep1.exe %* 2>sarprep1-trace.txt
++if errorlevel 1 goto failed
++popd
++exit /b 0
++:failed
++echo FAIL - inspect sarprep1-trace.txt
++popd
++exit /b 1
+--- a/sarprep1.c
++++ b/sarprep1.c
+@@ -0,0 +1,137 @@
++/* C/386 fixture for Sarien's shared PS, palette probing and worker blits. */
++#define INCL_WIN
++#define INCL_GPI
++#define INCL_DEV
++#define INCL_DOSPROCESS
++#define INCL_DOSSEMAPHORES
++#define INCL_DOSMISC
++#include <os2.h>
++#include <stdio.h>
++#include <string.h>
++#define W 320
++#define H 200
++static HAB hab;
++static HMQ queue;
++static HWND client;
++static HDC dc,memdc;
++static HPS screen,memory;
++static HBITMAP bitmap;
++static HMTX lock;
++static volatile ULONG stop,ticks,frames,paints,keys;
++static int automatic;
++static BYTE pixels[W*H],map[33];
++static union {ULONG align;BYTE raw[16+256*4];} info;
++static POINTL points[3]={{0,0},{W,H},{0,0}};
++static void fail(ULONG n){printf("sarprep1 FAIL line %lu\n",n);DosExit(EXIT_PROCESS,1);}
++#define CHECK(x) do {if(!(x))fail((ULONG)__LINE__);} while(0)
++static void prepare(void)
++{
++    BITMAPINFOHEADER2 hdr;
++    SIZEL size;
++    LONG colors[33];
++    POINTL pel;
++    ULONG i;
++    CHAR token[]="*";
++    dc=WinOpenWindowDC(client);CHECK(dc!=(HDC)0);
++    size.cx=size.cy=0;
++    screen=GpiCreatePS(hab,dc,&size,PU_PELS|GPIT_MICRO|GPIA_ASSOC);
++    memdc=DevOpenDC(hab,OD_MEMORY,(PSZ)token,0,(PDEVOPENDATA)0,(HDC)0);
++    memory=GpiCreatePS(hab,memdc,&size,PU_PELS|GPIT_MICRO|GPIA_ASSOC);
++    CHECK(screen!=(HPS)0 && memory!=(HPS)0);
++    memset(&hdr,0,sizeof(hdr));hdr.cbFix=sizeof(hdr);hdr.cx=W;hdr.cy=H;hdr.cPlanes=1;hdr.cBitCount=8;
++    bitmap=GpiCreateBitmap(memory,&hdr,0,(PBYTE)0,(PBITMAPINFO2)0);CHECK(bitmap!=(HBITMAP)0);
++    CHECK(GpiSetBitmap(memory,bitmap)!=HBM_ERROR);
++    for(i=0;i<33;i++)colors[i]=i==0?0:i==32?0xffffffL:(i&1)?0x55ffffL:0xff55ffL;
++    CHECK(GpiCreateLogColorTable(memory,LCOL_PURECOLOR,LCOLF_CONSECRGB,0,33,colors));
++    CHECK(GpiSetBackMix(memory,BM_OVERPAINT));
++    for(i=0;i<33;i++) {
++        CHECK(GpiSetColor(memory,(LONG)i));pel.x=(LONG)i;pel.y=0;
++        CHECK(GpiSetPel(memory,&pel)==GPI_OK);
++    }
++    /* Repeated WinInitialize and the short bitmap header are intentional. */
++    CHECK(WinInitialize(0)==hab);
++    memset(info.raw,0,sizeof(info.raw));((PBITMAPINFOHEADER2)info.raw)->cbFix=16;
++    CHECK(GpiQueryBitmapInfoHeader(bitmap,(PBITMAPINFOHEADER2)info.raw));
++    CHECK(((PBITMAPINFOHEADER2)info.raw)->cbFix==16);
++    CHECK(GpiQueryBitmapBits(memory,0,H,pixels,(PBITMAPINFO2)info.raw)==H);
++    for(i=0;i<33;i++) {
++        RGB2 *rgb=(RGB2 *)(info.raw+16);map[i]=pixels[i];
++        CHECK(((ULONG)rgb[map[i]].bRed<<16 | (ULONG)rgb[map[i]].bGreen<<8 | rgb[map[i]].bBlue)==(ULONG)colors[i]);
++    }
++    CHECK(WinFocusChange(HWND_DESKTOP,client,0));
++}
++static VOID APIENTRY ticker(ULONG ignored)
++{
++    (void)ignored;
++    while(!stop){CHECK(DosSleep(5)==0);++ticks;}
++    DosExit(EXIT_THREAD,0);
++}
++static VOID APIENTRY painter(ULONG ignored)
++{
++    ULONG x,y,n,before;
++    HAB workerhab;
++    (void)ignored;
++    workerhab=WinInitialize(0);CHECK(workerhab!=(HAB)0 && workerhab!=hab);
++    before=ticks;CHECK(DosBeep(880,80)==0);CHECK(ticks>before);
++    for(n=0;n<40 && !stop;n++) {
++        CHECK(DosRequestMutexSem(lock,SEM_INDEFINITE_WAIT)==0);
++        for(y=0;y<H;y++)for(x=0;x<W;x++)pixels[y*W+x]=map[((x/8+y/8+n)%4)==3?32:(x/8+y/8+n)%4];
++        CHECK(GpiSetBitmapBits(memory,0,H,pixels,(PBITMAPINFO2)info.raw)==H);
++        CHECK(GpiBitBlt(screen,memory,3,points,ROP_SRCCOPY,BBO_AND)==GPI_OK);
++        CHECK(DosReleaseMutexSem(lock)==0);++frames;
++        CHECK(DosSleep(20)==0);
++    }
++    CHECK(WinTerminate(workerhab));
++    if(automatic)CHECK(WinPostMsg(client,WM_CLOSE,(MPARAM)0,(MPARAM)0));
++    DosExit(EXIT_THREAD,0);
++}
++static MRESULT EXPENTRY procedure(HWND hwnd,USHORT msg,MPARAM a,MPARAM b)
++{
++    switch(msg) {
++    case WM_CREATE:client=hwnd;prepare();return (MRESULT)0;
++    case WM_PAINT:
++        CHECK(DosRequestMutexSem(lock,SEM_INDEFINITE_WAIT)==0);
++        CHECK(WinBeginPaint(hwnd,screen,(PRECTL)0)==screen);
++        CHECK(GpiBitBlt(screen,memory,3,points,ROP_SRCCOPY,BBO_AND)==GPI_OK);
++        CHECK(WinEndPaint(screen));++paints;
++        CHECK(DosReleaseMutexSem(lock)==0);return (MRESULT)0;
++    case WM_CHAR:
++        if(!(SHORT1FROMMP(a)&KC_KEYUP)) {
++            ++keys;
++            printf("key char=%u virtual=%u\n",(unsigned)SHORT1FROMMP(b),(unsigned)SHORT2FROMMP(b));
++            if(SHORT2FROMMP(b)==VK_ESC)CHECK(WinPostMsg(hwnd,WM_CLOSE,(MPARAM)0,(MPARAM)0));
++        }
++        return (MRESULT)0;
++    case WM_CLOSE:
++        stop=1;CHECK(WinPostQueueMsg(queue,WM_QUIT,(MPARAM)0,(MPARAM)0));return (MRESULT)0;
++    }
++    return WinDefWindowProc(hwnd,msg,a,b);
++}
++int main(int argc,char **argv)
++{
++    HWND frame;
++    TID tid,timer;
++    QMSG msg;
++    ULONG flags=FCF_TITLEBAR|FCF_SYSMENU|FCF_MINBUTTON|FCF_TASKLIST;
++    CHAR cls[]="SARPREP1",title[]="WHP R12 - Sarien integration test";
++    automatic=argc>1 && strcmp(argv[1],"--auto")==0;
++    hab=WinInitialize(0);CHECK(hab!=(HAB)0);
++    queue=WinCreateMsgQueue(hab,0);CHECK(queue!=(HMQ)0);
++    CHECK(DosCreateMutexSem((PSZ)0,&lock,0,FALSE)==0);
++    CHECK(WinRegisterClass(hab,(PSZ)cls,procedure,CS_SIZEREDRAW,0));
++    frame=WinCreateStdWindow(HWND_DESKTOP,WS_VISIBLE,&flags,(PSZ)cls,(PSZ)title,WS_VISIBLE,(HMODULE)0,0,&client);
++    CHECK(frame!=(HWND)0);
++    CHECK(WinSetWindowPos(frame,(HWND)0,60,(SHORT)(WinQuerySysValue(HWND_DESKTOP,SV_CYSCREEN)-180),
++                         W+8,(SHORT)(H+WinQuerySysValue(HWND_DESKTOP,SV_CYTITLEBAR)+8),SWP_SIZE|SWP_MOVE));
++    CHECK(DosCreateThread(&timer,(PFNTHREAD)ticker,0,0,16384)==0);
++    CHECK(DosCreateThread(&tid,(PFNTHREAD)painter,0,0,16384)==0);
++    while(WinGetMsg(hab,&msg,(HWND)0,0,0))WinDispatchMsg(hab,&msg);
++    stop=1;CHECK(DosWaitThread(&tid,0)==0);CHECK(DosWaitThread(&timer,0)==0);
++    CHECK(frames>0 && ticks>0);if(automatic)CHECK(frames==40);
++    CHECK(GpiSetBitmap(memory,(HBITMAP)0)==bitmap);CHECK(GpiDeleteBitmap(bitmap));
++    CHECK(GpiDestroyPS(memory));CHECK(GpiDestroyPS(screen));CHECK(DevCloseDC(memdc)!=(HMF)-1L);
++    CHECK(DosCloseMutexSem(lock)==0);CHECK(WinDestroyWindow(frame));
++    CHECK(WinDestroyMsgQueue(queue));CHECK(WinTerminate(hab));
++    printf("sarprep1 PASS (%lu worker frames, %lu ticks, %lu paints, %lu keys)\n",frames,ticks,paints,keys);
++    return 0;
++}
+--- a/sarprep1.def
++++ b/sarprep1.def
+@@ -0,0 +1,3 @@
++NAME SARPREP1 WINDOWAPI
++PROTMODE
++STACKSIZE 65536
+--- a/tests/find-check.c
++++ b/tests/find-check.c
+@@ -146,6 +146,7 @@
+ }
+ int main(void) {
+     struct Runtime r;uint32_t h,h2,old;int i;
++    unsetenv("WHP_OS2_FIND_ZERO_COUNT");
+     assert(fileio_tests()==0);
+     memset(&r,0,sizeof(r));r.ram=calloc(1,RAM_SIZE);r.next_search_id=0x10000;
+     strcpy((char*)r.ram+1000,"*");
+@@ -166,6 +167,17 @@
+     assert(closefind(&r,1)==0);
+     assert(first(&r,0xffffffffu,0,279,1,99)==87);
+     assert(first(&r,0xffffffffu,0,279,0,1)==87);
++    assert(setenv("WHP_OS2_FIND_ZERO_COUNT","1",1)==0);
++    assert(first(&r,1,7,284,0,1)==0 && guest_u32(&r,2004)==1);
++    assert(!strcmp((char*)r.ram+3023,"ALPHA.TXT"));
++    assert(next(&r,1,279,0)==87); /* compatibility only affects FindFirst */
++    assert(closefind(&r,1)==0);
++    assert(first(&r,1,7,8,0,1)==111);
++    assert(first(&r,1,7,284,0,99)==87);
++    strcpy((char*)r.ram+1000,"MISSING");
++    assert(first(&r,1,7,284,0,1)==18 && guest_u32(&r,2004)==0);
++    unsetenv("WHP_OS2_FIND_ZERO_COUNT");
++    assert(first(&r,1,7,284,0,1)==87);
+     strcpy((char*)r.ram+1000,"MISSING");assert(first(&r,0xffffffffu,0,279,1,1)==18);
+     strcpy((char*)r.ram+1000,"*");
+     for(i=0;i<64;++i){assert(first(&r,0xffffffffu,0,279,1,1)==0);h=guest_u32(&r,2000);assert(h!=old);assert(closefind(&r,h)==0);}
+--- a/tests/pm-win32-mock.h
++++ b/tests/pm-win32-mock.h
+@@ -16,6 +16,9 @@
+ typedef struct {UINT style;LRESULT (*lpfnWndProc)(HWND,UINT,WPARAM,LPARAM);void *hInstance;const char *lpszClassName;void *hCursor;} WNDCLASSA;
+ #define CALLBACK
+ #define TRUE 1
++#define FALSE 0
++#define GWL_STYLE (-16)
++#define GWL_EXSTYLE (-20)
+ #define GWLP_USERDATA (-21)
+ #define WM_NCCREATE 0x81
+ #define WM_NCDESTROY 0x82
+@@ -49,12 +52,13 @@
+ #define MWMO_INPUTAVAILABLE 4
+ #define WAIT_FAILED 0xffffffffu
+ #define RGB(r,g,b) ((COLORREF)((r)|((g)<<8)|((b)<<16)))
++static int mock_adjust_fail;
+ static LONG_PTR mock_user;
+ static WNDCLASSA mock_class;
+ static MSG mock_msg;
+ static int mock_pending,mock_live,mock_shows,mock_waits;
+ static HWND mock_hwnd=(void *)(uintptr_t)1;
+-static LONG_PTR GetWindowLongPtrA(HWND h,int n){(void)h;(void)n;return mock_user;}
++static LONG_PTR GetWindowLongPtrA(HWND h,int n){(void)h;return n==GWL_STYLE?WS_CAPTION:n==GWL_EXSTYLE?0:mock_user;}
+ static LONG_PTR SetWindowLongPtrA(HWND h,int n,LONG_PTR p){(void)h;(void)n;mock_user=p;return 0;}
+ static LRESULT DefWindowProcA(HWND h,UINT m,WPARAM w,LPARAM l){(void)h;(void)m;(void)w;(void)l;return 0;}
+ static HDC BeginPaint(HWND h,PAINTSTRUCT *p){(void)p;return h;}
+@@ -110,3 +114,59 @@
+  mock_dib_top=p[0];mock_dib_bottom=p[(sh-1)*sw];
+  mock_dib_x=x;mock_dib_y=y;mock_dib_w=w;mock_dib_h=h;return sh;
+ }
++
++#define WM_KEYDOWN 0x100
++#define WM_KEYUP 0x101
++#define VK_F1 0x70
++#define VK_F12 0x7b
++#define VK_LEFT 0x25
++#define VK_UP 0x26
++#define VK_RIGHT 0x27
++#define VK_DOWN 0x28
++#define VK_HOME 0x24
++#define VK_END 0x23
++#define VK_PRIOR 0x21
++#define VK_NEXT 0x22
++#define VK_INSERT 0x2d
++#define VK_DELETE 0x2e
++#define VK_SHIFT 0x10
++#define VK_CONTROL 0x11
++#define VK_MENU 0x12
++#define SM_CXSCREEN 0
++#define SM_CYSCREEN 1
++#define SM_CXSIZEFRAME 32
++#define SM_CYSIZEFRAME 33
++#define SM_CXBORDER 5
++#define SM_CYBORDER 6
++#define SM_CYCAPTION 4
++#define SWP_NOZORDER 4u
++#define SWP_NOACTIVATE 16u
++#define SWP_NOSIZE 1u
++#define SWP_NOMOVE 2u
++#define SWP_SHOWWINDOW 64u
++#define SWP_HIDEWINDOW 128u
++#define SWP_NOREDRAW 8u
++static HWND mock_focus;
++static int mock_pos_x,mock_pos_y,mock_pos_w,mock_pos_h;
++static short GetKeyState(int key){(void)key;return 0;}
++static int GetSystemMetrics(int key){return key==SM_CXSCREEN?1920:key==SM_CYSCREEN?1080:key==SM_CYCAPTION?23:1;}
++static HWND SetFocus(HWND h){mock_focus=h;return h;}
++static HWND GetFocus(void){return mock_focus;}
++static int GetWindowRect(HWND h,RECT *r){return GetClientRect(h,r);}
++static int SetWindowPos(HWND h,HWND after,int x,int y,int w,int height,UINT flags)
++{(void)h;(void)after;(void)flags;mock_pos_x=x;mock_pos_y=y;mock_pos_w=w;mock_pos_h=height;return 1;}
++#define WINAPI
++ typedef void *LPVOID;
++ typedef void *HANDLE;
++static DWORD mock_beep_frequency,mock_beep_duration;
++static LONG InterlockedIncrement(volatile LONG *v){return ++*v;}
++static LONG InterlockedDecrement(volatile LONG *v){return --*v;}
++static int Beep(DWORD frequency,DWORD duration){mock_beep_frequency=frequency;mock_beep_duration=duration;return 1;}
++static HANDLE CreateThread(void *a,size_t b,DWORD (*fn)(LPVOID),LPVOID arg,DWORD flags,DWORD *tid)
++{(void)a;(void)b;(void)flags;(void)tid;fn(arg);return mock_hwnd;}
++static int CloseHandle(HANDLE h){(void)h;return 1;}
++
++/* Model a captioned frame with nonzero borders: 8 wide, 31 tall. */
++static int AdjustWindowRectEx(RECT *r,DWORD style,int menu,DWORD exstyle)
++{assert(style==WS_CAPTION && !menu && !exstyle);if(mock_adjust_fail)return 0;
++ r->left-=4;r->right+=4;r->top-=27;r->bottom+=4;return 1;}
+--- a/tests/run-sync-check.py
++++ b/tests/run-sync-check.py
+@@ -21,7 +21,7 @@
+     p=pathlib.Path(tmp)
+     (p/'defs.inc').write_text(macros+'\n'+structs+'\n'+(root/'v2_sync_types.h').read_text())
+     (p/'production.inc').write_text('\n'.join(map(func,helpers))+'\n'+
+-        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_callback.h','v2_sync.h','v2_queue.h','v2_pm.h','v2_gpi.h'])+'\n'+
++        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_callback.h','v2_sync.h','v2_queue.h','v2_pm.h','v2_gpi.h','v2_beep.h'])+'\n'+
+         '\n'.join(map(func,['create_guest_thread','schedule_next_thread','switch_after_hypercall'])))
+     subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',
+         '-g','-I'+tmp,str(root/'tests/sync-check.c'),'-o',str(p/'check')],check=True)
+--- a/tests/sarien-check.inc
++++ b/tests/sarien-check.inc
+@@ -0,0 +1,74 @@
++static void test_sarien(void)
++{
++ uint32_t dc,ps,screen,bm,i,hab2,at;
++ assert(PCALL(763,0)==PM_HAB && PCALL(763,0)==PM_HAB);
++ assert(PCALL(716,PM_HAB,0)==PM_HMQ);strcpy((char *)rt.ram+0x900,"SARTEST");strcpy((char *)rt.ram+0xa00,"Sarien test");
++ assert(PCALL(926,PM_HAB,0x900,0x12000,4,0)==1);guest_put_u32(&rt,0xb00,0x813);cpu[1].Reg64=0x27000;
++ assert(PCALL(908,1,0x80000000,0xb00,0x900,0xa00,0x80000000,0,0,0xb04)==0 && pm_entered);
++ assert(PCALL(794,PM_CLIENT)==PM_WINDOW_DC);
++ guest_put_u32(&rt,0x1000,0);guest_put_u32(&rt,0x1004,0);
++ screen=GCALL(369,PM_HAB,PM_WINDOW_DC,0x1000,0x5008);assert(screen);
++ dc=GCALL(610,PM_HAB,8,0,0,0,0);ps=GCALL(369,PM_HAB,dc,0x1000,0x5008);assert(ps);
++ info64(0x2000,64,32,8);bm=GCALL(598,ps,0x2000,0,0,0);assert(bm && GCALL(506,ps,bm)==0);
++ for(i=0;i<33;i++)guest_put_u32(&rt,0x3000+i*4,i==0?0:i==32?0xffffff:0x55ffff);
++ assert(GCALL(592,ps,4,2,0,33,0x3000)==1);
++ for(i=0;i<33;i++) {
++  guest_put_u32(&rt,0x1100,i);guest_put_u32(&rt,0x1104,0);
++  assert(GCALL(517,ps,i)==1 && GCALL(544,ps,0x1100)==1);
++ }
++ memset(rt.ram+0x4000,0xa5,20);guest_put_u32(&rt,0x4000,16);
++ assert(GCALL(601,bm,0x4000)==1 && guest_u32(&rt,0x4010)==0xa5a5a5a5);
++ assert(guest_u32(&rt,0x4000)==16 && guest_u32(&rt,0x4004)==64);
++ assert(GCALL(599,ps,0,30,0x5000,0x4000)==30);
++ assert(rt.ram[0x5000]==0 && gpi_bm(&rt,bm)->rgb[rt.ram[0x5001]]==0x55ffff);
++ assert(gpi_bm(&rt,bm)->rgb[rt.ram[0x5020]]==0xffffff);
++ /* Header remains intact when the palette starts at offset 16. */
++ assert(GCALL(602,ps,0,30,0x5000,0x4000)==30);
++ pm_return(0);
++ assert(PCALL(829,1,21)==1080 && PCALL(829,1,30)==23);
++ assert(PCALL(875,PM_FRAME,0,60,820,320,221,3)==1);
++ assert(mock_pos_x==60 && mock_pos_y==39 && mock_pos_w==320 && mock_pos_h==221);
++ /* A 320x200 drawing must fit after the native nonclient area is deducted. */
++ setenv("WHP_OS2_SARIEN_GEOMETRY","1",1);
++ assert(PCALL(875,PM_FRAME,0,60,820,320,221,3)==1);
++ assert(mock_pos_w-8==320 && mock_pos_h-31==200);
++ assert(mock_pos_y==1080-820-mock_pos_h);
++ assert(PCALL(875,PM_FRAME,0,0,0,320,221,1)==1);
++ assert(mock_pos_w==328 && mock_pos_h==231);
++ /* Move-only ignores the supplied dimensions; client handles stay unaffected. */
++ assert(PCALL(875,PM_FRAME,0,60,820,0,0,2)==1);
++ assert(PCALL(875,PM_CLIENT,0,60,820,320,221,3)==1 && mock_pos_w==320 && mock_pos_h==221);
++ mock_adjust_fail=1;assert(PCALL(875,PM_FRAME,0,0,0,320,221,1)==0);mock_adjust_fail=0;
++ assert(PCALL(875,PM_FRAME,0,0,0,320,1,1)==0);
++ unsetenv("WHP_OS2_SARIEN_GEOMETRY");
++ assert(PCALL(875,PM_FRAME,0,60,820,320,221,3)==1 && mock_pos_w==320 && mock_pos_h==221);
++ assert(PCALL(746,1,PM_CLIENT,0)==1 && GetFocus()==mock_hwnd);
++ for(i=0;i<6;i++)guest_put_u32(&rt,0x7000+i*4,i==2?64:i==3?32:0);
++ assert(PCALL(703,PM_CLIENT,screen,0)==screen);
++ assert(GCALL(355,screen,ps,3,0x7000,0xcc,1)==1);
++ assert(PCALL(738,screen)==1);
++ /* Worker thread uses shared PS without main being in BeginPaint. */
++ spawn();park(0);select_thread(1);hab2=PCALL(763,0);assert(hab2 && hab2!=PM_HAB && PCALL(763,0)==hab2);
++ assert(GCALL(355,screen,ps,3,0x7000,0xcc,1)==1 && !rt.pm->paint_dc);
++ assert(PCALL(919,PM_CLIENT,0x1000,123,0)==1);
++ assert(PCALL(888,hab2)==1 && rt.pm);
++ at=(uint32_t)clock_ms;assert(guest_beep(&rt,880,40)==0);
++ assert(clock_ms==at && mock_beep_frequency==880 && mock_beep_duration==40);
++ assert(current_guest_thread(&rt)->state==THREAD_SLEEP);park(0);select_thread(0);
++ assert(rt.threads[1].state==THREAD_SLEEP);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==1 && guest_u32(&rt,0xc08)==123);
++ pm_native_proc(mock_hwnd,WM_KEYDOWN,VK_LEFT,1);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==1 && guest_u32(&rt,0xc0c)==0x150000 && (guest_u32(&rt,0xc08)&2));
++ pm_native_proc(mock_hwnd,WM_KEYUP,VK_LEFT,1);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==1 && (guest_u32(&rt,0xc08)&0x40));
++ pm_native_proc(mock_hwnd,WM_CHAR,27,1);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==1 && guest_u32(&rt,0xc0c)==0xf001b);
++ pm_native_proc(mock_hwnd,WM_CHAR,'Y',1);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==1 && guest_u32(&rt,0xc0c)=='Y');
++ assert(guest_beep(&rt,36,1)==87 && guest_beep(&rt,880,60001)==87);
++ clock_ms+=40;wake_expired_waiters(&rt);assert(rt.threads[1].state==THREAD_RUNNABLE);
++ select_thread(1);finish_guest_thread(&rt);select_thread(0);
++ assert(PCALL(728,PM_FRAME)==0 && pm_entered);pm_return(0);
++ assert(PCALL(726,PM_HMQ)==1 && PCALL(888,PM_HAB)==1 && !rt.gpi);
++ puts("sarien-check PASS: logical colors, 16-byte header, shared window PS, supplied paint PS, keys, beep scheduling");
++}
+--- a/tests/sync-check.c
++++ b/tests/sync-check.c
+@@ -1,3 +1,4 @@
++#define _POSIX_C_SOURCE 200809L
+ /* Test doubles implement only WHP registers and time; scheduler, allocator,
+    mutexes, queues and thread lifecycle below are extracted production code. */
+ #include <stdint.h>
+@@ -47,6 +48,7 @@
+  int process_exited;uint32_t process_rc;
+ };
+ static void gpi_cleanup(struct Runtime *rt);
++static int gpi_window_ps(struct Runtime *rt,uint32_t id);
+ #include "production.inc"
+ static struct Runtime rt;
+ static void select_thread(unsigned slot)
+@@ -87,6 +89,7 @@
+ static void spawn(void) { assert(create_guest_thread(&rt,0x500,0x10000,0,0,8192)==0); }
+ #include "pm-check.inc"
+ #include "gpi-check.inc"
++#include "sarien-check.inc"
+ int main(void)
+ {
+  uint32_t h,old,q,q2,ev,i,j,base,end,tid,deadline,token;
+@@ -276,6 +279,6 @@
+  assert(rt.threads[0].state==THREAD_RUNNABLE && rt.threads[1].state==THREAD_FREE);
+  select_thread(0);assert(guest_wait_thread(&rt,0x500,1)==0);
+  finish_guest_thread(&rt);assert(rt.process_exited && rt.process_rc==0);
+- reset();test_pm();reset();test_gpi();
++ reset();test_pm();reset();test_gpi();reset();test_sarien();
+  free(rt.ram);puts("sync-check PASS: callback continuations + R8 scheduler/queue/mutex/recycling + R7 info");return 0;
+ }
+--- a/v2_beep.h
++++ b/v2_beep.h
+@@ -0,0 +1,28 @@
++/* DosBeep blocks the guest caller, never the single WHP/message-pump thread.
++   Tone workers own only their small job; they never access Runtime/guest RAM. */
++struct BeepJob {DWORD frequency,duration;};
++static volatile LONG beep_active;
++static DWORD WINAPI beep_worker(LPVOID opaque)
++{
++    struct BeepJob job=*(struct BeepJob *)opaque;
++    free(opaque);
++    if(!Beep(job.frequency,job.duration))
++        fprintf(stderr,"v2: native tone unavailable (Windows error %lu)\n",(unsigned long)GetLastError());
++    InterlockedDecrement(&beep_active);return 0;
++}
++static uint32_t guest_beep(struct Runtime *rt,uint32_t frequency,uint32_t duration)
++{
++    struct BeepJob *job;HANDLE thread;
++    if(frequency<37 || frequency>32767 || duration>60000)return OS2_ERROR_INVALID_PARAMETER;
++    if(!duration)return 0;
++    if(InterlockedIncrement(&beep_active)>32) {
++        InterlockedDecrement(&beep_active);return OS2_ERROR_NOT_ENOUGH_MEMORY;
++    }
++    job=(struct BeepJob *)malloc(sizeof(*job));
++    if(!job){InterlockedDecrement(&beep_active);return OS2_ERROR_NOT_ENOUGH_MEMORY;}
++    job->frequency=frequency;job->duration=duration;
++    thread=CreateThread(NULL,0,beep_worker,job,0,NULL);
++    if(!thread){free(job);InterlockedDecrement(&beep_active);return OS2_ERROR_NOT_ENOUGH_MEMORY;}
++    CloseHandle(thread);
++    return guest_sleep(rt,duration);
++}
+--- a/v2_find.h
++++ b/v2_find.h
+@@ -86,8 +86,15 @@
+         struct GuestSearch candidate;
+         char path[1024];
+         if (!file_buffer(a[1],4) || !file_buffer(a[5],4) ||
+-            !file_buffer(a[3],a[4]) || !guest_u32(rt,a[5]) ||
++            !file_buffer(a[3],a[4]) ||
+             !guest_copy_cstr(rt,a[0],path,sizeof(path))) return OS2_ERROR_INVALID_PARAMETER;
++        fprintf(stderr,"v2: DosFindFirst request path=\"%s\" count=%u cb=%u attr=%08X level=%u\n",
++                path,guest_u32(rt,a[5]),a[4],a[2],a[6]);
++        if (!guest_u32(rt,a[5])) {
++            const char *compat=getenv("WHP_OS2_FIND_ZERO_COUNT");
++            if (!compat || strcmp(compat,"1")) return OS2_ERROR_INVALID_PARAMETER;
++            fprintf(stderr,"v2: DosFindFirst compatibility: zero input count treated as one\n");
++        }
+         guest_put_u32(rt,a[5],0);
+         if (a[6]!=1u || (a[2]&~0x3737u)) return OS2_ERROR_INVALID_PARAMETER;
+         if (a[4]<BETA_FINDBUF_SIZE) return 111u;
+--- a/v2_gpi.h
++++ b/v2_gpi.h
+@@ -8,7 +8,7 @@
+     uint8_t *bits;
+     uint32_t rgb[256]; /* 00RRGGBB */
+ };
+-struct GpiPS {uint32_t id,dc,bitmap,color,rgb_mode;};
++struct GpiPS {uint32_t id,dc,bitmap,color,rgb_mode;uint32_t logical[256];};
+ struct GuestGPI {
+     uint32_t serial,bytes,dc[GPI_SLOTS];
+     struct GpiPS ps[GPI_SLOTS];
+@@ -29,6 +29,10 @@
+     for(i=0;i<GPI_SLOTS;i++)if(rt->gpi->ps[i].id==id)return &rt->gpi->ps[i];
+     return NULL;
+ }
++static int gpi_window_ps(struct Runtime *rt,uint32_t id)
++{
++    struct GpiPS *p=gpi_ps(rt,id);return p && p->dc==PM_WINDOW_DC;
++}
+ static struct GpiBitmap *gpi_bm(struct Runtime *rt,uint32_t id)
+ {
+     unsigned i;
+@@ -53,14 +57,14 @@
+     uint32_t planes;
+     if(!addr || !guest_range(addr,4))return 0;
+     memset(f,0,sizeof(*f));f->cb=guest_u32(rt,addr);
+-    if((f->cb!=12 && f->cb!=64) || !guest_range(addr,f->cb))return 0;
++    if((f->cb!=12 && f->cb!=16 && f->cb!=64) || !guest_range(addr,f->cb))return 0;
+     if(f->cb==12) {
+         f->w=rd16(rt->ram+addr+4);f->h=rd16(rt->ram+addr+6);
+         planes=rd16(rt->ram+addr+8);f->bpp=rd16(rt->ram+addr+10);f->step=3;
+     } else {
+         f->w=guest_u32(rt,addr+4);f->h=guest_u32(rt,addr+8);
+         planes=rd16(rt->ram+addr+12);f->bpp=rd16(rt->ram+addr+14);f->step=4;
+-        if(guest_u32(rt,addr+16) || rd16(rt->ram+addr+44) || guest_u32(rt,addr+56))return 0;
++        if(f->cb==64 && (guest_u32(rt,addr+16) || rd16(rt->ram+addr+44) || guest_u32(rt,addr+56)))return 0;
+     }
+     if(planes!=1 || !f->w || !f->h || f->w>2048 || f->h>2048 ||
+        (f->bpp!=1 && f->bpp!=4 && f->bpp!=8 && f->bpp!=24 && f->bpp!=32))return 0;
+@@ -137,7 +141,7 @@
+     struct GpiPS *sp=gpi_ps(rt,a[1]),*dp=gpi_ps(rt,a[0]);
+     struct GpiBitmap *src=sp?gpi_bm(rt,sp->bitmap):NULL,*dst=dp?gpi_bm(rt,dp->bitmap):NULL;
+     int32_t pt[8];uint32_t i,x,y,sw,sh,dw,dh,*pixels;RECT cr;
+-    int screen=a[0]==PM_HPS && rt->pm->paint_dc;
++    int screen=(a[0]==PM_HPS && rt->pm->paint_dc) || (gpi_window_ps(rt,a[0]) && rt->pm->window);
+     if(!src || (!dst && !screen) || (a[2]!=3 && a[2]!=4) || a[4]!=0xcc || a[5]>2 ||
+        !a[3] || !guest_range(a[3],a[2]*8))return 0;
+     for(i=0;i<a[2]*2;i++)pt[i]=(int32_t)guest_u32(rt,a[3]+i*4);
+@@ -153,14 +157,18 @@
+     for(y=0;y<sh;y++)for(x=0;x<sw;x++)
+         pixels[(sh-1-y)*sw+x]=gpi_pixel(src,(uint32_t)pt[4]+x,(uint32_t)pt[5]+y);
+     if(screen) {
+-        BITMAPINFO bi;int rc;
++        BITMAPINFO bi;int rc;HDC dc;int release;
+         if(!GetClientRect(rt->pm->window,&cr)){free(pixels);return 0;}
+         memset(&bi,0,sizeof(bi));bi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
+         bi.bmiHeader.biWidth=(LONG)sw;bi.bmiHeader.biHeight=-(LONG)sh;
+         bi.bmiHeader.biPlanes=1;bi.bmiHeader.biBitCount=32;bi.bmiHeader.biCompression=BI_RGB;
+-        SetStretchBltMode(rt->pm->paint_dc,COLORONCOLOR);
+-        rc=StretchDIBits(rt->pm->paint_dc,pt[0],cr.bottom-pt[3],(int)dw,(int)dh,
++        release=!(rt->pm->paint_dc && rt->pm->paint_hps==a[0]);
++        dc=release?GetDC(rt->pm->window):rt->pm->paint_dc;
++        if(!dc){free(pixels);return 0;}
++        SetStretchBltMode(dc,COLORONCOLOR);
++        rc=StretchDIBits(dc,pt[0],cr.bottom-pt[3],(int)dw,(int)dh,
+                        0,0,(int)sw,(int)sh,pixels,&bi,DIB_RGB_COLORS,SRCCOPY);
++        if(release)ReleaseDC(rt->pm->window,dc);
+         free(pixels);return rc!=0 && (uint32_t)rc!=0xffffffffu;
+     }
+     for(y=0;y<dh;y++)for(x=0;x<dw;x++)
+@@ -171,7 +179,7 @@
+ {
+     uint32_t a[6],i,j,n=6,old;struct GpiPS *p;struct GpiBitmap *b;struct GpiInfo f;
+     struct GuestThread *t=current_guest_thread(rt);
+-    if(!rt->pm || !t || t->tid!=rt->pm->tid)return 0;
++    if(!rt->pm || !t)return 0; /* shared PSs; guest mutexes serialize callers */
+     if(ordinal==379 || ordinal==371 || ordinal==604)n=1;
+     else if(ordinal==506 || ordinal==517 || ordinal==505 || ordinal==544 || ordinal==601)n=2;
+     else if(ordinal==369)n=4;
+@@ -195,10 +203,12 @@
+         *dc=0;return 0; /* memory DC has no metafile */
+     }
+     case 369:
+-        if(a[0]!=PM_HAB || !gpi_dc(rt,a[1]) || !a[2] || !guest_range(a[2],8) ||
++        if(a[0]!=PM_HAB || (!gpi_dc(rt,a[1]) && !(a[1]==PM_WINDOW_DC && rt->pm->window)) || !a[2] || !guest_range(a[2],8) ||
+            (a[3]&0xff)!=8 || (a[3]&~0x5208u))return 0;
+         for(i=0;i<GPI_SLOTS;i++)if(!rt->gpi->ps[i].id) {
+-            p=&rt->gpi->ps[i];memset(p,0,sizeof(*p));p->id=gpi_id(rt);p->dc=a[1];p->color=0xffffffffu;return p->id;
++            p=&rt->gpi->ps[i];memset(p,0,sizeof(*p));p->id=gpi_id(rt);p->dc=a[1];p->color=0xffffffffu;
++            for(j=0;j<256;j++){COLORREF c=pm_color(j%16);p->logical[j]=((c&255)<<16)|(c&0xff00)|((c>>16)&255);}
++            return p->id;
+         }
+         return 0;
+     case 379: if(!p)return 0;memset(p,0,sizeof(*p));return 1;
+@@ -210,7 +220,7 @@
+         b=&rt->gpi->bm[i];memset(b,0,sizeof(*b));
+         b->w=f.w;b->h=f.h;b->bpp=f.bpp;b->stride=f.stride;
+         b->bits=(uint8_t *)calloc(f.h,f.stride);if(!b->bits)return 0;
+-        for(j=0;j<256;j++) {COLORREF c=pm_color(j%16);b->rgb[j]=((c&255)<<16)|(c&0xff00)|((c>>16)&255);}
++        for(j=0;j<256;j++)b->rgb[j]=p->logical[j];
+         if((a[2]&4u) && gpi_bits(rt,b,0,b->h,a[3],a[4],0)!=b->h){free(b->bits);memset(b,0,sizeof(*b));return 0;}
+         b->id=gpi_id(rt);rt->gpi->bytes+=b->stride*b->h;return b->id;
+     case 506:
+@@ -224,13 +234,20 @@
+     case 602: case 599:return gpi_bits(rt,b,a[1],a[2],a[3],a[4],ordinal==599);
+     case 601:
+         b=gpi_bm(rt,a[0]);if(!b || !a[1] || !guest_range(a[1],4))return 0;
+-        old=guest_u32(rt,a[1]);if((old!=12 && old!=64) || !guest_range(a[1],old))return 0;
++        old=guest_u32(rt,a[1]);if((old!=12 && old!=16 && old!=64) || !guest_range(a[1],old))return 0;
+         memset(rt->ram+a[1],0,old);guest_put_u32(rt,a[1],old);
+         if(old==12){gpi_wr16(rt->ram+a[1]+4,(uint16_t)b->w);gpi_wr16(rt->ram+a[1]+6,(uint16_t)b->h);gpi_wr16(rt->ram+a[1]+8,1);gpi_wr16(rt->ram+a[1]+10,(uint16_t)b->bpp);}
+-        else {guest_put_u32(rt,a[1]+4,b->w);guest_put_u32(rt,a[1]+8,b->h);gpi_wr16(rt->ram+a[1]+12,1);gpi_wr16(rt->ram+a[1]+14,(uint16_t)b->bpp);guest_put_u32(rt,a[1]+20,b->stride*b->h);}
++        else {guest_put_u32(rt,a[1]+4,b->w);guest_put_u32(rt,a[1]+8,b->h);gpi_wr16(rt->ram+a[1]+12,1);gpi_wr16(rt->ram+a[1]+14,(uint16_t)b->bpp);if(old==64)guest_put_u32(rt,a[1]+20,b->stride*b->h);}
+         return 1;
+-    case 592: /* RGB color mode or default OS/2 indexed colors */
+-        if(!p || a[1]>1 || (a[2]!=0 && a[2]!=3) || a[3] || a[4] || a[5])return 0;
++    case 592:
++        if(!p || (a[1]&~7u))return 0;
++        if(a[2]==2) { /* LCOLF_CONSECRGB */
++            if(a[3]>256 || a[4]>256-a[3] || (a[4] && (!a[5] || !guest_range(a[5],a[4]*4))))return 0;
++            for(i=0;i<a[4];i++)p->logical[a[3]+i]=guest_u32(rt,a[5]+i*4)&0xffffffu;
++            if(b && b->bpp<=8)for(i=0;i<(1u<<b->bpp);i++)b->rgb[i]=p->logical[i];
++            p->rgb_mode=0;return 1;
++        }
++        if((a[2]!=0 && a[2]!=3) || a[3] || a[4] || a[5])return 0;
+         p->rgb_mode=a[2]==3;return 1;
+     case 517: if(!p)return 0;p->color=a[1];return 1;
+     case 505: return p && (a[1]==2 || a[1]==5);
+@@ -238,7 +255,7 @@
+         if(!p || !b || !a[1] || !guest_range(a[1],8))return 0;
+         i=guest_u32(rt,a[1]);j=guest_u32(rt,a[1]+4);if(i>=b->w || j>=b->h)return 0;
+         old=p->color;
+-        if(!p->rgb_mode){COLORREF c=pm_color(old);old=((c&255)<<16)|(c&0xff00)|((c>>16)&255);}
++        if(!p->rgb_mode){if(old<256)old=p->logical[old];else{COLORREF c=pm_color(old);old=((c&255)<<16)|(c&0xff00)|((c>>16)&255);}}
+         gpi_putpixel(b,i,j,old&0xffffffu);return 1;
+     case 355:return gpi_blt(rt,a);
+     default:fprintf(stderr,"v2: unsupported PMGPI.%u\n",ordinal);return 0;
+--- a/v2_pm.h
++++ b/v2_pm.h
+@@ -6,11 +6,13 @@
+ #define PM_HMQ 0x52000001u
+ #define PM_FRAME 0x50000001u
+ #define PM_CLIENT 0x50000002u
++#define PM_WINDOW_DC 0x55000001u
+ #define PM_HPS 0x53000001u
+ #define PM_CAPACITY 128u
+ struct PMMessage { uint32_t hwnd,msg,mp1,mp2,time; };
+ struct GuestPM {
+-    uint32_t tid,proc,head,count,client_out;
++    uint32_t tid,proc,head,count,client_out,paint_hps;
++    uint32_t initialized[MAX_THREADS];
+     int queue,creating,visible,destroying,fault;
+     char class_name[128];
+     HWND window;
+@@ -34,6 +36,24 @@
+     m->hwnd=hwnd;m->msg=msg;m->mp1=a;m->mp2=b;m->time=(uint32_t)GetTickCount64();
+     return 1;
+ }
++/* OS/2 VK values differ from Win32. Printable/control characters arrive
++   through WM_CHAR; only non-character keys are translated at KEYDOWN/UP. */
++static uint32_t pm_virtual_key(WPARAM key)
++{
++    if(key>=VK_F1 && key<=VK_F12)return 0x20u+(uint32_t)(key-VK_F1);
++    switch(key) {
++    case VK_LEFT:return 0x15;case VK_UP:return 0x16;
++    case VK_RIGHT:return 0x17;case VK_DOWN:return 0x18;
++    case VK_HOME:return 0x11;case VK_END:return 0x12;
++    case VK_PRIOR:return 0x13;case VK_NEXT:return 0x14;
++    case VK_INSERT:return 0x1a;case VK_DELETE:return 0x1b;
++    default:return 0;
++    }
++}
++static uint32_t pm_hab_for(struct GuestPM *p,uint32_t tid)
++{
++    return tid==p->tid ? PM_HAB : 0x54000000u|tid;
++}
+ static LRESULT CALLBACK pm_native_proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
+ {
+     struct Runtime *rt=(struct Runtime *)GetWindowLongPtrA(hwnd,GWLP_USERDATA);
+@@ -54,12 +74,26 @@
+     case WM_ERASEBKGND: return 1;
+     case WM_SIZE: pmmsg=7;b=(uint32_t)lp;break;
+     case WM_CLOSE: pmmsg=0x29;break;
+-    case WM_CHAR: pmmsg=0x7a;a=1u | (1u<<16);b=(uint32_t)wp & 0xffffu;break;
++    case WM_KEYDOWN: case WM_KEYUP:
++        b=pm_virtual_key(wp);if(!b)return DefWindowProcA(hwnd,msg,wp,lp);
++        b<<=16;a=2u|((msg==WM_KEYUP)?0x40u:0u)|((uint32_t)lp&255u)<<16;
++        a|=((uint32_t)lp&0xff0000u)<<8;pmmsg=0x7a;break;
++    case WM_CHAR:
++        pmmsg=0x7a;a=1u|(((uint32_t)lp&255u)<<16);b=(uint32_t)wp&0xffffu;
++        if(wp==27){a|=2;b|=0x0fu<<16;}
++        else if(wp==13){a|=2;b|=0x1eu<<16;}
++        else if(wp==8){a|=2;b|=5u<<16;}
++        break;
+     case WM_NCDESTROY:
+         rt->pm->window=NULL;
+         SetWindowLongPtrA(hwnd,GWLP_USERDATA,0);
+         return DefWindowProcA(hwnd,msg,wp,lp);
+     default: return DefWindowProcA(hwnd,msg,wp,lp);
++    }
++    if(pmmsg==0x7a) {
++        if(GetKeyState(VK_SHIFT)<0)a|=8;
++        if(GetKeyState(VK_CONTROL)<0)a|=0x10;
++        if(GetKeyState(VK_MENU)<0)a|=0x20;
+     }
+     if(pmmsg && !rt->pm->destroying && !pm_enqueue(rt,PM_CLIENT,pmmsg,a,b))
+         rt->pm->fault=1;
+@@ -169,21 +203,80 @@
+     struct GuestPM *p=rt->pm;
+     struct GuestThread *t=current_guest_thread(rt);
+     RECT r;
+-    n=ordinal==908 ? 9u : (ordinal==913 ? 7u :
++    n=ordinal==908 ? 9u : ((ordinal==913 || ordinal==875) ? 7u :
+       ((ordinal==926 || ordinal==915) ? 5u :
+       ((ordinal==911 || ordinal==919 || ordinal==920 || ordinal==902) ? 4u :
+-      ((ordinal==703 || ordinal==743 || ordinal==765) ? 3u :
+-      ((ordinal==716 || ordinal==912 || ordinal==840) ? 2u : 1u)))));
++      ((ordinal==703 || ordinal==743 || ordinal==765 || ordinal==746) ? 3u :
++      ((ordinal==716 || ordinal==912 || ordinal==840 || ordinal==829) ? 2u : 1u)))));
+     if(!guest_range(esp,(n+1u)*4u) || !t) return 0;
+     memset(a,0,sizeof(a));for(i=0;i<n;i++)a[i]=guest_u32(rt,esp+4u+i*4u);
+     fprintf(stderr,"v2: PMWIN.%u(%08X,%08X,%08X,%08X)\n",ordinal,a[0],a[1],a[2],a[3]);
+     if(ordinal==763) {
+-        if(a[0] || p) return 0;
++        if(a[0])return 0;
++        if(p){p->initialized[rt->current_thread]=t->tid;return pm_hab_for(p,t->tid);}
+         p=(struct GuestPM *)calloc(1,sizeof(*p));if(!p)return 0;
+-        rt->pm=p;p->tid=t->tid;return PM_HAB;
+-    }
+-    if(!p || t->tid!=p->tid) return 0;
++        rt->pm=p;p->tid=t->tid;p->initialized[rt->current_thread]=t->tid;return PM_HAB;
++    }
++    if(!p)return 0;
++    if(t->tid!=p->tid) {
++        if(ordinal==888 && a[0]==pm_hab_for(p,t->tid) && p->initialized[rt->current_thread]==t->tid) {
++            p->initialized[rt->current_thread]=0;return 1;
++        }
++        if(ordinal==919 && p->queue && a[0]==PM_CLIENT)
++            return pm_enqueue(rt,a[0],a[1]&0xffffu,a[2],a[3]);
++        if(ordinal==902 && p->queue && a[0]==PM_HMQ)
++            return pm_enqueue(rt,0,a[1]&0xffffu,a[2],a[3]);
++        return 0;
++    }
+     switch(ordinal) {
++    case 794: return a[0]==PM_CLIENT && p->window ? PM_WINDOW_DC : 0;
++    case 829:
++        if(a[0]!=1)return 0;
++        switch((int16_t)a[1]) {
++        case 20:return (uint32_t)GetSystemMetrics(SM_CXSCREEN);
++        case 21:return (uint32_t)GetSystemMetrics(SM_CYSCREEN);
++        case 4:return (uint32_t)GetSystemMetrics(SM_CXSIZEFRAME);
++        case 5:return (uint32_t)GetSystemMetrics(SM_CYSIZEFRAME);
++        case 26:return (uint32_t)GetSystemMetrics(SM_CXBORDER);
++        case 27:return (uint32_t)GetSystemMetrics(SM_CYBORDER);
++        case 30:return (uint32_t)GetSystemMetrics(SM_CYCAPTION);
++        default:fprintf(stderr,"v2: unsupported WinQuerySysValue %u\n",a[1]);return 0;
++        }
++    case 746:
++        if(a[0]!=1 || a[1]!=PM_CLIENT || !p->window || a[2])return 0;
++        SetFocus(p->window);return GetFocus()==p->window;
++    case 875:
++    {
++        UINT flags=SWP_NOZORDER|SWP_NOACTIVATE;RECT bounds;
++        int x=(int16_t)a[2],y=(int16_t)a[3],w=(int16_t)a[4],h=(int16_t)a[5];
++        if((a[0]!=PM_FRAME && a[0]!=PM_CLIENT) || !p->window || a[1] || (a[6]&~0xfbu))return 0;
++        if(!(a[6]&1))flags|=SWP_NOSIZE;else if(w<=0 || h<=0)return 0;
++        /* Sarien's legacy port specifies client width and height+title-2.
++           Keep this application convention opt-in; ordinary PM frame sizes
++           continue to describe the native outer rectangle. */
++        if((a[6]&1) && a[0]==PM_FRAME) {
++            const char *compat=getenv("WHP_OS2_SARIEN_GEOMETRY");
++            if(compat && !strcmp(compat,"1")) {
++                int client_h=h-GetSystemMetrics(SM_CYCAPTION)+2;
++                DWORD style=(DWORD)GetWindowLongPtrA(p->window,GWL_STYLE);
++                if(client_h<=0)return 0;
++                bounds.left=0;bounds.top=0;bounds.right=w;bounds.bottom=client_h;
++                if(!AdjustWindowRectEx(&bounds,style,FALSE,
++                    (DWORD)GetWindowLongPtrA(p->window,GWL_EXSTYLE)))return 0;
++                w=bounds.right-bounds.left;h=bounds.bottom-bounds.top;
++                fprintf(stderr,"v2: Sarien geometry: client=%ux%d native frame=%dx%d\n",
++                        (unsigned)(uint16_t)a[4],client_h,w,h);
++            }
++        }
++        if(!(a[6]&2))flags|=SWP_NOMOVE;
++        if(a[6]&8)flags|=SWP_SHOWWINDOW;
++        if(a[6]&16)flags|=SWP_HIDEWINDOW;
++        if(a[6]&32)flags|=SWP_NOREDRAW;
++        if(a[6]&128)flags&=~SWP_NOACTIVATE;
++        if(!(a[6]&1)){if(!GetWindowRect(p->window,&bounds))return 0;h=bounds.bottom-bounds.top;}
++        y=GetSystemMetrics(SM_CYSCREEN)-y-h;
++        return SetWindowPos(p->window,NULL,x,y,w,h,flags)!=0;
++    }
+     case 716: if(a[0]!=PM_HAB || p->queue)return 0;p->queue=1;return PM_HMQ;
+     case 726: if(a[0]!=PM_HMQ || p->window)return 0;p->queue=0;p->count=0;return 1;
+     case 888: if(a[0]!=PM_HAB || p->queue || p->window)return 0;pm_cleanup(rt);return 1;
+@@ -245,16 +338,16 @@
+         guest_put_u32(rt,a[1],0);guest_put_u32(rt,a[1]+4,0);
+         guest_put_u32(rt,a[1]+8,(uint32_t)r.right);guest_put_u32(rt,a[1]+12,(uint32_t)r.bottom);return 1;
+     case 703:
+-        if(a[0]!=PM_CLIENT || a[1] || !p->window || p->paint_dc || (a[2] && !guest_range(a[2],16)))return 0;
++        if(a[0]!=PM_CLIENT || (a[1] && !gpi_window_ps(rt,a[1])) || !p->window || p->paint_dc || (a[2] && !guest_range(a[2],16)))return 0;
+         p->paint_dc=GetDC(p->window);if(!p->paint_dc)return 0;
+         if(a[2] && GetClientRect(p->window,&r)) {
+             guest_put_u32(rt,a[2],0);guest_put_u32(rt,a[2]+4,0);
+             guest_put_u32(rt,a[2]+8,(uint32_t)r.right);guest_put_u32(rt,a[2]+12,(uint32_t)r.bottom);
+         }
+-        return PM_HPS;
++        p->paint_hps=a[1]?a[1]:PM_HPS;return p->paint_hps;
+     case 738:
+-        if(a[0]!=PM_HPS || !p->paint_dc)return 0;
+-        ReleaseDC(p->window,p->paint_dc);p->paint_dc=NULL;return 1;
++        if(a[0]!=p->paint_hps || !p->paint_dc)return 0;
++        ReleaseDC(p->window,p->paint_dc);p->paint_dc=NULL;p->paint_hps=0;return 1;
+     case 743:
+     {
+         HBRUSH brush;int ok;
+--- a/whp_os2_v2_hi.c
++++ b/whp_os2_v2_hi.c
+@@ -1883,8 +1883,10 @@
+ #include "v2_sync.h"
+ #include "v2_queue.h"
+ static void gpi_cleanup(struct Runtime *rt);
++static int gpi_window_ps(struct Runtime *rt,uint32_t id);
+ #include "v2_pm.h"
+ #include "v2_gpi.h"
++#include "v2_beep.h"
+ 
+ static uint32_t create_guest_thread(struct Runtime *rt, uint32_t ptid,
+                                     uint32_t entry, uint32_t param,
+@@ -2005,6 +2007,7 @@
+     case 223: return "DosQueryPathInfo";
+     case 230: return "DosGetDateTime";
+     case 229: return "DosSleep";
++    case 286: return "DosBeep";
+     case 257: return "DosClose";
+     case 259: return "DosDelete";
+     case 272: return "DosSetFileSize";
+@@ -2163,6 +2166,7 @@
+         return OS2_NO_ERROR;
+ 
+     case 229: return guest_sleep(rt, a1);
++    case 286: return guest_beep(rt,a1,a2);
+     case 331: case 332: case 333: case 334: case 335: case 336:
+         return dispatch_mutex(rt, ordinal, a1, a2, a3, a4);
+ 
+@@ -2638,7 +2642,7 @@
+         return 1;
+     }
+ 
+-    fprintf(stderr, "WHP OS/2 V2 R11 PM + bitmap GPI - LE/LX loader + threads + events + guest DLLs + file I/O\n");
++    fprintf(stderr, "WHP OS/2 V2 R12 Sarien integration - LE/LX loader + threads + events + guest DLLs + file I/O\n");
+     fprintf(stderr, "v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);

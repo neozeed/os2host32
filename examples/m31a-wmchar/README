@@ -1,0 +1,7 @@
+comments about WMCHAR (Char Message Display Application)
+
+This application displays each WM_CHAR message it receives.  The user
+can select which message attributes are displayed.
+
+wmchar.tab  is a C file containing an implementation that is table
+            driven.  It is functionally equivalent to wmchar.c.

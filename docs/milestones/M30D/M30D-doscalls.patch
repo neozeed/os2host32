@@ -1,0 +1,95 @@
+--- /mnt/data/m30c/doscalls.c	2026-09-17 17:06:37.017487464 +0000
++++ /mnt/data/m30d/doscalls.c	2026-09-17 17:52:19.999079254 +0000
+@@ -256,6 +256,14 @@
+     O2ULONG ordinal;
+ };
+ 
++struct O2Tib2Compat {
++    O2ULONG tid;
++    O2ULONG priority;
++    O2ULONG version;
++    unsigned short mc_count;
++    unsigned short mc_force;
++};
++
+ struct O2PibCompat {
+     O2ULONG pid;
+     O2ULONG ppid;
+@@ -269,11 +277,32 @@
+ #define O2_INFO_ENV_MAX 32768U
+ #define O2_INFO_CMD_MAX 4096U
+ static struct O2TibCompat o2_info_tib;
++static struct O2Tib2Compat o2_info_tib2;
+ static struct O2PibCompat o2_info_pib;
+ static char o2_info_env[O2_INFO_ENV_MAX];
+ static char o2_info_cmd[O2_INFO_CMD_MAX];
+ static char o2_scan_env[O2_INFO_ENV_MAX];
+ 
++/* M30D private in-process bridge: ask OS2HOST32.EXE for the mapped guest
++ * main-thread stack.  Keep this separate from the module-manager bridge so
++ * older DOSCALLS/module API behavior is unchanged. */
++static int o2_query_main_guest_stack(O2ULONG *plow, O2ULONG *phigh)
++{
++    typedef O2APIRET (__cdecl *QUERYFN)(O2ULONG *, O2ULONG *);
++    HMODULE exe;
++    QUERYFN fn;
++
++    if (!plow || !phigh)
++        return 0;
++    exe = GetModuleHandleA(NULL);
++    if (!exe)
++        return 0;
++    fn = (QUERYFN)GetProcAddress(exe, "OS2HostQueryMainStack");
++    if (!fn)
++        return 0;
++    return fn(plow, phigh) == O2_NO_ERROR;
++}
++
+ /* Persistent synchronous waveOut backend for DosBeep.  DosBeep itself is
+  * serialized, just as a single PC-style tone generator would be. */
+ static CRITICAL_SECTION beep_lock;
+@@ -1577,7 +1606,26 @@
+     o2_info_cmd[cmdlen] = '\0';
+ 
+     memset(&o2_info_tib, 0, sizeof(o2_info_tib));
++    memset(&o2_info_tib2, 0, sizeof(o2_info_tib2));
+     memset(&o2_info_pib, 0, sizeof(o2_info_pib));
++
++    /* M30D: OS/2 TIB offsets +4/+8 describe the current thread's stack
++     * bounds.  EMX checks these during _emx_init and rejects a span of
++     * 16K or less.  Ask the in-process loader for the actual mapped guest
++     * stack rather than exposing the Win32 host thread's stack. */
++    {
++        O2ULONG stack_low = 0;
++        O2ULONG stack_high = 0;
++        if (o2_query_main_guest_stack(&stack_low, &stack_high) &&
++            stack_high > stack_low) {
++            o2_info_tib.pstack = (void *)(ULONG_PTR)stack_low;
++            o2_info_tib.pstacklimit = (void *)(ULONG_PTR)stack_high;
++        }
++    }
++    o2_info_tib2.tid = 1UL;
++    o2_info_tib.ptib2 = &o2_info_tib2;
++    o2_info_tib.ordinal = 1UL;
++
+     o2_info_pib.pid = (O2ULONG)GetCurrentProcessId();
+     /* M30: OS2HOST32 reserves HMODULE/HMTE 1 for the main guest image. */
+     o2_info_pib.hmte = 1UL;
+@@ -1587,6 +1635,17 @@
+ 
+     *pptib = &o2_info_tib;
+     *pppib = &o2_info_pib;
++    if (GetEnvironmentVariableA("OS2_TRACE_EMX_SELF", NULL, 0) != 0) {
++        fprintf(stderr,
++                "M30D TIB: pstack=%08lX limit=%08lX span=%lu KB tid=%lu\n",
++                (unsigned long)(ULONG_PTR)o2_info_tib.pstack,
++                (unsigned long)(ULONG_PTR)o2_info_tib.pstacklimit,
++                (unsigned long)(((ULONG_PTR)o2_info_tib.pstacklimit >
++                                 (ULONG_PTR)o2_info_tib.pstack) ?
++                                (((ULONG_PTR)o2_info_tib.pstacklimit -
++                                  (ULONG_PTR)o2_info_tib.pstack) / 1024UL) : 0UL),
++                (unsigned long)o2_info_tib2.tid);
++    }
+     return O2_NO_ERROR;
+ }
+ 

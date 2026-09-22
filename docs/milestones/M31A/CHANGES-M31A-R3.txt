@@ -1,0 +1,21 @@
+Milestone 31A R3 - WMCHAR startup trace
+=======================================
+
+R2 reached native window creation but the sample then became unresponsive and
+closed without an os2host32 exception diagnostic.
+
+R3 deliberately does not change PM semantics.  It adds a narrow diagnostic
+trace selected by OS2_PM_TRACE=1 around:
+
+  * WinInitialize / WinCreateMsgQueue
+  * WinGetPS + GpiQueryFontMetrics
+  * WinRegisterClass / WinCreateStdWindow / UpdateWindow
+  * native WM_CREATE / WM_PAINT / WM_CLOSE / WM_DESTROY / WM_NCDESTROY
+  * WinQueryWindowProcess / WinQueryWindowText / WinAddSwitchEntry
+  * FID_MENU lookup and WinSendMsg menu setup
+  * WinGetMsg and WinDispatchMsg
+
+The original WMCHAR MainWndProc was disassembled while investigating this.
+Its EXPENTRY callback ends in a plain RET, confirming the existing host-to-
+guest __cdecl callback cleanup is correct.  No calling-convention change was
+made.

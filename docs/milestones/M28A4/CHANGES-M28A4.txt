@@ -1,0 +1,9 @@
+Milestone 28A4
+---------------
+* Corrected DOSCALLS DosFindFirst/DosFindNext FILEFINDBUF3 layout.
+* FILEFINDBUF3 begins with ULONG oNextEntryOffset; M28A's native producer and
+  native decoder had both omitted it, hiding a four-byte ABI error.
+* Real C/386 <os2.h> smoke testing exposed the bug: cbFile appeared as the
+  allocation size (4096) and the first four filename characters disappeared.
+* DOSCALLS now emits the real OS/2 layout and cmdos2_win32.c decodes it.
+* The direct OS/2 backend continues to use the SDK FILEFINDBUF3 definition.

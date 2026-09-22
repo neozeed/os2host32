@@ -1,0 +1,18 @@
+M29N1
+=====
+
+* The guest command namespace no longer inherits Win32 PATH by default.
+  OS2PATH seeds the OS/2 personality's PATH; if OS2PATH is absent, PATH starts
+  at the deliberately small current-directory-only value ".".
+* SET OS2PATH=... and PATH ... / SET PATH=... keep OS2PATH and PATH in sync.
+* Added env.cmd as a manual OS/2 environment seed.  It establishes an OS/2
+  command path and reserves OS2LIBPATH for the future LE/LX user-DLL loader.
+* SET assignment parsing now treats unquoted parentheses as data, fixing host
+  values such as "C:\Program Files (x86)\..." without weakening normal command
+  grouping elsewhere.
+* DosExecPgm now transports argument-string #1 independently from PgmName via
+  OS2HOST32's internal --argv0 option.  PATH/extension resolution can therefore
+  select m29n-bin\pathprobe.exe while the C/386 child still receives argv[0]
+  exactly as "pathprobe".
+* Added examples\m29n1-os2path-argv0-test.cmd and portable regressions for the
+  PATH namespace and SET-parentheses parser boundary.

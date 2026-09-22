@@ -1,0 +1,1807 @@
+--- a/README-V2-SYNC-R8.txt
++++ b/README-V2-SYNC-R8.txt
+@@ -0,0 +1,175 @@
++WHP OS/2 V2 R8 - scheduling, mutexes, queues, thread recycling
++=============================================================
++Cumulative source release based on R7. Build the Windows host and the new
++C/386 guests locally. No prebuilt R8 host or new guest EXEs are included.
++
++QUICK START
++  Windows x64 MSVC developer prompt: build-v2.cmd
++  C/386 toolchain prompt:            build-c386-sync.cmd
++  Copy the new guest EXEs beside the host if you built them elsewhere.
++  Then:                             run-sync.cmd
++
++Expected output, in order:
++  sleep1 PASS
++  mutex1 PASS
++  queue1 PASS
++  recycle1 PASS (1000 threads in one process)
++  R8 scheduling and synchronisation suite PASS
++
++The script runs each test once and stops on a nonzero exit. Each test has its
++own <test>-trace.txt stderr log. No 50-run batch is needed for initial testing.
++For optional longer stack/slot stress:
++  whp_os2_v2_hi.exe recycle1.exe 10000 2>recycle1-trace.txt
++recycle1 accepts 1..1000000; the default is 1000.
++
++API COVERAGE
++  DOSCALLS.229: DosSleep
++  DOSCALLS.331..336: Create/Open/Close/Request/Release/QueryMutexSem
++  QUECALLS.9:  DosReadQueue
++  QUECALLS.10: DosPurgeQueue
++  QUECALLS.11: DosCloseQueue
++  QUECALLS.12: DosQueryQueue
++  QUECALLS.13: DosPeekQueue
++  QUECALLS.14: DosWriteQueue
++  QUECALLS.15: DosOpenQueue
++  QUECALLS.16: DosCreateQueue
++  DOSCALLS.348: adds QSV_MS_COUNT (14), for elapsed-time measurement.
++
++DOSCALLS and QUECALLS import veneers now have separate hypercall IDs. Queue
++ordinals cannot accidentally resolve to DOSCALLS with the same ordinal.
++Sarien's QUECALLS 9/14/15/16 and mutex calls now have implementations. Sarien
++still imports PMWIN/PMGPI, so it remains blocked until the PM phase.
++
++SCHEDULER
++DosSleep(0) requests a round-robin yield; with no runnable peer it returns to
++the same thread. Positive sleep registers a deadline and lets other guests
++run. FFFFFFFF means indefinite sleep. Event, mutex and sleep deadlines are
++checked at hypercall boundaries and while selecting the next runnable guest.
++The host sleeps only when there is no runnable guest, until the nearest
++finite deadline. This is still a cooperative single-VP scheduler: a thread
++that never yields or blocks can starve others. No instruction preemption or
++SMP execution is added. Synchronous console/file ReadFile can still block the
++host; guest-aware blocking in this release concerns sleep/semaphores/queues.
++
++MUTEXES
++Ownership and recursion belong to guest TIDs, never to the Win64 host thread.
++Zero-time request returns 121 when unavailable; finite and indefinite waits
++block only the caller. A final release reserves ownership for the oldest
++waiting guest before waking it, preventing the releaser from stealing it back.
++Owner death discards the recursion count and the next owner gets 105
++(ERROR_SEM_OWNER_DIED), with ownership granted so it can repair/release.
++Nonowner release returns 288. Final close of an owned/waited-on mutex returns
++301; nonfinal reference closes are allowed. Query returns PID/TID/count,
++with zeroes for an unowned mutex. Named open/create is process-local and
++case-insensitive; names are at most 127 bytes. Attribute bit 1 is accepted,
++but does not create interprocess sharing. There are 64 mutex slots.
++Handles carry type and generation; a closed/recreated object rejects old
++handles. Generation exhaustion retires the slot instead of aliasing old IDs.
++Mutex/event name spaces are separate in this implementation.
++
++QUEUES
++16 process-local named queues, 256 queued entries each, names at most 127
++bytes and beginning with \QUEUES\. FIFO, LIFO and priority (15 highest) are
++supported. Equal-priority entries remain FIFO. QUE_CONVERT_ADDRESS is accepted
++for 32-bit writers, whose addresses require no conversion; no 16-bit queue
++API is implemented. Queue entries store a request, byte count, opaque guest
++address/value and priority. The host never dereferences or copies the data
++payload: this is required for Sarien's tone values passed as pointer values.
++The application must keep actual pointed-to buffers alive until consumed.
++
++An empty blocking ReadQueue/PeekQueue saves guest output addresses and parks
++the calling thread. A writer services waiting guests in arrival order, with
++one consuming reader per element. A peek leaves the element in place. Peek
++returns a token usable by ReadQueue; passing it back to Peek advances to the
++next element. Tokens do not wrap/reuse within a queue lifetime. A missing
++explicit token returns 333; end of enumeration returns 342. Blocking is
++supported for the first element (token zero), not for a missing old token.
++
++NOWAIT returns 342 for empty queues. Polling with hsem=0 is accepted. A nonzero
++NOWAIT event handle is remembered (subsequent nonzero handles must match),
++retained, and posted on writes; guest event waiters are awakened normally.
++WAIT ignores hsem. Queue final close releases the event reference and wakes
++blocked queue readers with 337. Open increments a process-local reference
++count; only the final close destroys the queue. Purge removes entries without
++freeing opaque payload memory and leaves blocked readers waiting for new data.
++Full queues return 346 immediately; writes do not block. Output ranges are
++validated before consuming an entry. No interprocess queue ownership,
++shared-memory transfer or named DOSCALLS/QUECALLS imports are implemented.
++These are documented V2 subset semantics, not a claim of full OS/2 fidelity.
++
++THREAD LIFETIME
++Both DosExit(EXIT_THREAD) and normal return share cleanup. Mutex ownership
++is abandoned, thread waiters are awakened, and allocator-owned stacks are
++marked free immediately after guest execution ends. TID 1's original EXE
++stack is not freed as a heap allocation. A successful wait consumes the dead
++slot; creation can also reuse an unjoined dead slot. New thread contexts and
++TIB/TIB2/FS descriptors are rebuilt, including clearing old exception heads.
++When the last live thread exits, the guest process ends successfully.
++
++TIDs are monotonically issued and never reused or wrapped. For compatibility
++with earlier V2 tests, waiting for an explicit, previously issued completed
++TID succeeds even after its slot has been recycled. This uses no growing
++completion-record allocation. Wait-any (TID zero) consumes an available dead
++slot or waits for a future exit; it has no unlimited historical completion
++queue once slots have been reused. If no other live or retained dead thread
++exists, it returns 309. This intentionally preserves V2 late/repeated explicit
++wait behavior; it is not exact native OS/2 thread-ID lifetime behavior.
++32 simultaneous slots remain the limit; sequential creation is no longer
++limited to 31 workers. Stack-size overflow is rejected before allocation.
++
++OTHER FIX
++Final event-semaphore close now returns 301 while a guest is waiting, instead
++of silently destroying the object under a blocked thread. Event generations
++are bounded to keep handle types disjoint from the new mutex/queue handles.
++
++GUEST TESTS
++sleep1: lone-thread yield, peer progress, positive sleep measured with
++QSV_MS_COUNT, and finite event timeout.
++mutex1: named duplicate/open/close, recursive ownership/query, wrong-owner
++release, immediate/finite timeouts, reserved handoff, four contending workers
++with yields inside critical sections (200 increments), owner death, stale
++handle after recreation.
++queue1: empty polling, named open/refclose, opaque values, peek/read token,
++count/purge, event notification, three simultaneously blocked readers,
++close while a reader waits, stale handle, FIFO/LIFO/stable priority ordering.
++recycle1: 1000 sequential workers in ONE guest process, 64KiB stacks, yields,
++stack canaries, monotonic IDs, both termination paths, late explicit wait.
++Without recycling, the old 32-thread or allocation limits would fail this.
++
++All four tests use the supplied Beta2 os2.h declarations. They do not need
++the private GA information-block import used by R7 info1/infotort.
++
++VALIDATION HERE
++- Both new headers and production thread-creation, allocator, register
++  save/load, scheduling, waiting, and veneer-emission helpers compiled and
++  executed with clock/WHP-register test doubles under GCC -Wall -Wextra
++  -Werror and AddressSanitizer/UndefinedBehaviorSanitizer.
++- Sleep/yield/deadlines; mutex recursion, nonowner, timeout, abandonment with
++  and without a blocked waiter; queue full/empty, priority/LIFO, tokens,
++  references, stale handles, invalid output without consumption, multiple
++  blocked readers, final-close wakeup and event notification passed.
++- 5000 stack/slot reuse cycles, failed-register-read allocation rollback,
++  oversized stack rejection, wait-any consumption, waiting-thread wakeup,
++  last-thread process exit, and 2000 queue round trips passed.
++- R7 checks also passed: 32 contexts and 32000 save/restores, private TIB
++  markers, FS bases, common PIB, NULL output and invalid output validation.
++- New guest sources passed GCC 32-bit C89 syntax/type checking against the
++  supplied Beta2 headers (legacy keywords removed for GCC; existing SDK
++  comment/pragma warnings suppressed). No Microsoft compiler/linker run here.
++- Reproduce native checks from the package directory:
++    ASAN_OPTIONS=detect_leaks=0 python3 tests/run-sync-check.py
++  LeakSanitizer is disabled because the execution environment uses ptrace.
++  tests/run-info-check.py now forwards to the combined R8 suite.
++- Windows host compilation and real WHP execution remain for the user.
++  Earlier validation logs are historical, not R8 Windows pass claims.
++
++REFERENCE
++Supplied c386 os2h/bsedos.h / bseerr.h: signatures, constants and error codes.
++Supplied V1 quecalls.def/c and doscalls.c: Sarien subset and pointer semantics.
++Queue ordinal cross-check (declarations only, no implementation copied):
++https://raw.githubusercontent.com/icculus/2ine/main/native/quecalls.h
++
++After run-sync passes, rerun info1, a single infotort run, and existing
++semaphore/DLL/file/directory tests to check the cumulative release on Windows.
++PM, audio, FPU context switching, priority scheduling, suspend/resume support
++and preemption remain future work.
+--- a/build-c386-sync.cmd
++++ b/build-c386-sync.cmd
+@@ -0,0 +1,40 @@
++@echo off
++setlocal
++if "%C386LIB%"=="" set C386LIB=\c386\lib
++cl386 -c -Gs -Od -W3 -B1 C1_386 sleep1.c
++if errorlevel 1 exit /b %errorlevel%
++>sleep1.lnk echo sleep1.obj
++>>sleep1.lnk echo sleep1.exe
++>>sleep1.lnk echo sleep1.map
++>>sleep1.lnk echo %C386LIB%\libc.lib %C386LIB%\os2386.lib
++>>sleep1.lnk echo sleep1.def
++link386 @sleep1.lnk
++if errorlevel 1 exit /b %errorlevel%
++cl386 -c -Gs -Od -W3 -B1 C1_386 mutex1.c
++if errorlevel 1 exit /b %errorlevel%
++>mutex1.lnk echo mutex1.obj
++>>mutex1.lnk echo mutex1.exe
++>>mutex1.lnk echo mutex1.map
++>>mutex1.lnk echo %C386LIB%\libc.lib %C386LIB%\os2386.lib
++>>mutex1.lnk echo mutex1.def
++link386 @mutex1.lnk
++if errorlevel 1 exit /b %errorlevel%
++cl386 -c -Gs -Od -W3 -B1 C1_386 queue1.c
++if errorlevel 1 exit /b %errorlevel%
++>queue1.lnk echo queue1.obj
++>>queue1.lnk echo queue1.exe
++>>queue1.lnk echo queue1.map
++>>queue1.lnk echo %C386LIB%\libc.lib %C386LIB%\os2386.lib
++>>queue1.lnk echo queue1.def
++link386 @queue1.lnk
++if errorlevel 1 exit /b %errorlevel%
++cl386 -c -Gs -Od -W3 -B1 C1_386 recycle1.c
++if errorlevel 1 exit /b %errorlevel%
++>recycle1.lnk echo recycle1.obj
++>>recycle1.lnk echo recycle1.exe
++>>recycle1.lnk echo recycle1.map
++>>recycle1.lnk echo %C386LIB%\libc.lib %C386LIB%\os2386.lib
++>>recycle1.lnk echo recycle1.def
++link386 @recycle1.lnk
++if errorlevel 1 exit /b %errorlevel%
++exit /b 0
+--- a/mutex1.c
++++ b/mutex1.c
+@@ -0,0 +1,71 @@
++#define TEST_NAME "mutex1"
++#include "r8test.h"
++static HMTX mutex;
++static volatile ULONG stage,counter,inside;
++static char name[]="\\SEM32\\WHP_R8_MUTEX";
++static void timeout_worker(ULONG arg)
++{
++    (void)arg;
++    CHECK(DosReleaseMutexSem(mutex)==288);
++    CHECK(DosRequestMutexSem(mutex,0)==121);
++    CHECK(DosRequestMutexSem(mutex,10)==121);
++    stage=1;
++    CHECK(DosRequestMutexSem(mutex,FOREVER)==0);
++    stage=2;
++    CHECK(DosReleaseMutexSem(mutex)==0);
++}
++static void counter_worker(ULONG arg)
++{
++    ULONG i,value;
++    (void)arg;
++    for(i=0;i<50;i++) {
++        CHECK(DosRequestMutexSem(mutex,FOREVER)==0);
++        CHECK(inside==0);inside=1;
++        value=counter;
++        CHECK(DosSleep(0)==0); /* force contention while owning the mutex */
++        CHECK(inside==1);counter=value+1;inside=0;
++        CHECK(DosReleaseMutexSem(mutex)==0);
++    }
++}
++static void abandon_worker(ULONG arg)
++{
++    (void)arg;
++    CHECK(DosRequestMutexSem(mutex,FOREVER)==0);
++    CHECK(DosRequestMutexSem(mutex,0)==0);
++    /* Return owning the recursive mutex. Main must receive OWNER_DIED. */
++}
++int main(void)
++{
++    TID tid,tids[4],owner;
++    PID pid;
++    ULONG count,i;
++    HMTX other,stale;
++    CHECK(DosCreateMutexSem((PSZ)name,&mutex,0,TRUE)==0);
++    CHECK(DosCreateMutexSem((PSZ)name,&other,0,FALSE)==285);
++    CHECK(DosOpenMutexSem((PSZ)name,&other)==0 && other==mutex);
++    CHECK(DosCloseMutexSem(other)==0);
++    CHECK(DosRequestMutexSem(mutex,0)==0);
++    CHECK(DosQueryMutexSem(mutex,&pid,&owner,&count)==0);
++    CHECK(pid==1 && owner==1 && count==2);
++    CHECK(DosCloseMutexSem(mutex)==301);
++    CHECK(DosCreateThread(&tid,(PFNTHREAD)timeout_worker,0,0,16384)==0);
++    while(stage==0) CHECK(DosSleep(1)==0);
++    CHECK(DosReleaseMutexSem(mutex)==0);
++    CHECK(DosQueryMutexSem(mutex,&pid,&owner,&count)==0 && count==1);
++    CHECK(DosReleaseMutexSem(mutex)==0);
++    CHECK(DosRequestMutexSem(mutex,0)==121); /* ownership reserved to waiter */
++    CHECK(DosWaitThread(&tid,DCWW_WAIT)==0 && stage==2);
++    for(i=0;i<4;i++) CHECK(DosCreateThread(&tids[i],(PFNTHREAD)counter_worker,i,0,16384)==0);
++    for(i=0;i<4;i++) { tid=tids[i];CHECK(DosWaitThread(&tid,DCWW_WAIT)==0); }
++    CHECK(counter==200 && inside==0);
++    CHECK(DosCreateThread(&tid,(PFNTHREAD)abandon_worker,0,0,16384)==0);
++    CHECK(DosWaitThread(&tid,DCWW_WAIT)==0);
++    CHECK(DosRequestMutexSem(mutex,0)==105);
++    CHECK(DosQueryMutexSem(mutex,&pid,&owner,&count)==0 && owner==1 && count==1);
++    CHECK(DosReleaseMutexSem(mutex)==0);
++    stale=mutex;CHECK(DosCloseMutexSem(mutex)==0);
++    CHECK(DosCreateMutexSem(NULL,&mutex,0,FALSE)==0 && mutex!=stale);
++    CHECK(DosRequestMutexSem(stale,0)==6);
++    CHECK(DosCloseMutexSem(mutex)==0);
++    printf("mutex1 PASS\n");return 0;
++}
+--- a/mutex1.def
++++ b/mutex1.def
+@@ -0,0 +1,3 @@
++NAME MUTEX1 WINDOWCOMPAT
++PROTMODE
++STACKSIZE 32768
+--- a/queue1.c
++++ b/queue1.c
+@@ -0,0 +1,80 @@
++#define TEST_NAME "queue1"
++#include "r8test.h"
++static HQUEUE queue;
++static char name[]="\\QUEUES\\WHP_R8_QUEUE";
++static volatile ULONG received[3],closed_rc;
++static void reader(ULONG index)
++{
++    REQUESTDATA req;
++    ULONG len;
++    PVOID data;
++    BYTE priority;
++    CHECK(DosReadQueue(queue,&req,&len,&data,0,DCWW_WAIT,&priority,(HSEM)0)==0);
++    CHECK(req.pid==1 && len==77 && (ULONG)data==0x12340000UL+req.ulData);
++    CHECK(priority==3);received[index]=req.ulData;
++}
++static void closed_reader(ULONG arg)
++{
++    REQUESTDATA req;ULONG len;PVOID data;BYTE priority;
++    (void)arg;
++    closed_rc=DosReadQueue(queue,&req,&len,&data,0,DCWW_WAIT,&priority,(HSEM)0);
++}
++static ULONG read_request(void)
++{
++    REQUESTDATA req;ULONG len;PVOID data;BYTE priority;
++    CHECK(DosReadQueue(queue,&req,&len,&data,0,DCWW_NOWAIT,&priority,(HSEM)0)==0);
++    return req.ulData;
++}
++int main(void)
++{
++    TID tids[3],tid;
++    PID pid;
++    HQUEUE other,stale;
++    ULONG count,i,token,len;
++    REQUESTDATA req;
++    PVOID data;
++    BYTE priority;
++    HEV event;
++    CHECK(sizeof(REQUESTDATA)==8);
++    CHECK(DosCreateQueue(&queue,QUE_FIFO,(PSZ)name)==0);
++    CHECK(DosCreateQueue(&other,QUE_FIFO,(PSZ)name)==332);
++    CHECK(DosOpenQueue(&pid,&other,(PSZ)name)==0 && pid==1 && other==queue);
++    CHECK(DosCloseQueue(other)==0);
++    CHECK(DosReadQueue(queue,&req,&len,&data,0,DCWW_NOWAIT,&priority,(HSEM)0)==342);
++    CHECK(DosWriteQueue(queue,11,2,(PVOID)0xdeadbeefUL,1)==0);
++    CHECK(DosWriteQueue(queue,22,4,(PVOID)0xcafebabeUL,2)==0);
++    token=0;
++    CHECK(DosPeekQueue(queue,&req,&len,&data,&token,DCWW_NOWAIT,&priority,(HSEM)0)==0);
++    CHECK(req.ulData==11 && token!=0 && (ULONG)data==0xdeadbeefUL && len==2);
++    CHECK(DosQueryQueue(queue,&count)==0 && count==2);
++    CHECK(DosReadQueue(queue,&req,&len,&data,token,DCWW_NOWAIT,&priority,(HSEM)0)==0);
++    CHECK(req.ulData==11 && read_request()==22);
++    CHECK(DosCreateEventSem(NULL,&event,0,FALSE)==0);
++    CHECK(DosReadQueue(queue,&req,&len,&data,0,DCWW_NOWAIT,&priority,(HSEM)event)==342);
++    CHECK(DosWriteQueue(queue,99,0,NULL,0)==0);
++    CHECK(DosWaitEventSem(event,0)==0);
++    CHECK(DosResetEventSem(event,&count)==0 && count==1);
++    CHECK(DosPurgeQueue(queue)==0);
++    CHECK(DosQueryQueue(queue,&count)==0 && count==0);
++    for(i=0;i<3;i++) CHECK(DosCreateThread(&tids[i],(PFNTHREAD)reader,i,0,16384)==0);
++    CHECK(DosSleep(0)==0); /* all three readers must block, letting main run */
++    for(i=0;i<3;i++) CHECK(received[i]==0);
++    for(i=0;i<3;i++) CHECK(DosWriteQueue(queue,i+1,77,(PVOID)(0x12340001UL+i),3)==0);
++    for(i=0;i<3;i++) {tid=tids[i];CHECK(DosWaitThread(&tid,DCWW_WAIT)==0);CHECK(received[i]==i+1);}
++    CHECK(DosCreateThread(&tid,(PFNTHREAD)closed_reader,0,0,16384)==0);
++    CHECK(DosSleep(0)==0);
++    stale=queue;CHECK(DosCloseQueue(queue)==0);
++    CHECK(DosWaitThread(&tid,DCWW_WAIT)==0 && closed_rc==337);
++    CHECK(DosCloseEventSem(event)==0);
++    CHECK(DosCreateQueue(&queue,QUE_LIFO,(PSZ)name)==0 && queue!=stale);
++    CHECK(DosQueryQueue(stale,&count)==337);
++    CHECK(DosWriteQueue(queue,1,0,NULL,0)==0);CHECK(DosWriteQueue(queue,2,0,NULL,0)==0);
++    CHECK(read_request()==2 && read_request()==1);CHECK(DosCloseQueue(queue)==0);
++    CHECK(DosCreateQueue(&queue,QUE_PRIORITY,(PSZ)name)==0);
++    CHECK(DosWriteQueue(queue,1,0,NULL,1)==0);
++    CHECK(DosWriteQueue(queue,2,0,NULL,15)==0);
++    CHECK(DosWriteQueue(queue,3,0,NULL,15)==0);
++    CHECK(read_request()==2 && read_request()==3 && read_request()==1);
++    CHECK(DosCloseQueue(queue)==0);
++    printf("queue1 PASS\n");return 0;
++}
+--- a/queue1.def
++++ b/queue1.def
+@@ -0,0 +1,3 @@
++NAME QUEUE1 WINDOWCOMPAT
++PROTMODE
++STACKSIZE 32768
+--- a/r8test.h
++++ b/r8test.h
+@@ -0,0 +1,16 @@
++/* Microsoft C/386 Beta2 SDK declarations; no handwritten OS/2 API prototypes. */
++#define INCL_DOSPROCESS
++#define INCL_DOSSEMAPHORES
++#define INCL_DOSQUEUES
++#define INCL_DOSFILEMGR
++#define INCL_DOSMISC
++#include <os2.h>
++#include <stdio.h>
++#include <string.h>
++#define FOREVER 0xffffffffUL
++static void r8_fail(ULONG line)
++{
++    printf("%s FAIL line %lu\n",TEST_NAME,line);
++    DosExit(EXIT_PROCESS,1);
++}
++#define CHECK(x) do { if (!(x)) r8_fail((ULONG)__LINE__); } while (0)
+--- a/recycle1.c
++++ b/recycle1.c
+@@ -0,0 +1,34 @@
++#define TEST_NAME "recycle1"
++#include "r8test.h"
++static volatile ULONG done;
++static void worker(ULONG arg)
++{
++    volatile ULONG stack_guard[16];
++    stack_guard[0]=arg;stack_guard[15]=~arg;
++    CHECK(DosSleep(0)==0);
++    CHECK(stack_guard[0]==arg && stack_guard[15]==~arg);
++    done=arg;
++    if(arg&1UL) DosExit(EXIT_THREAD,0);
++}
++int main(int argc,char **argv)
++{
++    ULONG n,i,v;
++    TID tid,previous,first;
++    char *s;
++    n=1000;previous=0;first=0;
++    CHECK(argc<=2);
++    if(argc==2) {
++        s=argv[1];n=0;CHECK(*s!=0);
++        while(*s) {CHECK(*s>='0' && *s<='9');v=(ULONG)(*s++-'0');CHECK(n<=(1000000UL-v)/10UL);n=n*10+v;}
++        CHECK(n>0 && n<=1000000UL);
++    }
++    for(i=1;i<=n;i++) {
++        CHECK(DosCreateThread(&tid,(PFNTHREAD)worker,i,0,65536)==0);
++        CHECK(tid>previous);previous=tid;if(i==1)first=tid;
++        CHECK(DosWaitThread(&tid,DCWW_WAIT)==0 && done==i);
++    }
++    /* R8 keeps the earlier late/repeated-wait compatibility by never reusing
++       issued TIDs, even though their slots/stacks have been recycled. */
++    CHECK(DosWaitThread(&first,DCWW_NOWAIT)==0);
++    printf("recycle1 PASS (%lu threads in one process)\n",n);return 0;
++}
+--- a/recycle1.def
++++ b/recycle1.def
+@@ -0,0 +1,3 @@
++NAME RECYCLE1 WINDOWCOMPAT
++PROTMODE
++STACKSIZE 32768
+--- a/run-sync.cmd
++++ b/run-sync.cmd
+@@ -0,0 +1,22 @@
++@echo off
++setlocal
++pushd "%~dp0"
++echo Running sleep1
++whp_os2_v2_hi.exe sleep1.exe 2>sleep1-trace.txt
++if errorlevel 1 goto failed
++echo Running mutex1
++whp_os2_v2_hi.exe mutex1.exe 2>mutex1-trace.txt
++if errorlevel 1 goto failed
++echo Running queue1
++whp_os2_v2_hi.exe queue1.exe 2>queue1-trace.txt
++if errorlevel 1 goto failed
++echo Running recycle1
++whp_os2_v2_hi.exe recycle1.exe 2>recycle1-trace.txt
++if errorlevel 1 goto failed
++echo R8 scheduling and synchronisation suite PASS
++popd
++exit /b 0
++:failed
++echo FAIL - inspect the corresponding trace file.
++popd
++exit /b 1
+--- a/sleep1.c
++++ b/sleep1.c
+@@ -0,0 +1,30 @@
++#define TEST_NAME "sleep1"
++#include "r8test.h"
++static volatile ULONG steps;
++static void worker(ULONG arg)
++{
++    ULONG i;
++    (void)arg;
++    for(i=0;i<100;i++) { ++steps; CHECK(DosSleep(0)==0); }
++}
++int main(void)
++{
++    TID tid;
++    ULONG start,end;
++    HEV event;
++    CHECK(DosSleep(0)==0); /* lone runnable thread */
++    CHECK(DosCreateThread(&tid,(PFNTHREAD)worker,0,0,16384)==0);
++    CHECK(steps==0);
++    CHECK(DosSleep(0)==0);
++    CHECK(steps>0);
++    CHECK(DosQuerySysInfo(QSV_MS_COUNT,QSV_MS_COUNT,&start,sizeof(start))==0);
++    CHECK(DosSleep(30)==0);
++    CHECK(DosQuerySysInfo(QSV_MS_COUNT,QSV_MS_COUNT,&end,sizeof(end))==0);
++    CHECK(end-start>=30); /* no tight upper limit on a busy Windows host */
++    CHECK(DosWaitThread(&tid,DCWW_WAIT)==0);
++    CHECK(steps==100);
++    CHECK(DosCreateEventSem(NULL,&event,0,FALSE)==0);
++    CHECK(DosWaitEventSem(event,10)==121);
++    CHECK(DosCloseEventSem(event)==0);
++    printf("sleep1 PASS\n");return 0;
++}
+--- a/sleep1.def
++++ b/sleep1.def
+@@ -0,0 +1,3 @@
++NAME SLEEP1 WINDOWCOMPAT
++PROTMODE
++STACKSIZE 32768
+--- a/tests/info-check.c
++++ b/tests/info-check.c
+@@ -1,127 +0,0 @@
+-/* Native test double for WHP registers; executes production info helpers,
+- * context save/load and thread creation. Does not emulate x86 or Windows WHP. */
+-#include <stdint.h>
+-#include <stdio.h>
+-#include <stdlib.h>
+-#include <string.h>
+-#include <assert.h>
+-typedef uint16_t UINT16;
+-typedef int HRESULT;
+-typedef int WHV_REGISTER_NAME;
+-typedef struct { uint64_t Base; uint32_t Limit; uint16_t Selector, Attributes; } WHV_X64_SEGMENT_REGISTER;
+-typedef union { uint64_t Reg64; WHV_X64_SEGMENT_REGISTER Segment; } WHV_REGISTER_VALUE;
+-#define SUCCEEDED(x) ((x) == 0)
+-#define FAILED(x) ((x) != 0)
+-#define E_FAIL 1
+-#define OS2_NO_ERROR 0u
+-#define OS2_ERROR_INVALID_FUNCTION 1u
+-#define OS2_ERROR_NOT_ENOUGH_MEMORY 8u
+-#define OS2_ERROR_INVALID_PARAMETER 87u
+-#define RAM_SIZE 0x04000000u
+-#define MAX_THREADS 32u
+-#define THREAD_REG_COUNT 16
+-#define GUEST_INFO 0x00e20000u
+-#define GUEST_INFO_LIMIT 0x00e23000u
+-#define GUEST_GDT 0x7000u
+-#define GUEST_THREAD_EXIT_STUB 0x000f7ff0u
+-static const WHV_REGISTER_NAME thread_reg_names[16] = {0};
+-enum GuestThreadState { THREAD_FREE, THREAD_RUNNING, THREAD_RUNNABLE, THREAD_SUSPENDED };
+-struct GuestThread {
+- uint32_t tid; enum GuestThreadState state;
+- uint32_t stack_base, stack_size;
+- WHV_REGISTER_VALUE regs[16]; int regs_valid;
+-};
+-struct GuestAlloc { int used; };
+-struct Runtime {
+- void *partition; uint8_t *ram;
+- struct GuestThread threads[MAX_THREADS];
+- int current_thread; uint32_t next_tid, alloc_next;
+-};
+-static WHV_REGISTER_VALUE cpu[16];
+-static int fail_get;
+-static HRESULT WHvGetVirtualProcessorRegisters(void *p, int v,
+- const WHV_REGISTER_NAME *n, int count, WHV_REGISTER_VALUE *regs)
+-{
+- (void)p; (void)v; (void)n;
+- if(fail_get) return E_FAIL;
+- memcpy(regs, cpu, (size_t)count * sizeof(*regs)); return 0;
+-}
+-static HRESULT WHvSetVirtualProcessorRegisters(void *p, int v,
+- const WHV_REGISTER_NAME *n, int count, const WHV_REGISTER_VALUE *regs)
+-{
+- (void)p; (void)v; (void)n;
+- memcpy(cpu, regs, (size_t)count * sizeof(*regs)); return 0;
+-}
+-static void wr32(uint8_t *p, uint32_t v)
+-{ p[0]=(uint8_t)v; p[1]=(uint8_t)(v>>8); p[2]=(uint8_t)(v>>16); p[3]=(uint8_t)(v>>24); }
+-static uint32_t rd32(const uint8_t *p)
+-{ return p[0] | (uint32_t)p[1]<<8 | (uint32_t)p[2]<<16 | (uint32_t)p[3]<<24; }
+-static int guest_range(uint32_t p, uint32_t n) { return p<RAM_SIZE && n<=RAM_SIZE-p; }
+-static void guest_put_u32(struct Runtime *rt,uint32_t p,uint32_t v) { assert(guest_range(p,4)); wr32(rt->ram+p,v); }
+-static uint32_t align_up(uint32_t n,uint32_t a) { return (n+a-1)&~(a-1); }
+-static uint32_t alloc_guest(struct Runtime *rt,uint32_t n)
+-{ uint32_t p=rt->alloc_next; rt->alloc_next+=n; return p; }
+-static struct GuestAlloc allocation;
+-static struct GuestAlloc *find_alloc(struct Runtime *rt,uint32_t p) { (void)rt;(void)p;return &allocation; }
+-static const char *thread_state_name(enum GuestThreadState s) { (void)s;return "test"; }
+-#include "info-production.inc"
+-int main(void)
+-{
+- struct Runtime rt;
+- uint32_t i,r,tib,base,selector;
+- uint8_t *d;
+- memset(&rt,0,sizeof(rt)); rt.ram=calloc(1,RAM_SIZE); assert(rt.ram);
+- rt.current_thread=0; rt.next_tid=2; rt.alloc_next=0x1000000;
+- init_process_info(&rt,0xe00000,0xe00100,0x300);
+- assert(rd32(rt.ram+GUEST_INFO+24)==3);
+- init_process_info(&rt,0xe00000,0xe00100,0x200);
+- assert(rd32(rt.ram+GUEST_INFO+24)==2);
+- assert(rd32(rt.ram+GUEST_INFO)==1);
+- assert(rd32(rt.ram+GUEST_INFO+12)==0xe00100);
+- assert(rd32(rt.ram+GUEST_INFO+16)==0xe00000);
+- rt.threads[0].tid=1; rt.threads[0].state=THREAD_RUNNING;
+- rt.threads[0].stack_base=0x20000; rt.threads[0].stack_size=0x8000;
+- rt.threads[0].regs_valid=1;
+- init_thread_info(&rt,0); assert(load_thread_context(&rt,&rt.threads[0])==0);
+- for(i=1;i<MAX_THREADS;i++) {
+-   assert(create_guest_thread(&rt,0x500,0x10000,i,0,16384)==0);
+-   assert(rd32(rt.ram+0x500)==i+1);
+-   assert(rt.threads[i].regs[1].Reg64==rt.threads[i].stack_base+16384-8);
+- }
+- assert(create_guest_thread(&rt,0x500,0x10000,0,0,16384)==8);
+- for(i=0;i<MAX_THREADS;i++) {
+-   tib=info_tib_address(i); assert(rd32(rt.ram+tib)==0xffffffff);
+-   assert(rd32(rt.ram+tib+4)==rt.threads[i].stack_base);
+-   assert(rd32(rt.ram+tib+8)==rt.threads[i].stack_base+rt.threads[i].stack_size);
+-   assert(rd32(rt.ram+tib+0x40)==i+1);
+-   /* Simulate guest-owned exception head and distinct register state. */
+-   wr32(rt.ram+tib,0x40000+i*16);
+-   rt.threads[i].regs[3].Reg64=0xabc000+i;
+- }
+- for(r=0;r<1000;r++) for(i=0;i<MAX_THREADS;i++) {
+-   rt.current_thread=(int)i;
+-   assert(load_thread_context(&rt,&rt.threads[i])==0);
+-   assert(cpu[3].Reg64==0xabc000+i);
+-   selector=cpu[14].Segment.Selector;
+-   d=rt.ram+GUEST_GDT+selector;
+-   base=d[2]|(uint32_t)d[3]<<8|(uint32_t)d[4]<<16|(uint32_t)d[7]<<24;
+-   assert(base==info_tib_address(i) && base==cpu[14].Segment.Base);
+-   assert(d[5]==0x93 && d[6]==0x40 && cpu[14].Segment.Limit==0xffff);
+-   assert(rd32(rt.ram+base)==0x40000+i*16);
+-   assert(get_info_blocks(&rt,0x500,0x504)==0);
+-   assert(rd32(rt.ram+0x500)==base && rd32(rt.ram+0x504)==GUEST_INFO);
+-   assert(save_thread_context(&rt,&rt.threads[i])==0);
+- }
+- assert(get_info_blocks(&rt,0,0)==0);
+- assert(get_info_blocks(&rt,0,0x504)==0);
+- assert(get_info_blocks(&rt,0x500,0)==0);
+- wr32(rt.ram+0x500,0xdeadbeef);
+- assert(get_info_blocks(&rt,0x500,0xfffffffe)==87);
+- assert(rd32(rt.ram+0x500)==0xdeadbeef);
+- assert(get_info_blocks(&rt,RAM_SIZE-3,0x500)==87);
+- assert(rd32(rt.ram+0x500)==0xdeadbeef);
+- rt.current_thread=-1; assert(get_info_blocks(&rt,0x500,0x504)==1);
+- free(rt.ram);
+- puts("info-check PASS: 32 contexts, 32000 save/restores, FS descriptors, output validation");
+- return 0;
+-}
+--- a/tests/run-info-check.py
++++ b/tests/run-info-check.py
+@@ -1,23 +1,4 @@
+ #!/usr/bin/env python3
+-"""Build and execute production helpers against native WHP register doubles."""
+-import pathlib, subprocess, tempfile
+-root = pathlib.Path(__file__).resolve().parents[1]
+-s = (root / 'whp_os2_v2_hi.c').read_text()
+-def function(name):
+-    start = s.index('static ', s.rfind('\nstatic ', 0, s.index(name + '(')))
+-    brace = s.index('{', s.index(name + '(', start))
+-    depth = 1
+-    end = brace + 1
+-    while depth:
+-        depth += (s[end] == '{') - (s[end] == '}')
+-        end += 1
+-    return s[start:end] + '\n'
+-with tempfile.TemporaryDirectory() as tmp:
+-    p = pathlib.Path(tmp)
+-    (p / 'info-production.inc').write_text(
+-        (root / 'v2_info.h').read_text() + '\n' +
+-        '\n'.join(function(n) for n in ['save_thread_context', 'load_thread_context', 'create_guest_thread']))
+-    subprocess.run(['gcc', '-std=c99', '-Wall', '-Wextra', '-Werror',
+-                    '-fsanitize=address,undefined', '-g', '-I'+tmp,
+-                    str(root / 'tests/info-check.c'), '-o', str(p/'check')], check=True)
+-    subprocess.run([str(p/'check')], check=True)
++# R8 consolidates R7 info checks with production scheduler/lifecycle tests.
++import pathlib, runpy
++runpy.run_path(str(pathlib.Path(__file__).with_name('run-sync-check.py')),run_name='__main__')
+--- a/tests/run-sync-check.py
++++ b/tests/run-sync-check.py
+@@ -0,0 +1,28 @@
++#!/usr/bin/env python3
++"""Compile production scheduler helpers against register/clock doubles."""
++import pathlib, re, subprocess, tempfile
++root=pathlib.Path(__file__).resolve().parents[1]
++s=(root/'whp_os2_v2_hi.c').read_text()
++def func(name):
++    m=re.search(r'^static [^\n]*\b'+name+r'\(',s,re.M)
++    assert m,name
++    start=m.start(); b=s.index('{',m.end()); level=1; e=b+1
++    while level:
++        level+=(s[e]=='{')-(s[e]=='}'); e+=1
++    return s[start:e]+'\n'
++macros='\n'.join(x for x in s.splitlines() if x.startswith('#define ') and not x.endswith('\\'))
++structs=s[s.index('struct GuestAlloc {'):s.index('struct GuestModule {')]
++helpers=['rd32','wr32','align_up','guest_range','guest_u32','guest_put_u32','guest_copy_cstr',
++         'alloc_guest','find_alloc','hostcall_stub','save_thread_context','load_thread_context',
++         'current_guest_thread','find_thread','next_runnable_thread','thread_state_name',
++         'wake_thread_waiters','event_make_handle','event_from_handle','set_saved_thread_rc',
++         'wake_event_waiters','wake_expired_waiters','next_wait_timeout']
++with tempfile.TemporaryDirectory() as tmp:
++    p=pathlib.Path(tmp)
++    (p/'defs.inc').write_text(macros+'\n'+structs+'\n'+(root/'v2_sync_types.h').read_text())
++    (p/'production.inc').write_text('\n'.join(map(func,helpers))+'\n'+
++        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_sync.h','v2_queue.h'])+'\n'+
++        '\n'.join(map(func,['create_guest_thread','schedule_next_thread','switch_after_hypercall'])))
++    subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',
++        '-g','-I'+tmp,str(root/'tests/sync-check.c'),'-o',str(p/'check')],check=True)
++    subprocess.run([str(p/'check')],check=True)
+--- a/tests/sync-check.c
++++ b/tests/sync-check.c
+@@ -0,0 +1,225 @@
++/* Test doubles implement only WHP registers and time; scheduler, allocator,
++   mutexes, queues and thread lifecycle below are extracted production code. */
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <strings.h>
++#include <assert.h>
++typedef uint16_t UINT16;
++typedef uint32_t DWORD;
++typedef int HRESULT;
++typedef int WHV_REGISTER_NAME;
++typedef struct { uint64_t Base; uint32_t Limit; uint16_t Selector,Attributes; } WHV_X64_SEGMENT_REGISTER;
++typedef union { uint64_t Reg64; WHV_X64_SEGMENT_REGISTER Segment; } WHV_REGISTER_VALUE;
++#define SUCCEEDED(x) ((x)==0)
++#define FAILED(x) ((x)!=0)
++#define E_FAIL 1
++#define _stricmp strcasecmp
++#define _strnicmp strncasecmp
++static WHV_REGISTER_VALUE cpu[16];
++static const WHV_REGISTER_NAME thread_reg_names[16]={0};
++static uint64_t clock_ms=100;
++static int fail_get;
++static uint64_t GetTickCount64(void) { return clock_ms; }
++static void Sleep(DWORD ms) { clock_ms+=ms; }
++static void fatal(const char *msg) { fprintf(stderr,"FATAL: %s\n",msg);abort(); }
++static void failed(const char *what,HRESULT hr) { (void)what;(void)hr;assert(0); }
++static HRESULT WHvGetVirtualProcessorRegisters(void *p,int vp,const WHV_REGISTER_NAME *n,
++ unsigned count,WHV_REGISTER_VALUE *out)
++{ (void)p;(void)vp;(void)n; if(fail_get) return 1; memcpy(out,cpu,count*sizeof(*out));return 0; }
++static HRESULT WHvSetVirtualProcessorRegisters(void *p,int vp,const WHV_REGISTER_NAME *n,
++ unsigned count,const WHV_REGISTER_VALUE *in)
++{ (void)p;(void)vp;(void)n;memcpy(cpu,in,count*sizeof(*in));return 0; }
++#include "defs.inc"
++struct HostStub { uint32_t ordinal,address; };
++struct Runtime {
++ void *partition; uint8_t *ram;
++ struct HostStub doscall_stubs[MAX_IMPORTS]; uint32_t stub_next;
++ struct GuestAlloc allocs[MAX_ALLOCS]; uint32_t alloc_next;
++ struct GuestThread threads[MAX_THREADS]; struct GuestEventSem events[MAX_EVENT_SEMS];
++ struct GuestMutex mutexes[MAX_MUTEXES]; struct GuestQueue queues[MAX_QUEUES];
++ uint64_t wait_serial; uint32_t next_tid;
++ int current_thread,switch_requested,current_thread_exited;
++ int process_exited;uint32_t process_rc;
++};
++#include "production.inc"
++static struct Runtime rt;
++static void select_thread(unsigned slot)
++{
++ if(rt.current_thread>=0 && rt.threads[rt.current_thread].state==THREAD_RUNNING)
++   rt.threads[rt.current_thread].state=THREAD_RUNNABLE;
++ rt.current_thread=(int)slot; rt.threads[slot].state=THREAD_RUNNING;
++ assert(load_thread_context(&rt,&rt.threads[slot])==0);
++ rt.switch_requested=rt.current_thread_exited=0;
++}
++static void park(uint32_t rc)
++{
++ cpu[3].Reg64=rc;
++ assert(save_thread_context(&rt,current_guest_thread(&rt))==0);
++}
++static uint32_t mcall(unsigned n,uint32_t a,uint32_t b,uint32_t c,uint32_t d)
++{ return dispatch_mutex(&rt,n,a,b,c,d); }
++static uint32_t qcall(unsigned n,uint32_t a,uint32_t b,uint32_t c,uint32_t d,
++ uint32_t e,uint32_t f,uint32_t g,uint32_t h)
++{
++ uint32_t v[8]={a,b,c,d,e,f,g,h};unsigned i;
++ for(i=0;i<8;++i)guest_put_u32(&rt,0x804+i*4,v[i]);
++ return dispatch_queue(&rt,n,0x800);
++}
++#define QR(q,wait) qcall(9,q,0xa00,0xa08,0xa0c,0,wait,0xa10,0)
++static void reset(void)
++{
++ uint8_t *ram=rt.ram;
++ memset(&rt,0,sizeof(rt)); rt.ram=ram; memset(ram,0,RAM_SIZE);
++ rt.stub_next=GUEST_STUB_BASE;
++ rt.alloc_next=GUEST_ALLOC_BASE; rt.next_tid=2;rt.current_thread=0;
++ rt.threads[0].tid=1; rt.threads[0].state=THREAD_RUNNING;
++ rt.threads[0].stack_base=0x20000;rt.threads[0].stack_size=0x8000;rt.threads[0].regs_valid=1;
++ init_process_info(&rt,0xe00000,0xe00100,0x200);init_thread_info(&rt,0);
++ assert(load_thread_context(&rt,&rt.threads[0])==0);
++}
++static void spawn(void) { assert(create_guest_thread(&rt,0x500,0x10000,0,0,8192)==0); }
++int main(void)
++{
++ uint32_t h,old,q,q2,ev,i,j,base,end,tid,deadline,token;
++ DWORD ms;
++ rt.ram=calloc(1,RAM_SIZE);assert(rt.ram);reset();spawn();spawn();
++ h=hostcall_stub(&rt,HC_DOSCALLS,9);q=hostcall_stub(&rt,HC_QUECALLS,9);
++ assert(h!=q && hostcall_stub(&rt,HC_QUECALLS,9)==q);
++ assert(guest_u32(&rt,h+1)==(HC_DOSCALLS|9) && guest_u32(&rt,q+1)==(HC_QUECALLS|9));
++ /* R7 regressions on all contexts, checking saved FS and private markers. */
++ for(i=3;i<MAX_THREADS;i++)spawn();
++ for(i=0;i<MAX_THREADS;i++) {
++   guest_put_u32(&rt,info_tib_address(i),0x40000+i*16);
++   rt.threads[i].regs[3].Reg64=0xabc000+i;
++ }
++ for(j=0;j<1000;j++)for(i=0;i<MAX_THREADS;i++) {
++   select_thread(i);
++   assert(cpu[3].Reg64==0xabc000+i);
++   assert(cpu[14].Segment.Base==info_tib_address(i));
++   assert(get_info_blocks(&rt,0x500,0x504)==0);
++   assert(guest_u32(&rt,0x500)==info_tib_address(i));
++   assert(guest_u32(&rt,0x504)==GUEST_INFO);
++   assert(guest_u32(&rt,info_tib_address(i))==0x40000+i*16);
++   assert(save_thread_context(&rt,current_guest_thread(&rt))==0);
++ }
++ assert(get_info_blocks(&rt,0,0)==0);
++ guest_put_u32(&rt,0x500,0xdeadbeef);
++ assert(get_info_blocks(&rt,0x500,0xfffffffe)==87);
++ assert(guest_u32(&rt,0x500)==0xdeadbeef);
++ reset();spawn();spawn();
++ /* Sleep(0) rotates; all-blocked positive sleep advances only to deadline. */
++ assert(guest_sleep(&rt,0)==0);assert(switch_after_hypercall(&rt)==0);assert(rt.current_thread==1);
++ assert(guest_sleep(&rt,20)==0);park(0);select_thread(2);
++ assert(guest_sleep(&rt,10)==0);park(0);select_thread(0);
++ assert(guest_sleep(&rt,30)==0);park(0);
++ assert(next_wait_timeout(&rt,&ms) && ms==10);
++ assert(schedule_next_thread(&rt)==0 && rt.current_thread==2 && clock_ms==110);
++ clock_ms=120;assert(wake_expired_waiters(&rt));assert(rt.threads[1].state==THREAD_RUNNABLE);
++ clock_ms=130;assert(wake_expired_waiters(&rt));
++ /* Mutex recursive ownership, queue order, nonowner, timeout and abandonment. */
++ select_thread(0);assert(mcall(331,0,0x500,0,1)==0);h=guest_u32(&rt,0x500);
++ assert(mcall(334,h,0,0,0)==0);assert(mcall(336,h,0x510,0x514,0x518)==0);
++ assert(guest_u32(&rt,0x510)==1 && guest_u32(&rt,0x514)==1 && guest_u32(&rt,0x518)==2);
++ select_thread(1);assert(mcall(335,h,0,0,0)==288);assert(mcall(334,h,0,0,0)==121);
++ assert(mcall(334,h,10,0,0)==0);park(0);deadline=(uint32_t)clock_ms+10;
++ select_thread(2);assert(mcall(334,h,SEM_INDEFINITE_WAIT,0,0)==0);park(0);
++ select_thread(0);assert(mcall(333,h,0,0,0)==301);
++ clock_ms=deadline;wake_expired_waiters(&rt);
++ assert(rt.threads[1].regs[3].Reg64==121 && rt.threads[1].state==THREAD_RUNNABLE);
++ assert(mcall(335,h,0,0,0)==0);assert(mutex_from_handle(&rt,h)->owner==1);
++ assert(mcall(335,h,0,0,0)==0);assert(mutex_from_handle(&rt,h)->owner==3);
++ select_thread(2);finish_guest_thread(&rt);select_thread(0);
++ assert(mcall(334,h,0,0,0)==105);assert(mcall(335,h,0,0,0)==0);
++ old=h;assert(mcall(333,h,0,0,0)==0);assert(mcall(331,0,0x500,0,0)==0);
++ h=guest_u32(&rt,0x500);assert(h!=old);assert(mcall(334,old,0,0,0)==6);
++ assert(mcall(333,h,0,0,0)==0);
++ /* A dying owner hands the abandoned mutex directly to a blocked peer. */
++ reset();spawn();spawn();select_thread(1);
++ strcpy((char*)rt.ram+0x900,"\\SEM32\\CHECK");
++ assert(mcall(331,0x900,0x500,0,1)==0);h=guest_u32(&rt,0x500);
++ assert(mcall(332,0x900,0x504,0,0)==0);assert(mcall(333,h,0,0,0)==0);
++ select_thread(2);assert(mcall(334,h,100,0,0)==0);park(0);
++ select_thread(1);finish_guest_thread(&rt);
++ assert(mutex_from_handle(&rt,h)->owner==3);
++ assert(rt.threads[2].regs[3].Reg64==105 && rt.threads[2].state==THREAD_RUNNABLE);
++ select_thread(2);assert(mcall(335,h,0,0,0)==0);assert(mcall(333,h,0,0,0)==0);
++ /* Slot and allocation reuse, failed get-register rollback, fresh TIB/FS. */
++ reset();spawn();base=rt.threads[1].stack_base;end=rt.alloc_next;
++ for(i=0;i<5000;i++) {
++   select_thread(1);tid=rt.threads[1].tid;
++   assert(guest_u32(&rt,info_tib_address(1)+0x40)==tid);
++   assert(cpu[14].Segment.Base==info_tib_address(1));
++   finish_guest_thread(&rt);assert(!find_alloc(&rt,base)->used);
++   select_thread(0);guest_put_u32(&rt,0x500,tid);assert(guest_wait_thread(&rt,0x500,0)==0);
++   spawn();assert(rt.threads[1].stack_base==base && rt.alloc_next==end);
++   assert(rt.threads[1].tid>tid);
++   assert(guest_wait_thread(&rt,0x500,1)==294); /* spawn overwrote output with live TID */
++ }
++ select_thread(1);finish_guest_thread(&rt);select_thread(0);fail_get=1;
++ assert(create_guest_thread(&rt,0x500,0x10000,0,0,8192)==1);fail_get=0;
++ assert(!find_alloc(&rt,base)->used);spawn();
++ assert(create_guest_thread(&rt,0x500,0x10000,0,0,0xffffffff)==87);
++ /* Queue ordering, peek token, named open/refclose, stale generations. */
++ reset();strcpy((char*)rt.ram+0x900,"\\QUEUES\\CHECK");
++ assert(qcall(16,0x500,0,0x900,0,0,0,0,0)==0);q=guest_u32(&rt,0x500);
++ assert(qcall(16,0x500,0,0x900,0,0,0,0,0)==332);
++ assert(qcall(15,0x504,0x508,0x900,0,0,0,0,0)==0);assert(guest_u32(&rt,0x508)==q);
++ assert(qcall(11,q,0,0,0,0,0,0,0)==0);assert(queue_from_handle(&rt,q));
++ assert(QR(q,1)==342);
++ assert(qcall(14,q,11,7,0xdeadbeef,2,0,0,0)==0);
++ assert(qcall(14,q,12,8,0x12345678,1,0,0,0)==0);
++ guest_put_u32(&rt,0xa14,0);
++ assert(qcall(13,q,0xa00,0xa08,0xa0c,0xa14,1,0xa10,0)==0);
++ token=guest_u32(&rt,0xa14);assert(guest_u32(&rt,0xa04)==11 && queue_from_handle(&rt,q)->count==2);
++ assert(qcall(9,q,0xa00,0xa08,0xa0c,token,1,0xa10,0)==0);
++ assert(guest_u32(&rt,0xa0c)==0xdeadbeef && guest_u32(&rt,0xa08)==7);
++ assert(QR(q,1)==0 && guest_u32(&rt,0xa04)==12);
++ for(i=0;i<QUEUE_DEPTH;i++) assert(qcall(14,q,i,0,i,0,0,0,0)==0);
++ assert(qcall(14,q,0,0,0,0,0,0,0)==346);assert(qcall(10,q,0,0,0,0,0,0,0)==0);
++ /* Three blocked readers, only one per element, no host-side blocking. */
++ spawn();spawn();spawn();
++ for(i=1;i<=3;i++){select_thread(i);assert(QR(q,0)==0);park(0);}
++ select_thread(0);assert(qcall(14,q,21,1,0xcafe,0,0,0,0)==0);
++ assert(rt.threads[1].state==THREAD_RUNNABLE && rt.threads[2].state==THREAD_WAIT_QUEUE);
++ assert(qcall(11,q,0,0,0,0,0,0,0)==0);
++ assert(rt.threads[2].regs[3].Reg64==337 && rt.threads[3].regs[3].Reg64==337);
++ assert(qcall(16,0x500,2,0x900,0,0,0,0,0)==0);q2=guest_u32(&rt,0x500);assert(q!=q2);
++ assert(QR(q,1)==337);
++ assert(qcall(14,q2,1,0,0,1,0,0,0)==0);assert(qcall(14,q2,2,0,0,15,0,0,0)==0);
++ assert(qcall(14,q2,3,0,0,15,0,0,0)==0);
++ assert(QR(q2,1)==0 && guest_u32(&rt,0xa04)==2);
++ assert(QR(q2,1)==0 && guest_u32(&rt,0xa04)==3);
++ assert(QR(q2,1)==0 && guest_u32(&rt,0xa04)==1);
++ assert(qcall(11,q2,0,0,0,0,0,0,0)==0);
++ assert(qcall(16,0x500,1,0x900,0,0,0,0,0)==0);q2=guest_u32(&rt,0x500);
++ assert(qcall(14,q2,1,0,0,0,0,0,0)==0);assert(qcall(14,q2,2,0,0,0,0,0,0)==0);
++ assert(qcall(9,q2,RAM_SIZE-4,0xa08,0xa0c,0,1,0xa10,0)==87);
++ assert(queue_from_handle(&rt,q2)->count==2);
++ assert(QR(q2,1)==0 && guest_u32(&rt,0xa04)==2);
++ assert(QR(q2,1)==0 && guest_u32(&rt,0xa04)==1);
++ for(i=0;i<2000;i++) {
++   assert(qcall(14,q2,i,55,0x90000+i,7,0,0,0)==0);
++   assert(QR(q2,1)==0 && guest_u32(&rt,0xa04)==i && guest_u32(&rt,0xa0c)==0x90000+i);
++ }
++ /* NOWAIT notification posts guest event and wakes guest event waiters. */
++ ev=event_make_handle(0,1);rt.events[0].used=1;rt.events[0].generation=1;rt.events[0].refs=1;
++ assert(qcall(9,q2,0xa00,0xa08,0xa0c,0,1,0xa10,ev)==342);
++ select_thread(1);sync_block(&rt,THREAD_WAIT_EVENT,ev,100);park(0);select_thread(0);
++ assert(qcall(14,q2,7,0,0,0,0,0,0)==0);
++ assert(rt.events[0].post_count==1 && rt.threads[1].state==THREAD_RUNNABLE);
++ assert(qcall(11,q2,0,0,0,0,0,0,0)==0);assert(rt.events[0].refs==1);
++ assert(get_info_blocks(&rt,0x500,0x504)==0);
++ /* Wait-any completion is consumed, and a retired explicit TID still works. */
++ reset();spawn();select_thread(1);tid=rt.threads[1].tid;finish_guest_thread(&rt);select_thread(0);
++ guest_put_u32(&rt,0x500,0);assert(guest_wait_thread(&rt,0x500,0)==0);
++ assert(guest_u32(&rt,0x500)==tid);guest_put_u32(&rt,0x500,0);
++ assert(guest_wait_thread(&rt,0x500,1)==309);
++ spawn();tid=rt.threads[1].tid;guest_put_u32(&rt,0x500,tid);
++ assert(guest_wait_thread(&rt,0x500,0)==0);park(0);select_thread(1);finish_guest_thread(&rt);
++ assert(rt.threads[0].state==THREAD_RUNNABLE && rt.threads[1].state==THREAD_FREE);
++ select_thread(0);assert(guest_wait_thread(&rt,0x500,1)==0);
++ finish_guest_thread(&rt);assert(rt.process_exited && rt.process_rc==0);
++ free(rt.ram);puts("sync-check PASS: sleep deadlines, mutexes, queues, 5000 recycled threads");return 0;
++}
+--- a/v2_queue.h
++++ b/v2_queue.h
+@@ -0,0 +1,183 @@
++/* Process-local QUECALLS. Data is an opaque guest address/value, never a
++ * host pointer and never dereferenced/copied (Sarien passes tone values).
++ * FIFO/LIFO/priority ordering; blocking reads/peeks use saved guest contexts.
++ */
++static struct GuestQueue *queue_from_handle(struct Runtime *rt, uint32_t handle)
++{
++    uint32_t raw = handle & 255u;
++    struct GuestQueue *q;
++    if ((handle & 0xc0000000u) != QUEUE_TAG || !raw || raw > MAX_QUEUES) return NULL;
++    q = &rt->queues[raw - 1u];
++    if (!q->used || q->generation != ((handle >> 8) & SYNC_GENERATION_MAX)) return NULL;
++    return q;
++}
++
++static int queue_outputs_valid(const uint32_t *a, int peek)
++{
++    return a[1] && a[2] && a[3] && a[6] &&
++           guest_range(a[1],8) && guest_range(a[2],4) &&
++           guest_range(a[3],4) && guest_range(a[6],1) &&
++           (!peek || (a[4] && guest_range(a[4],4)));
++}
++
++static uint32_t queue_deliver(struct Runtime *rt, struct GuestQueue *q,
++                              const uint32_t *a, int peek)
++{
++    uint32_t index = 0, token;
++    struct QueueEntry e;
++    if (!queue_outputs_valid(a, peek)) return OS2_ERROR_INVALID_PARAMETER;
++    token = peek ? guest_u32(rt, a[4]) : a[4];
++    if (token) {
++        for (index = 0; index < q->count; ++index)
++            if (q->entries[index].token == token) break;
++        if (index == q->count) return OS2_ERROR_QUE_ELEMENT_NOT_EXIST;
++        if (peek) ++index; /* next after the previously peeked element */
++    }
++    if (index >= q->count) return OS2_ERROR_QUE_EMPTY;
++    e = q->entries[index];
++    guest_put_u32(rt, a[1], 1u);
++    guest_put_u32(rt, a[1]+4, e.request);
++    guest_put_u32(rt, a[2], e.length);
++    guest_put_u32(rt, a[3], e.data);
++    rt->ram[a[6]] = (uint8_t)e.priority;
++    if (peek) guest_put_u32(rt, a[4], e.token);
++    else {
++        --q->count;
++        memmove(&q->entries[index], &q->entries[index+1],
++                (q->count-index) * sizeof(q->entries[0]));
++    }
++    return OS2_NO_ERROR;
++}
++
++static void queue_wake_readers(struct Runtime *rt, struct GuestQueue *q, uint32_t handle)
++{
++    struct GuestThread *t;
++    while (q->count && (t = sync_first_waiter(rt, THREAD_WAIT_QUEUE, handle)) != NULL) {
++        uint32_t rc = queue_deliver(rt, q, t->queue_args, t->queue_peek);
++        fprintf(stderr,"v2: queue %08X -> TID %u rc=%u\n",handle,t->tid,rc);
++        sync_ready(t, rc);
++    }
++}
++
++static uint32_t dispatch_queue(struct Runtime *rt, uint32_t ordinal, uint32_t esp)
++{
++    uint32_t a[8], n, i, slot, handle;
++    char name[EVENT_NAME_MAX + 1];
++    struct GuestQueue *q;
++    struct GuestEventSem *ev;
++    n = (ordinal == 9 || ordinal == 13) ? 8u :
++        (ordinal == 14 ? 5u : ((ordinal == 15 || ordinal == 16) ? 3u :
++        (ordinal == 12 ? 2u : 1u)));
++    if (!guest_range(esp, (n+1u)*4u)) return OS2_ERROR_INVALID_PARAMETER;
++    memset(a,0,sizeof(a));
++    for (i=0;i<n;++i) a[i]=guest_u32(rt,esp+4u+i*4u);
++    if (ordinal == 15 || ordinal == 16) {
++        if (!a[0] || !guest_range(a[0],4) ||
++            (ordinal==15 && (!a[1] || !guest_range(a[1],4))))
++            return OS2_ERROR_INVALID_PARAMETER;
++        if (!guest_copy_cstr(rt,a[2],name,(uint32_t)sizeof(name)) ||
++            _strnicmp(name,"\\QUEUES\\",8)!=0 || !name[8]) return OS2_ERROR_QUE_INVALID_NAME;
++        if (ordinal==16 && ((a[1] & ~7u) || (a[1] & 3u)>2u)) return OS2_ERROR_INVALID_PARAMETER;
++        slot=MAX_QUEUES;
++        for (i=0;i<MAX_QUEUES;++i) {
++            q=&rt->queues[i];
++            if (!q->used) {
++                if (q->generation<SYNC_GENERATION_MAX && slot==MAX_QUEUES) slot=i;
++            } else if (_stricmp(name,q->name)==0) {
++                if (ordinal==16) return OS2_ERROR_QUE_DUPLICATE;
++                if (q->refs==0xffffffffu) return OS2_ERROR_QUE_NO_MEMORY;
++                ++q->refs;
++                guest_put_u32(rt,a[0],1u);
++                guest_put_u32(rt,a[1],sync_handle(QUEUE_TAG,i,q->generation));
++                return OS2_NO_ERROR;
++            }
++        }
++        if (ordinal==15) return OS2_ERROR_QUE_NAME_NOT_EXIST;
++        if (slot==MAX_QUEUES) return OS2_ERROR_QUE_NO_MEMORY;
++        q=&rt->queues[slot];
++        ++q->generation; q->used=1; q->refs=1; q->count=0;
++        q->discipline=a[1] & 3u; q->next_token=1; q->notify_event=0;
++        strcpy(q->name,name);
++        guest_put_u32(rt,a[0],sync_handle(QUEUE_TAG,slot,q->generation));
++        return OS2_NO_ERROR;
++    }
++    handle=a[0];
++    q=queue_from_handle(rt,handle);
++    if (!q) return OS2_ERROR_QUE_INVALID_HANDLE;
++    switch (ordinal) {
++    case 9: case 13:
++    {
++        uint32_t rc;
++        int peek=ordinal==13;
++        if (!queue_outputs_valid(a,peek)) return OS2_ERROR_INVALID_PARAMETER;
++        if (a[5]>1u) return OS2_ERROR_QUE_INVALID_WAIT;
++        /* Nonzero NOWAIT notification is retained once, generation-checked.
++           A zero event is accepted for plain polling. WAIT ignores hsem. */
++        if (a[5] && a[7]) {
++            ev=event_from_handle(rt,a[7],NULL);
++            if (!ev || (q->notify_event && q->notify_event!=a[7]))
++                return OS2_ERROR_INVALID_PARAMETER;
++            if (!q->notify_event) {
++                if (ev->refs==0xffffffffu) return OS2_ERROR_TOO_MANY_OPENS;
++                q->notify_event=a[7]; ++ev->refs;
++            }
++        }
++        rc=queue_deliver(rt,q,a,peek);
++        if (rc!=OS2_ERROR_QUE_EMPTY || a[5]) return rc;
++        /* Only 'first element' blocks. A missing enumeration token is not
++           a promise that a future write will recreate that element. */
++        if (peek ? guest_u32(rt,a[4]) : a[4]) return rc;
++        memcpy(current_guest_thread(rt)->queue_args,a,sizeof(a));
++        current_guest_thread(rt)->queue_peek=peek;
++        sync_block(rt,THREAD_WAIT_QUEUE,handle,SEM_INDEFINITE_WAIT);
++        return OS2_NO_ERROR;
++    }
++    case 10: q->count=0; return OS2_NO_ERROR;
++    case 11:
++        if (q->refs>1) { --q->refs; return OS2_NO_ERROR; }
++        for (i=0;i<MAX_THREADS;++i) {
++            struct GuestThread *t=&rt->threads[i];
++            if (t->state==THREAD_WAIT_QUEUE && t->wait_event==handle)
++                sync_ready(t,OS2_ERROR_QUE_INVALID_HANDLE);
++        }
++        if (q->notify_event && (ev=event_from_handle(rt,q->notify_event,NULL))!=NULL) {
++            if (--ev->refs==0) {
++                for (i=0;i<MAX_THREADS;++i) {
++                    struct GuestThread *t=&rt->threads[i];
++                    if (t->state==THREAD_WAIT_EVENT && t->wait_event==q->notify_event)
++                        sync_ready(t,OS2_ERROR_INVALID_HANDLE);
++                }
++                ev->used=0; ev->post_count=0; ev->name[0]=0;
++            }
++        }
++        q->used=0; q->refs=0; q->count=0; q->notify_event=0;
++        return OS2_NO_ERROR;
++    case 12:
++        if (!a[1] || !guest_range(a[1],4)) return OS2_ERROR_INVALID_PARAMETER;
++        guest_put_u32(rt,a[1],q->count);
++        return OS2_NO_ERROR;
++    case 14:
++    {
++        struct QueueEntry e;
++        uint32_t pos;
++        if (a[4]>15u) return OS2_ERROR_QUE_INVALID_PRIORITY;
++        if (q->count==QUEUE_DEPTH || q->next_token==0) return OS2_ERROR_QUE_UNABLE_TO_ADD;
++        e.token=q->next_token++; e.request=a[1]; e.length=a[2]; e.data=a[3]; e.priority=a[4];
++        pos=q->count;
++        if (q->discipline==1u) pos=0;
++        else if (q->discipline==2u) {
++            for (pos=0;pos<q->count;++pos)
++                if (q->entries[pos].priority<e.priority) break;
++        }
++        memmove(&q->entries[pos+1],&q->entries[pos],(q->count-pos)*sizeof(e));
++        q->entries[pos]=e; ++q->count;
++        if (q->notify_event && (ev=event_from_handle(rt,q->notify_event,NULL))!=NULL) {
++            if (ev->post_count!=0xffffffffu) ++ev->post_count;
++            wake_event_waiters(rt,q->notify_event);
++        }
++        queue_wake_readers(rt,q,handle);
++        return OS2_NO_ERROR;
++    }
++    default: return OS2_ERROR_INVALID_FUNCTION;
++    }
++}
+--- a/v2_sync.h
++++ b/v2_sync.h
+@@ -0,0 +1,252 @@
++/* R8 scheduler/mutex core. Included after event and register helpers. */
++static void sync_ready(struct GuestThread *t, uint32_t rc)
++{
++    t->wait_event = 0;
++    t->wait_deadline_ms = 0;
++    t->wait_order = 0;
++    set_saved_thread_rc(t, rc);
++    t->state = THREAD_RUNNABLE;
++}
++
++static void sync_block(struct Runtime *rt, enum GuestThreadState state,
++                       uint32_t handle, uint32_t timeout)
++{
++    struct GuestThread *t = current_guest_thread(rt);
++    t->state = state;
++    t->wait_event = handle;
++    t->wait_deadline_ms = timeout == SEM_INDEFINITE_WAIT ? 0 :
++                         GetTickCount64() + (uint64_t)timeout;
++    t->wait_order = ++rt->wait_serial;
++    rt->switch_requested = 1;
++    fprintf(stderr,"v2: TID %u blocks: %s handle=%08X timeout=%u\n",
++            t->tid,thread_state_name(state),handle,timeout);
++}
++
++static struct GuestThread *sync_first_waiter(struct Runtime *rt,
++                            enum GuestThreadState state, uint32_t handle)
++{
++    uint32_t i;
++    struct GuestThread *best = NULL;
++    for (i = 0; i < MAX_THREADS; ++i) {
++        struct GuestThread *t = &rt->threads[i];
++        if (t->state == state && t->wait_event == handle &&
++            (!best || t->wait_order < best->wait_order)) best = t;
++    }
++    return best;
++}
++
++static uint32_t sync_handle(uint32_t tag, uint32_t slot, uint32_t generation)
++{
++    return tag | (generation << 8) | (slot + 1u);
++}
++
++static struct GuestMutex *mutex_from_handle(struct Runtime *rt, uint32_t handle)
++{
++    uint32_t raw = handle & 255u;
++    struct GuestMutex *m;
++    if ((handle & 0xc0000000u) != MUTEX_TAG || !raw || raw > MAX_MUTEXES)
++        return NULL;
++    m = &rt->mutexes[raw - 1u];
++    if (!m->used || m->generation != ((handle >> 8) & SYNC_GENERATION_MAX))
++        return NULL;
++    return m;
++}
++
++static void mutex_handoff(struct Runtime *rt, struct GuestMutex *m, uint32_t handle)
++{
++    struct GuestThread *t = sync_first_waiter(rt, THREAD_WAIT_MUTEX, handle);
++    if (!t) return;
++    fprintf(stderr,"v2: mutex %08X -> TID %u%s\n",handle,t->tid,
++            m->abandoned ? " (owner died)" : "");
++    m->owner = t->tid;
++    m->count = 1;
++    sync_ready(t, m->abandoned ? OS2_ERROR_SEM_OWNER_DIED : OS2_NO_ERROR);
++    m->abandoned = 0;
++}
++
++static void mutex_owner_exit(struct Runtime *rt, uint32_t tid)
++{
++    uint32_t i;
++    for (i = 0; i < MAX_MUTEXES; ++i) {
++        struct GuestMutex *m = &rt->mutexes[i];
++        if (!m->used || m->owner != tid) continue;
++        m->owner = m->count = 0;
++        m->abandoned = 1;
++        mutex_handoff(rt, m, sync_handle(MUTEX_TAG, i, m->generation));
++    }
++}
++
++static uint32_t dispatch_mutex(struct Runtime *rt, uint32_t ordinal,
++                              uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4)
++{
++    uint32_t i, slot, handle;
++    char name[EVENT_NAME_MAX + 1];
++    struct GuestMutex *m;
++    struct GuestThread *cur = current_guest_thread(rt);
++    if (!cur) return OS2_ERROR_INVALID_FUNCTION;
++    if (ordinal == 331 || ordinal == 332) {
++        if (!a2 || !guest_range(a2, 4)) return OS2_ERROR_INVALID_PARAMETER;
++        name[0] = 0;
++        if (a1 && !guest_copy_cstr(rt, a1, name, (uint32_t)sizeof(name)))
++            return OS2_ERROR_INVALID_PARAMETER;
++        if (ordinal == 331 && ((a3 & ~1u) || a4 > 1u))
++            return OS2_ERROR_INVALID_PARAMETER;
++        slot = MAX_MUTEXES;
++        for (i = 0; i < MAX_MUTEXES; ++i) {
++            m = &rt->mutexes[i];
++            if (!m->used) {
++                if (m->generation < SYNC_GENERATION_MAX && slot == MAX_MUTEXES) slot = i;
++            } else if (name[0] && _stricmp(name, m->name) == 0) {
++                if (ordinal == 331) return OS2_ERROR_DUPLICATE_NAME;
++                if (m->refs == 0xffffffffu) return OS2_ERROR_TOO_MANY_OPENS;
++                ++m->refs;
++                guest_put_u32(rt, a2, sync_handle(MUTEX_TAG, i, m->generation));
++                return OS2_NO_ERROR;
++            }
++        }
++        if (ordinal == 332) {
++            if (a1) return OS2_ERROR_SEM_NOT_FOUND;
++            m = mutex_from_handle(rt, guest_u32(rt, a2));
++            if (!m) return OS2_ERROR_INVALID_HANDLE;
++            if (m->refs == 0xffffffffu) return OS2_ERROR_TOO_MANY_OPENS;
++            ++m->refs;
++            return OS2_NO_ERROR;
++        }
++        if (slot == MAX_MUTEXES) return OS2_ERROR_TOO_MANY_OPENS;
++        m = &rt->mutexes[slot];
++        ++m->generation; m->used = 1; m->refs = 1;
++        m->abandoned = 0; m->owner = a4 ? cur->tid : 0; m->count = a4 ? 1 : 0;
++        strcpy(m->name, name);
++        guest_put_u32(rt, a2, sync_handle(MUTEX_TAG, slot, m->generation));
++        return OS2_NO_ERROR;
++    }
++    handle = a1;
++    m = mutex_from_handle(rt, handle);
++    if (!m) return OS2_ERROR_INVALID_HANDLE;
++    switch (ordinal) {
++    case 333:
++        if (m->refs > 1) { --m->refs; return OS2_NO_ERROR; }
++        if (m->owner || sync_first_waiter(rt, THREAD_WAIT_MUTEX, handle))
++            return OS2_ERROR_SEM_BUSY;
++        m->used = 0; m->refs = 0; m->name[0] = 0;
++        return OS2_NO_ERROR;
++    case 334:
++        if (m->owner == cur->tid) {
++            if (m->count == 0xffffffffu) return OS2_ERROR_TOO_MANY_SEM_REQUESTS;
++            ++m->count;
++            return OS2_NO_ERROR;
++        }
++        if (!m->owner) {
++            uint32_t rc = m->abandoned ? OS2_ERROR_SEM_OWNER_DIED : OS2_NO_ERROR;
++            m->owner = cur->tid; m->count = 1; m->abandoned = 0;
++            return rc;
++        }
++        if (!a2) return OS2_ERROR_SEM_TIMEOUT;
++        sync_block(rt, THREAD_WAIT_MUTEX, handle, a2);
++        return OS2_NO_ERROR;
++    case 335:
++        if (m->owner != cur->tid) return OS2_ERROR_NOT_OWNER;
++        if (--m->count == 0) {
++            m->owner = 0;
++            mutex_handoff(rt, m, handle);
++        }
++        return OS2_NO_ERROR;
++    case 336:
++        if (!a2 || !a3 || !a4 || !guest_range(a2,4) ||
++            !guest_range(a3,4) || !guest_range(a4,4)) return OS2_ERROR_INVALID_PARAMETER;
++        guest_put_u32(rt, a2, m->owner ? 1u : 0u);
++        guest_put_u32(rt, a3, m->owner);
++        guest_put_u32(rt, a4, m->count);
++        return OS2_NO_ERROR;
++    default: return OS2_ERROR_INVALID_FUNCTION;
++    }
++}
++
++static uint32_t guest_sleep(struct Runtime *rt, uint32_t ms)
++{
++    if (!current_guest_thread(rt)) return OS2_ERROR_INVALID_FUNCTION;
++    if (ms) sync_block(rt, THREAD_SLEEP, 0, ms);
++    else rt->switch_requested = 1; /* save RUNNING as RUNNABLE, round-robin */
++    return OS2_NO_ERROR;
++}
++
++static void finish_guest_thread(struct Runtime *rt)
++{
++    struct GuestThread *t = current_guest_thread(rt);
++    struct GuestAlloc *ga;
++    uint32_t i;
++    mutex_owner_exit(rt, t->tid);
++    t->state = THREAD_DEAD;
++    wake_thread_waiters(rt, t->tid);
++    /* The current CPU's stack is never saved/resumed after thread exit.
++       TID 1 uses the EXE's data object, not an allocator-owned stack. */
++    if (t->owns_stack) {
++        ga = find_alloc(rt, t->stack_base);
++        if (ga) ga->used = 0;
++        t->owns_stack = 0;
++    }
++    rt->current_thread_exited = 1;
++    rt->switch_requested = 1;
++    for (i = 0; i < MAX_THREADS; ++i)
++        if (rt->threads[i].state != THREAD_FREE && rt->threads[i].state != THREAD_DEAD) break;
++    if (i == MAX_THREADS) { rt->process_exited = 1; rt->process_rc = 0; }
++}
++
++static uint32_t guest_wait_thread(struct Runtime *rt, uint32_t a1, uint32_t a2)
++{
++        uint32_t target_tid;
++        struct GuestThread *target;
++        struct GuestThread *cur;
++        fprintf(stderr, "v2: DOSCALLS.349 DosWaitThread(ptid=%08X,option=%u)\n", a1, a2);
++        if (!guest_range(a1, 4) || (a2 != DCWW_WAIT && a2 != DCWW_NOWAIT))
++            return OS2_ERROR_INVALID_PARAMETER;
++        target_tid = guest_u32(rt, a1);
++        cur = current_guest_thread(rt);
++        if (!cur)
++            return OS2_ERROR_INVALID_FUNCTION;
++
++        if (target_tid == 0) {
++            uint32_t i;
++            target = NULL;
++            for (i = 0; i < MAX_THREADS; ++i) {
++                if (rt->threads[i].state == THREAD_DEAD) {
++                    target = &rt->threads[i];
++                    break;
++                }
++            }
++            if (target) {
++                guest_put_u32(rt, a1, target->tid);
++                target->state = THREAD_FREE;
++                return OS2_NO_ERROR;
++            }
++        } else {
++            target = find_thread(rt, target_tid);
++            if (!target && target_tid >= 1u && target_tid < rt->next_tid)
++                return OS2_NO_ERROR; /* issued, completed, slot since recycled */
++            if (!target || target == cur)
++                return OS2_ERROR_INVALID_THREADID;
++            if (target->state == THREAD_DEAD) {
++                guest_put_u32(rt, a1, target_tid);
++                target->state = THREAD_FREE;
++                return OS2_NO_ERROR;
++            }
++        }
++
++        if (target_tid == 0) {
++            uint32_t j;
++            for (j = 0; j < MAX_THREADS; ++j)
++                if (&rt->threads[j] != cur && rt->threads[j].state != THREAD_FREE &&
++                    rt->threads[j].state != THREAD_DEAD) break;
++            if (j == MAX_THREADS) return OS2_ERROR_INVALID_THREADID;
++        }
++        if (a2 == DCWW_NOWAIT)
++            return OS2_ERROR_THREAD_NOT_TERMINATED;
++
++        cur->wait_tid = target_tid;
++        cur->wait_ptid = a1;
++        cur->state = THREAD_WAIT_THREAD;
++        rt->switch_requested = 1;
++        fprintf(stderr, "v2: thread %u waiting for %s%u\n", cur->tid,
++               target_tid ? "TID " : "any TID", target_tid);
++        return OS2_NO_ERROR;
++    }
+--- a/v2_sync_types.h
++++ b/v2_sync_types.h
+@@ -0,0 +1,35 @@
++/* R8 guest-owned synchronisation objects. Never use a host thread's mutex. */
++#define MAX_MUTEXES 64u
++#define MAX_QUEUES 16u
++#define QUEUE_DEPTH 256u
++#define SYNC_GENERATION_MAX 0x003fffffu
++#define MUTEX_TAG 0x40000000u
++#define QUEUE_TAG 0x80000000u
++#define OS2_ERROR_TOO_MANY_SEM_REQUESTS 103u
++#define OS2_ERROR_SEM_OWNER_DIED 105u
++#define OS2_ERROR_NOT_OWNER 288u
++#define OS2_ERROR_SEM_BUSY 301u
++#define OS2_ERROR_QUE_DUPLICATE 332u
++#define OS2_ERROR_QUE_ELEMENT_NOT_EXIST 333u
++#define OS2_ERROR_QUE_NO_MEMORY 334u
++#define OS2_ERROR_QUE_INVALID_NAME 335u
++#define OS2_ERROR_QUE_INVALID_PRIORITY 336u
++#define OS2_ERROR_QUE_INVALID_HANDLE 337u
++#define OS2_ERROR_QUE_EMPTY 342u
++#define OS2_ERROR_QUE_NAME_NOT_EXIST 343u
++#define OS2_ERROR_QUE_UNABLE_TO_ADD 346u
++#define OS2_ERROR_QUE_INVALID_WAIT 433u
++struct GuestMutex {
++    uint32_t generation, refs, owner, count;
++    int used, abandoned;
++    char name[EVENT_NAME_MAX + 1];
++};
++struct QueueEntry {
++    uint32_t token, request, length, data, priority;
++};
++struct GuestQueue {
++    uint32_t generation, refs, discipline, count, next_token, notify_event;
++    int used;
++    char name[EVENT_NAME_MAX + 1];
++    struct QueueEntry entries[QUEUE_DEPTH];
++};
+--- a/whp_os2_v2_hi.c
++++ b/whp_os2_v2_hi.c
+@@ -70,6 +70,7 @@
+ #define GUEST_MODULE_LIMIT  0x03F00000u
+ #define HOSTCALL_PORT       0x00F0u
+ #define HC_DOSCALLS         0x01000000u
++#define HC_QUECALLS         0x03000000u
+ #define HC_RUNTIME          0x02000000u
+ #define HC_RUNTIME_THREAD_RETURN 1u
+ #define GUEST_THREAD_EXIT_STUB  0x000F7FF0u
+@@ -227,6 +228,9 @@
+     THREAD_RUNNING,
+     THREAD_WAIT_THREAD,
+     THREAD_WAIT_EVENT,
++    THREAD_SLEEP,
++    THREAD_WAIT_MUTEX,
++    THREAD_WAIT_QUEUE,
+     THREAD_SUSPENDED,
+     THREAD_DEAD
+ };
+@@ -240,6 +244,10 @@
+     uint32_t wait_ptid;
+     uint32_t wait_event;
+     uint64_t wait_deadline_ms;
++    uint64_t wait_order;
++    uint32_t queue_args[8];
++    int queue_peek;
++    int owns_stack;
+     WHV_REGISTER_VALUE regs[THREAD_REG_COUNT];
+     int regs_valid;
+ };
+@@ -273,6 +281,8 @@
+     HANDLE native;
+     WIN32_FIND_DATAA data;
+ };
++
++#include "v2_sync_types.h"
+ 
+ struct Runtime {
+     WHV_PARTITION_HANDLE partition;
+@@ -286,6 +296,9 @@
+ 
+     struct GuestThread threads[MAX_THREADS];
+     struct GuestEventSem events[MAX_EVENT_SEMS];
++    struct GuestMutex mutexes[MAX_MUTEXES];
++    struct GuestQueue queues[MAX_QUEUES];
++    uint64_t wait_serial;
+     struct GuestModule modules[MAX_GUEST_MODULES];
+     struct HostStub doscall_stubs[MAX_IMPORTS];
+     uint32_t module_count;
+@@ -900,14 +913,15 @@
+     }
+ }
+ 
+-static uint32_t doscall_stub(struct Runtime *rt, uint32_t ordinal)
++static uint32_t hostcall_stub(struct Runtime *rt, uint32_t module, uint32_t ordinal)
+ {
+     uint32_t i, va, id;
+     uint8_t *s;
+ 
++    id = module | (ordinal & 0x00ffffffu);
+     for (i = 0; i < MAX_IMPORTS; ++i) {
+         if (rt->doscall_stubs[i].address != 0 &&
+-            rt->doscall_stubs[i].ordinal == ordinal)
++            rt->doscall_stubs[i].ordinal == id)
+             return rt->doscall_stubs[i].address;
+     }
+     for (i = 0; i < MAX_IMPORTS; ++i) {
+@@ -920,13 +934,12 @@
+     va = align_up(rt->stub_next, 8u);
+     if (va + 8u > GUEST_STUB_LIMIT)
+         fatal("synthetic import veneer overflow");
+-    id = HC_DOSCALLS | (ordinal & 0x00ffffffu);
+     s = rt->ram + va;
+     s[0] = 0xB8; wr32(s + 1, id);      /* mov eax,imm32 */
+     s[5] = 0xE7; s[6] = 0xF0;          /* out 0f0h,eax */
+     s[7] = 0xC3;                       /* ret */
+ 
+-    rt->doscall_stubs[i].ordinal = ordinal;
++    rt->doscall_stubs[i].ordinal = id;
+     rt->doscall_stubs[i].address = va;
+     rt->stub_next = va + 8u;
+     return va;
+@@ -1310,9 +1323,8 @@
+ 
+     for (i = 0; i < x->num_impmods; ++i) {
+         const char *mod = x->modules[i].name;
+-        if (_stricmp(mod, "PMWIN") == 0 || _stricmp(mod, "PMGPI") == 0 ||
+-            _stricmp(mod, "QUECALLS") == 0) {
+-            fprintf(stderr, "v2: %s requires %s: personality not implemented in V2 R5.\n",
++        if (_stricmp(mod, "PMWIN") == 0 || _stricmp(mod, "PMGPI") == 0) {
++            fprintf(stderr, "v2: %s requires %s: personality not implemented in V2 R8.\n",
+                     owner, mod);
+             fatal("use --check for phase-1 loader validation; guest was not started");
+         }
+@@ -1320,7 +1332,9 @@
+     for (i = 0; i < x->nimports; ++i) {
+         const char *mod = x->modules[x->imports[i].module].name;
+         if (_stricmp(mod, "DOSCALLS") == 0) {
+-            addr = doscall_stub(rt, x->imports[i].ordinal);
++            addr = hostcall_stub(rt, HC_DOSCALLS, x->imports[i].ordinal);
++        } else if (_stricmp(mod, "QUECALLS") == 0) {
++            addr = hostcall_stub(rt, HC_QUECALLS, x->imports[i].ordinal);
+         } else {
+             g = load_guest_module(rt, mod);
+             addr = guest_export_by_ordinal(g, x->imports[i].ordinal);
+@@ -1578,7 +1592,7 @@
+ static uint32_t alloc_guest(struct Runtime *rt, uint32_t size)
+ {
+     uint32_t base, need, i;
+-    if (size == 0)
++    if (size == 0 || size > GUEST_ALLOC_LIMIT - GUEST_ALLOC_BASE)
+         return 0;
+     need = align_up(size, 0x1000u);
+ 
+@@ -1701,6 +1715,9 @@
+     case THREAD_RUNNING: return "RUNNING";
+     case THREAD_WAIT_THREAD: return "WAIT_THREAD";
+     case THREAD_WAIT_EVENT: return "WAIT_EVENT";
++    case THREAD_SLEEP: return "SLEEP";
++    case THREAD_WAIT_MUTEX: return "WAIT_MUTEX";
++    case THREAD_WAIT_QUEUE: return "WAIT_QUEUE";
+     case THREAD_SUSPENDED: return "SUSPENDED";
+     case THREAD_DEAD: return "DEAD";
+     default: return "?";
+@@ -1723,6 +1740,10 @@
+         t->state = THREAD_RUNNABLE;
+         fprintf(stderr, "v2: thread %u awakened by completion of TID %u\n",
+                t->tid, dead_tid);
++        {
++            struct GuestThread *dead = find_thread(rt, dead_tid);
++            if (dead && dead->state == THREAD_DEAD) dead->state = THREAD_FREE;
++        }
+     }
+ }
+ 
+@@ -1773,7 +1794,7 @@
+     }
+ }
+ 
+-static int wake_expired_event_waiters(struct Runtime *rt)
++static int wake_expired_waiters(struct Runtime *rt)
+ {
+     uint32_t i;
+     uint64_t now;
+@@ -1782,29 +1803,31 @@
+     woke = 0;
+     for (i = 0; i < MAX_THREADS; ++i) {
+         struct GuestThread *t = &rt->threads[i];
+-        if (t->state != THREAD_WAIT_EVENT || t->wait_deadline_ms == 0)
++        if ((t->state != THREAD_WAIT_EVENT && t->state != THREAD_WAIT_MUTEX &&
++             t->state != THREAD_SLEEP) || t->wait_deadline_ms == 0)
+             continue;
+         if (t->wait_deadline_ms > now)
+             continue;
+-        fprintf(stderr, "v2: thread %u event wait timed out (hev=%08X)\n",
+-               t->tid, t->wait_event);
++        fprintf(stderr, "v2: thread %u %s deadline reached\n",
++               t->tid, thread_state_name(t->state));
+         t->wait_event = 0;
+         t->wait_deadline_ms = 0;
+-        set_saved_thread_rc(t, OS2_ERROR_SEM_TIMEOUT);
++        set_saved_thread_rc(t, t->state == THREAD_SLEEP ? OS2_NO_ERROR : OS2_ERROR_SEM_TIMEOUT);
+         t->state = THREAD_RUNNABLE;
+         woke = 1;
+     }
+     return woke;
+ }
+ 
+-static int next_event_timeout(struct Runtime *rt, DWORD *wait_ms)
++static int next_wait_timeout(struct Runtime *rt, DWORD *wait_ms)
+ {
+     uint32_t i;
+     uint64_t now, earliest, delta;
+     earliest = 0;
+     for (i = 0; i < MAX_THREADS; ++i) {
+         struct GuestThread *t = &rt->threads[i];
+-        if (t->state != THREAD_WAIT_EVENT || t->wait_deadline_ms == 0)
++        if ((t->state != THREAD_WAIT_EVENT && t->state != THREAD_WAIT_MUTEX &&
++             t->state != THREAD_SLEEP) || t->wait_deadline_ms == 0)
+             continue;
+         if (earliest == 0 || t->wait_deadline_ms < earliest)
+             earliest = t->wait_deadline_ms;
+@@ -1835,6 +1858,8 @@
+ }
+ 
+ #include "v2_info.h"
++#include "v2_sync.h"
++#include "v2_queue.h"
+ 
+ static uint32_t create_guest_thread(struct Runtime *rt, uint32_t ptid,
+                                     uint32_t entry, uint32_t param,
+@@ -1844,11 +1869,13 @@
+     struct GuestThread *t;
+     HRESULT hr;
+ 
+-    if (!guest_range(ptid, 4) || !guest_range(entry, 1) || stack_size == 0)
++    if (!guest_range(ptid, 4) || !guest_range(entry, 1) || ptid == 0 || entry == 0 ||
++        stack_size == 0 || stack_size > GUEST_ALLOC_LIMIT - GUEST_ALLOC_BASE ||
++        (flags & ~1u) || rt->next_tid == 0xffffffffu)
+         return OS2_ERROR_INVALID_PARAMETER;
+ 
+     for (i = 0; i < MAX_THREADS; ++i)
+-        if (rt->threads[i].state == THREAD_FREE)
++        if (rt->threads[i].state == THREAD_FREE || rt->threads[i].state == THREAD_DEAD)
+             break;
+     if (i == MAX_THREADS)
+         return OS2_ERROR_NOT_ENOUGH_MEMORY;
+@@ -1894,6 +1921,7 @@
+     t->tid = tid;
+     t->stack_base = stack_base;
+     t->stack_size = stack_bytes;
++    t->owns_stack = 1;
+     init_thread_info(rt, i);
+     t->regs_valid = 1;
+     t->state = (flags & 1u) ? THREAD_SUSPENDED : THREAD_RUNNABLE;
+@@ -1951,6 +1979,7 @@
+     switch (ordinal) {
+     case 223: return "DosQueryPathInfo";
+     case 230: return "DosGetDateTime";
++    case 229: return "DosSleep";
+     case 257: return "DosClose";
+     case 259: return "DosDelete";
+     case 272: return "DosSetFileSize";
+@@ -1976,6 +2005,12 @@
+     case 328: return "DosPostEventSem";
+     case 329: return "DosWaitEventSem";
+     case 330: return "DosQueryEventSem";
++    case 331: return "DosCreateMutexSem";
++    case 332: return "DosOpenMutexSem";
++    case 333: return "DosCloseMutexSem";
++    case 334: return "DosRequestMutexSem";
++    case 335: return "DosReleaseMutexSem";
++    case 336: return "DosQueryMutexSem";
+     case 348: return "DosQuerySysInfo";
+     case 349: return "DosWaitThread";
+     default:  return "?";
+@@ -2028,10 +2063,7 @@
+             if (!cur)
+                 return OS2_ERROR_INVALID_FUNCTION;
+             fprintf(stderr, "v2: thread %u exited rc=%u\n", cur->tid, a2);
+-            cur->state = THREAD_DEAD;
+-            wake_thread_waiters(rt, cur->tid);
+-            rt->current_thread_exited = 1;
+-            rt->switch_requested = 1;
++            finish_guest_thread(rt);
+             return OS2_NO_ERROR;
+         }
+         if (a1 != EXIT_PROCESS)
+@@ -2105,6 +2137,10 @@
+            commit changes while preserving the guest address contract. */
+         return OS2_NO_ERROR;
+ 
++    case 229: return guest_sleep(rt, a1);
++    case 331: case 332: case 333: case 334: case 335: case 336:
++        return dispatch_mutex(rt, ordinal, a1, a2, a3, a4);
++
+     case 312: /* DosGetInfoBlocks(PTIB *, PPIB *) */
+         return get_info_blocks(rt, a1, a2);
+ 
+@@ -2131,7 +2167,7 @@
+         for (i = 0; i < MAX_EVENT_SEMS; ++i) {
+             sem = &rt->events[i];
+             if (!sem->used) {
+-                if (free_slot == MAX_EVENT_SEMS)
++                if (free_slot == MAX_EVENT_SEMS && sem->generation < SYNC_GENERATION_MAX)
+                     free_slot = i;
+                 continue;
+             }
+@@ -2201,6 +2237,8 @@
+             sem->refs--;
+             return OS2_NO_ERROR;
+         }
++        if (sync_first_waiter(rt, THREAD_WAIT_EVENT, a1))
++            return OS2_ERROR_SEM_BUSY;
+         sem->used = 0;
+         sem->refs = 0;
+         sem->post_count = 0;
+@@ -2298,6 +2336,7 @@
+             case 11: v = 20; break;
+             case 12: v = 0; break;
+             case 13: v = 0; break;
++            case 14: v = (uint32_t)GetTickCount64(); break;
+             default: v = 0; break;
+             }
+             guest_put_u32(rt, out, v);
+@@ -2306,53 +2345,7 @@
+         return OS2_NO_ERROR;
+     }
+ 
+-    case 349: /* DosWaitThread(PTID,option) */
+-    {
+-        uint32_t target_tid;
+-        struct GuestThread *target;
+-        struct GuestThread *cur;
+-        fprintf(stderr, "v2: DOSCALLS.349 DosWaitThread(ptid=%08X,option=%u)\n", a1, a2);
+-        if (!guest_range(a1, 4) || (a2 != DCWW_WAIT && a2 != DCWW_NOWAIT))
+-            return OS2_ERROR_INVALID_PARAMETER;
+-        target_tid = guest_u32(rt, a1);
+-        cur = current_guest_thread(rt);
+-        if (!cur)
+-            return OS2_ERROR_INVALID_FUNCTION;
+-
+-        if (target_tid == 0) {
+-            uint32_t i;
+-            target = NULL;
+-            for (i = 0; i < MAX_THREADS; ++i) {
+-                if (rt->threads[i].state == THREAD_DEAD) {
+-                    target = &rt->threads[i];
+-                    break;
+-                }
+-            }
+-            if (target) {
+-                guest_put_u32(rt, a1, target->tid);
+-                return OS2_NO_ERROR;
+-            }
+-        } else {
+-            target = find_thread(rt, target_tid);
+-            if (!target || target == cur)
+-                return OS2_ERROR_INVALID_THREADID;
+-            if (target->state == THREAD_DEAD) {
+-                guest_put_u32(rt, a1, target_tid);
+-                return OS2_NO_ERROR;
+-            }
+-        }
+-
+-        if (a2 == DCWW_NOWAIT)
+-            return OS2_ERROR_THREAD_NOT_TERMINATED;
+-
+-        cur->wait_tid = target_tid;
+-        cur->wait_ptid = a1;
+-        cur->state = THREAD_WAIT_THREAD;
+-        rt->switch_requested = 1;
+-        fprintf(stderr, "v2: thread %u waiting for %s%u\n", cur->tid,
+-               target_tid ? "TID " : "any TID", target_tid);
+-        return OS2_NO_ERROR;
+-    }
++    case 349: return guest_wait_thread(rt, a1, a2);
+ 
+     default:
+         fprintf(stderr, "v2: unsupported DOSCALLS ordinal %u\n", ordinal);
+@@ -2374,15 +2367,14 @@
+ 
+     for (;;) {
+         DWORD wait_ms;
+-        wake_expired_event_waiters(rt);
++        wake_expired_waiters(rt);
+         next = next_runnable_thread(rt);
+         if (next >= 0)
+             break;
+ 
+-        /* With no runnable guest code, a finite event wait is the only
+-           first-pass source of future progress.  Sleep in the host until the
+-           earliest deadline, then turn the saved blocked context runnable. */
+-        if (!next_event_timeout(rt, &wait_ms)) {
++        /* Host sleeps only when every guest is blocked, until the nearest
++           sleep/event/mutex deadline. Guest waits never block a runnable peer. */
++        if (!next_wait_timeout(rt, &wait_ms)) {
+             fprintf(stderr, "v2: scheduler deadlock: no runnable guest thread and no finite timeout\n");
+             return 1;
+         }
+@@ -2468,8 +2460,11 @@
+                 return 1;
+             }
+ 
++            wake_expired_waiters(rt);
+             if (module == HC_DOSCALLS) {
+                 rc = dispatch_doscalls(rt, ordinal, (uint32_t)rsp);
++            } else if (module == HC_QUECALLS) {
++                rc = dispatch_queue(rt, ordinal, (uint32_t)rsp);
+             } else if (module == HC_RUNTIME && ordinal == HC_RUNTIME_THREAD_RETURN) {
+                 struct GuestThread *cur = current_guest_thread(rt);
+                 if (!cur) {
+@@ -2477,10 +2472,7 @@
+                     return 1;
+                 }
+                 fprintf(stderr, "v2: runtime: TID %u returned from thread entry\n", cur->tid);
+-                cur->state = THREAD_DEAD;
+-                wake_thread_waiters(rt, cur->tid);
+-                rt->current_thread_exited = 1;
+-                rt->switch_requested = 1;
++                finish_guest_thread(rt);
+                 rc = OS2_NO_ERROR;
+             } else {
+                 fprintf(stderr, "v2: unknown hypercall module %08X api=%08X\n", module, api);
+@@ -2585,7 +2577,7 @@
+         return 1;
+     }
+ 
+-    fprintf(stderr, "WHP OS/2 V2 R7 thread/process information - LE/LX loader + threads + events + guest DLLs + file I/O\n");
++    fprintf(stderr, "WHP OS/2 V2 R8 scheduling/mutexes/queues - LE/LX loader + threads + events + guest DLLs + file I/O\n");
+     fprintf(stderr, "v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);

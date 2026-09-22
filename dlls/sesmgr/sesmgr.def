@@ -1,0 +1,6 @@
+LIBRARY SESMGR
+EXPORTS
+    DOSSMSETTITLE=DosSmSetTitle @5
+    DosStopSession @8
+    DosStartSession @17
+    O2HostQuerySessions @1000

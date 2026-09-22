@@ -1,0 +1,11 @@
+M29K
+- Preserve M29J2 as the process/environment baseline.
+- Expose the shell's previous command result through %ERRORLEVEL% expansion.
+- Keep historical IF [NOT] ERRORLEVEL n semantics wired to ShellState.last_rc.
+- Add CMDO2_EXEC_BACKGROUND / EXEC_BACKGROUND (DosExecPgm flag 4).
+- Implement the reconstructed DETACH built-in through DosExecPgm(EXEC_BACKGROUND).
+- Map EXEC_BACKGROUND to a detached Win32 nested-loader process and do not retain a wait handle.
+- Add an explicit EXEC_ASYNCRESULT + DosWaitChild NOWAIT/WAIT regression.
+- Add C/386 result-code and detached-child fixtures plus shell regression scripts.
+- START intentionally remains unimplemented: recovered OS/2 CMD imports SESMGR.17 DOSSTARTSESSION, so START belongs in a later SESMGR milestone rather than being faked with DosExecPgm.
+- No changes to the seven C/386 far16 VIO/KBD bridge descriptors or LE/LX loader logic.

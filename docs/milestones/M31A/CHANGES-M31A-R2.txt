@@ -1,0 +1,51 @@
+Milestone 31A R2 - WMCHAR LINK386 biased internal OFF32 relocation
+==================================================================
+
+First Windows execution of the original Beta-2 WMCHAR.EXE stopped before guest
+entry with:
+
+    os2host32: internal LX fixup target lies outside object
+
+The offending LE record is a source-list internal 32-bit offset relocation:
+
+    SRC      = 27h   (OFF32 | source-list)
+    FLAGS    = 10h   (internal | 32-bit target offset)
+    count    = 2
+    object   = 2
+    trgoff   = FFFFF9F0h
+    sources  = 06CFh, 07C4h
+
+Object 2 has preferred base 00020000h, so 32-bit address arithmetic yields:
+
+    00020000 + FFFFF9F0 = 0001F9F0
+
+Both source locations in the untouched executable already contain 0001F9F0.
+Disassembly shows that this is a compiler/linker biased base used with scaled
+indexed addressing; the biased constant itself need not point inside object 2.
+
+M30's apply_fixups() rejected target_off >= object.size.  That assumption was
+too strict for LINK386 output.  M31A R2 removes that object-bound check for the
+already-supported flat internal OFF32 case and performs normal modulo-32-bit
+object-base + target-offset relocation.  With WMCHAR's observed relocation:
+
+    relocated object 2 base = 01020000
+    target offset            = FFFFF9F0
+    relocated constant       = 0101F9F0
+
+No PMWIN/PMGPI/PMSHAPI behavior changed in R2.
+
+Regression added:
+
+    make m31a-wmchar-fixup-check
+
+This host-independent check parses the preserved WMCHAR.EXE, verifies all 309
+internal OFF32 source sites contain the expected preferred target values, and
+requires the LINK386 biased source-list record above to remain supported.
+
+Combined M31A check on the Windows build machine:
+
+    make m31a-wmchar-check
+
+Then retry:
+
+    os2host32 --run examples\m31a-wmchar\WMCHAR.EXE

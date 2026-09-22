@@ -1,0 +1,16 @@
+M29P - final planned CMD file/builtin compatibility pass
+
+* Moved CmdFileCopy token/source workspaces from ~257 KiB automatic storage to
+  heap allocations with complete cleanup paths.
+* Moved COPY's 32 KiB transfer buffer to heap storage.
+* Moved TYPE's transfer buffer to heap storage and reduced simple file/path
+  builtin automatic path buffers to MAX_PATH.
+* Added common wildcard RENAME destination transformation (`*.txt -> *.bak`,
+  `?`, long-name components).
+* Added COPY self-copy guard before opening/truncating the destination.
+* Added DIR /B and DIR /A, with ordinary DIR filtering hidden/system entries.
+* Added cwd-independent self-validating examples/m29p-filesystem-test.cmd.
+* Added m29p-file-check host regression for wildcard rename and stack-source
+  guards.
+* Preserved M29O1 batch semantics, M29N2b.2 module lifecycle, SESMGR and all
+  seven C/386 far16 VIO/KBD bridges unchanged.

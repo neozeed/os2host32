@@ -1,0 +1,6 @@
+--- a/os2host32.c
++++ b/os2host32.c
+@@
++static int image_imports_module(struct LxImage *x, const char *name);
++
+ static void apply_emx_inferred_relocs(struct LxImage *x)

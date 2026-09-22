@@ -1,0 +1,8 @@
+Milestone 28C4
+--------------
+* Include <sys/stat.h> in cmdos2_win32.c so MinGW defines _S_IREAD/_S_IWRITE.
+* Remove the now-unused contains_wildcard() helper.
+* Link os2host32.exe at fixed 0x00400000 with dynamic-base ASLR disabled.
+* Reserve 0x00010000..0x003FFFFF early for fixed-address C/386 LX objects.
+* Commit guest objects inside the reserved low-address arena.
+* Print VirtualQuery diagnostics if an exact guest mapping still fails.

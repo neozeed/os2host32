@@ -1,0 +1,11 @@
+M30B - EMX bound executable inspection diagnostics
+
+* Added opt-in OS2_TRACE_EMX_SELF tracing to DOSCALLS.
+* Trace DosQueryModuleName returned and host-expanded path.
+* Trace DosOpen arguments, resolved full path, HFILE/action and host size.
+* Trace DosQueryFileInfo result and reported size.
+* Trace DosSetFilePtr position changes.
+* Trace DosRead pre/post position, count and first 16 returned bytes.
+* Trace DosClose handle lifecycle.
+* Added m30b-emx-hi-test.cmd focused on the known-good emxbind hi.exe probe.
+* No intentional EMX bridge behavior change from M30A2.

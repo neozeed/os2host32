@@ -1,0 +1,7 @@
+M30G
+====
+- Identify NLS ordinal 6 as DosQueryDBCSEnv from the actual EMX callsite.
+- Add NLS.dll personality with DosQueryDBCSEnv @6 and DosMapCase @7.
+- Model western/SBCS DBCS vector as empty/zero terminated.
+- Map ASCII lowercase to uppercase for DosMapCase; preserve high bytes.
+- Load NLS.dll as a normal personality module instead of deferred M30 traps.

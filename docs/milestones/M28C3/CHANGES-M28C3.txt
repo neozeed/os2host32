@@ -1,0 +1,10 @@
+Milestone 28C3
+---------------
+* Fix native CMD redirection hang / ERROR_SHARING_VIOLATION caused by trying
+  to make DOSCALLS and the Win32 CRT co-own fd 0/1/2.
+* The native cmdos2_win32 backend now uses CRT _dup/_dup2/_open for its own
+  standard descriptors and explicitly synchronizes GetStdHandle afterwards.
+* CMD core remains host-neutral: all of this stays behind CmdO2Std*.
+* The genuine OS/2/LX backend is unchanged and continues to use DosOpen,
+  DosSetFilePtr and DosDupHandle directly.
+* DosCreatePipe @239 / INCL_DOSQUEUES fix from M28C2 retained.

@@ -1,0 +1,9 @@
+#define ID_NULL           -1
+#define ID_EDIT           10
+#define ID_PATH           11
+#define ID_TITLE          12
+#define ID_DIRLIST        13
+#define ID_FILELIST       14
+#define ID_INSTRUCTIONS   15
+#define IDD_OPEN          100
+#define IDD_SAVEAS        101

@@ -1,0 +1,12 @@
+Milestone 28C2
+----------------
+* Fix native redirection handle leak: DOSCALLS now owns/replaces its duplicated
+  standard HANDLEs while the Win32 CRT descriptor remains only a mirror.
+* Superseded standard HANDLEs created by DosDupHandle are closed, so redirected
+  files can be deleted immediately after stdout/stderr restoration.
+* Add INCL_DOSQUEUES before os2.h in cmdos2_os2.c.  Without it, the recovered
+  SDK does not prototype DosCreatePipe; C/386 therefore emitted an implicit
+  cdecl reference named _DosCreatePipe, which OS2386.LIB cannot satisfy.
+* The supplied OS2386.LIB was inspected and does contain an IMPDEF for
+  DosCreatePipe -> DOSCALLS ordinal 239 (0x00EF).
+* Strengthen m28c-redir-test.cmd to verify both redirected files disappear.

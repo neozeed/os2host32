@@ -1,0 +1,20 @@
+# Native/WHP build products
+*.exe
+*.dll
+*.lib
+*.a
+*.obj
+*.o
+*.pdb
+*.ilk
+
+# Local test products and caches
+personality-core-check
+__pycache__/
+*.pyc
+
+# Editor/OS noise
+*.swp
+*~
+.DS_Store
+Thumbs.db

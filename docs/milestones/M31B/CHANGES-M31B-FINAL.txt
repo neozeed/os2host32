@@ -1,0 +1,19 @@
+M31B FINAL
+==========
+
+Frozen from the exact M31B R1 code manually proven with the untouched
+Microsoft OS/2 2.0 Beta-2 WMCHAR.EXE.
+
+Proven on Windows:
+- original LE icon in frame and taskbar
+- original Actions/Display menus
+- original guest CheckMenus() check-state updates
+- Display column toggles
+- Log KeyUps
+- Clear List
+- Exit / SC_CLOSE
+- M31A keyboard/paint/scroll/resize behavior retained
+
+No implementation cleanup was performed after the successful R1 test.
+M31B FINAL adds milestone/handoff documentation and a stable final regression
+alias only.

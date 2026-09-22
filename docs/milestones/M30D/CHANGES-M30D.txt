@@ -1,0 +1,17 @@
+Milestone 30D
+-------------
+
+* Identified the M30C `Stack size too small` diagnostic as a false positive
+  caused by the compatibility DosGetInfoBlocks implementation returning a
+  zero-filled TIB.
+* Confirmed EMX reads TIB+4 / TIB+8 (tib_pstack / tib_pstacklimit) and requires
+  a span greater than 0x4000 during startup.
+* Added private OS2HOST32 export OS2HostQueryMainStack.
+* Publishes the actual mapped main LX stack bounds immediately after mapping
+  the executable and before guest DLL initialization.
+* DosGetInfoBlocks now populates tib_pstack/tib_pstacklimit with those guest
+  bounds instead of exposing a zero-byte stack.
+* Added a minimal TIB2 with TID 1 and hooked tib_ptib2 to it.
+* Added opt-in M30D TIB tracing under OS2_TRACE_EMX_SELF.
+* Keeps the M30C a.out-sidecar relocation mechanism unchanged.
+* No mutation of the bound EMX executable is required for the stack test.

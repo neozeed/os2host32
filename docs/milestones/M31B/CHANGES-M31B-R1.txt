@@ -1,0 +1,14 @@
+M31B R1
+=======
+
+* Added generic LE/LX rsrc32 table parsing and `--scan` resource inventory.
+* Added private loader -> PMWIN resource publication for main-module resources.
+* Added recursive OS/2 PM menu-template translation.
+* Added menu mnemonic, check/disable, submenu and MIS_SYSCOMMAND support.
+* WinWindowFromID(FID_MENU) now exposes the translated native menu.
+* WinSendMsg(MM_SETITEMATTR) now finds nested menu items recursively.
+* Added OS/2 2.x bitmap-array/color-icon -> Win32 HICON translation.
+* Added strict WMCHAR resource regression; no WMCHAR resource IDs are hard-coded
+  in the runtime implementation.
+* Preserves the frozen M31A stack promotion, LE fixups, painting and keyboard
+  behavior.

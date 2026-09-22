@@ -1,0 +1,63 @@
+
+/mnt/data/cmd_obj2.bin:     file format binary
+
+
+Disassembly of section .data:
+
+000044fa <.data+0x44fa>:
+    44fa:	fc                   	cld
+    44fb:	a3 72 0e             	mov    %ax,0xe72
+    44fe:	89 1e 70 0e          	mov    %bx,0xe70
+    4502:	49                   	dec    %cx
+    4503:	89 0e 78 0e          	mov    %cx,0xe78
+    4507:	bb 7a 0e             	mov    $0xe7a,%bx
+    450a:	8c 1f                	mov    %ds,(%bx)
+    450c:	83 e4 fe             	and    $0xfffe,%sp
+    450f:	89 67 04             	mov    %sp,0x4(%bx)
+    4512:	b8 fe ff             	mov    $0xfffe,%ax
+    4515:	50                   	push   %ax
+    4516:	89 67 0a             	mov    %sp,0xa(%bx)
+    4519:	f7 d0                	not    %ax
+    451b:	50                   	push   %ax
+    451c:	89 67 06             	mov    %sp,0x6(%bx)
+    451f:	89 67 08             	mov    %sp,0x8(%bx)
+    4522:	89 26 74 0e          	mov    %sp,0xe74
+    4526:	50                   	push   %ax
+    4527:	8b c4                	mov    %sp,%ax
+    4529:	16                   	push   %ss
+    452a:	50                   	push   %ax
+    452b:	9a 00 00 00 00       	lcall  $0x0,$0x0
+    4530:	58                   	pop    %ax
+    4531:	86 e0                	xchg   %ah,%al
+    4533:	a3 b2 0e             	mov    %ax,0xeb2
+    4536:	b8 b4 0e             	mov    $0xeb4,%ax
+    4539:	1e                   	push   %ds
+    453a:	50                   	push   %ax
+    453b:	9a 00 00 00 00       	lcall  $0x0,$0x0
+    4540:	e8 41 00             	call   0x4584
+    4543:	90                   	nop
+    4544:	0e                   	push   %cs
+    4545:	e8 ea 0a             	call   0x5032
+    4548:	90                   	nop
+    4549:	0e                   	push   %cs
+    454a:	e8 37 fe             	call   0x4384
+    454d:	90                   	nop
+    454e:	0e                   	push   %cs
+    454f:	e8 82 00             	call   0x45d4
+    4552:	ff 36 e5 0e          	push   0xee5
+    4556:	ff 36 e3 0e          	push   0xee3
+    455a:	ff 36 e1 0e          	push   0xee1
+    455e:	9a 00 00 0f 00       	lcall  $0xf,$0x0
+    4563:	50                   	push   %ax
+    4564:	0e                   	push   %cs
+    4565:	e8 f4 00             	call   0x465c
+    4568:	b8 03 00             	mov    $0x3,%ax
+    456b:	36 c7 06 76 0e 5c 46 	movw   $0x465c,%ss:0xe76
+    4572:	50                   	push   %ax
+    4573:	0e                   	push   %cs
+    4574:	e8 6f 0a             	call   0x4fe6
+    4577:	0e                   	push   %cs
+    4578:	e8 59 0c             	call   0x51d4
+    457b:	b8 ff 00             	mov    $0xff,%ax
+    457e:	50                   	push   %ax
+    457f:	0e                   	push   %cs

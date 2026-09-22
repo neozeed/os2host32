@@ -1,0 +1,127 @@
+LX header       : 0x00000080
+File size       : 90624 bytes
+Module flags    : 0x00000212
+Page size/shift : 4096 / 9
+Module pages    : 23
+Entry           : object 2 + 0x000044FA
+Stack           : object 3 + 0x00007790
+Data pages      : file+0x00000A00
+Fixup tables    : page=0x0000024C record=0x000002AC
+Objects (3):
+    1: base=00010000 size=0000C6A8 flags=00001005 pages=13 @1 [16-bit]
+    2: base=00020000 size=00007EFA flags=00001005 pages=8 @14 [16-bit]
+    3: base=00030000 size=00007790 flags=00001043 pages=2 @22 [16-bit]
+Import modules (7):
+    1: SESMGR
+    2: DOSCALLS
+    3: KBDCALLS
+    4: VIOCALLS
+    5: NLS
+    6: QUECALLS
+    7: MSG
+Fixup scan      : 0 internal records / 0 sites, 278 external sites
+Source fixups   :
+  PTR16:16  176 records / 276 sites
+  OFF16     1 record / 2 sites
+Alias fixups    : 176 records / 276 sites
+Ordinal imports (95):
+  DOSCALLS.5 (2 sites)
+  DOSCALLS.151 (2 sites)
+  DOSCALLS.58 (18 sites)
+  DOSCALLS.137 (16 sites)
+  KBDCALLS.9 (1 site)
+  VIOCALLS.7 (2 sites)
+  QUECALLS.8 (1 site)
+  VIOCALLS.9 (7 sites)
+  DOSCALLS.13 (9 sites)
+  SESMGR.14 (1 site)
+  VIOCALLS.15 (6 sites)
+  DOSCALLS.144 (1 site)
+  SESMGR.17 (2 sites)
+  VIOCALLS.21 (12 sites)
+  VIOCALLS.27 (2 sites)
+  VIOCALLS.32 (2 sites)
+  DOSCALLS.34 (6 sites)
+  DOSCALLS.39 (12 sites)
+  VIOCALLS.46 (1 site)
+  VIOCALLS.48 (1 site)
+  DOSCALLS.75 (8 sites)
+  DOSCALLS.163 (2 sites)
+  DOSCALLS.120 (4 sites)
+  MSG.1 (1 site)
+  QUECALLS.1 (1 site)
+  DOSCALLS.130 (3 sites)
+  DOSCALLS.2 (1 site)
+  DOSCALLS.70 (3 sites)
+  DOSCALLS.71 (2 sites)
+  SESMGR.8 (1 site)
+  DOSCALLS.72 (2 sites)
+  DOSCALLS.73 (1 site)
+  DOSCALLS.10 (1 site)
+  KBDCALLS.10 (2 sites)
+  DOSCALLS.74 (1 site)
+  KBDCALLS.11 (3 sites)
+  DOSCALLS.81 (1 site)
+  DOSCALLS.82 (1 site)
+  DOSCALLS.95 (2 sites)
+  DOSCALLS.164 (4 sites)
+  VIOCALLS.40 (2 sites)
+  DOSCALLS.59 (3 sites)
+  DOSCALLS.61 (2 sites)
+  DOSCALLS.63 (1 site)
+  DOSCALLS.138 (8 sites)
+  DOSCALLS.77 (3 sites)
+  VIOCALLS.22 (1 site)
+  DOSCALLS.98 (1 site)
+  DOSCALLS.53 (2 sites)
+  DOSCALLS.57 (2 sites)
+  NLS.1 (5 sites)
+  NLS.2 (1 site)
+  KBDCALLS.4 (4 sites)
+  KBDCALLS.13 (2 sites)
+  DOSCALLS.65 (3 sites)
+  DOSCALLS.76 (2 sites)
+  DOSCALLS.182 (1 site)
+  DOSCALLS.64 (1 site)
+  DOSCALLS.66 (2 sites)
+  DOSCALLS.67 (2 sites)
+  DOSCALLS.203 (1 site)
+  DOSCALLS.60 (2 sites)
+  DOSCALLS.80 (1 site)
+  DOSCALLS.99 (1 site)
+  DOSCALLS.14 (1 site)
+  DOSCALLS.83 (2 sites)
+  DOSCALLS.33 (4 sites)
+  DOSCALLS.56 (2 sites)
+  DOSCALLS.191 (1 site)
+  DOSCALLS.184 (2 sites)
+  NLS.3 (2 sites)
+  NLS.4 (2 sites)
+  DOSCALLS.8 (1 site)
+  DOSCALLS.16 (1 site)
+  DOSCALLS.91 (1 site)
+  DOSCALLS.44 (5 sites)
+  DOSCALLS.45 (15 sites)
+  VIOCALLS.3 (1 site)
+  DOSCALLS.78 (1 site)
+  DOSCALLS.86 (1 site)
+  DOSCALLS.28 (1 site)
+  DOSCALLS.38 (3 sites)
+  DOSCALLS.47 (2 sites)
+  DOSCALLS.126 (1 site)
+  KBDCALLS.5 (1 site)
+  DOSCALLS.153 (1 site)
+  DOSCALLS.36 (1 site)
+  VIOCALLS.42 (1 site)
+  VIOCALLS.19 (9 sites)
+  DOSCALLS.136 (2 sites)
+  DOSCALLS.89 (1 site)
+  DOSCALLS.92 (1 site)
+  DOSCALLS.49 (1 site)
+  DOSCALLS.50 (2 sites)
+  MSG.2 (1 site)
+Named imports   (2):
+  SESMGR.DOSSMSETTITLE (6 sites)
+  SESMGR.DOSSMPMPRESENT (1 site)
+Execution model : contains 16-bit LX objects/selectors
+Direct host path: needs additional execution machinery

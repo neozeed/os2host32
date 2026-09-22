@@ -1,0 +1,12 @@
+M28D4
+
+- Fixes standard-handle inheritance for DosExecPgm.
+- The native process-creation worker no longer samples GetStdHandle() for
+  stdin/stdout/stderr.
+- DosExecPgm snapshots os2_handle(0/1/2), the authoritative OS/2 HFILE table,
+  while the caller redirection is active and passes those exact HANDLEs in
+  STARTUPINFO.
+- This deliberately separates OS/2 process semantics from the temporary CRT
+  fd 0/1/2 mirror required only while CMD itself is a Win32 bootstrap.
+- Retains M28C4 redirection ownership, M28C5 LX relocation, M28D async wait,
+  and M28D3 inherited-CRT normalization for native pipeline workers.

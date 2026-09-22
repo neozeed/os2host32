@@ -1,0 +1,9 @@
+M29K4
+- Translate Win32 STATUS_CONTROL_C_EXIT into OS/2 TC_EXCEPTION for 32-bit children.
+- Apply the same RESULTCODES translation to synchronous DosExecPgm and DosWaitChild.
+- Make CMD derive ERRORLEVEL from abnormal OS/2 termination reason when no result code exists.
+- Harden EXEC_BACKGROUND: detached console std handles become NUL while redirected files/pipes remain inherited.
+- Add m29k4-detach-child.exe environment/stdout/background fixture.
+- Add cmdos2_os2_detach_test.exe direct EXEC_BACKGROUND/DosWaitChild regression.
+- Add m29k4-detach-hardening.cmd and m29k4-detach-survive-exit.cmd.
+- No LE/LX loader or C/386 far16 descriptor changes.

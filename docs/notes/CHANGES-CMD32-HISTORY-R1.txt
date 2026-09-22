@@ -1,0 +1,56 @@
+CMD32 HISTORY R1 — post-M31G shell quality-of-life patch
+========================================================
+
+Base
+----
+M31G R19 FINAL + CMD32 STARTUP R1.  No PM/NEKO behavior is changed.
+
+Interactive behavior
+--------------------
+- Keeps the most recent 30 non-blank commands in memory for the lifetime of
+  the interactive CMD32 process.
+- Up recalls older commands; Down walks toward newer commands.
+- On the first Up, the unfinished line currently being typed is saved.  Down
+  past the newest history entry restores that unfinished line.
+- Recalled commands are ordinary editable command lines:
+    * Left / Right move through the line.
+    * Home / End jump to the beginning/end.
+    * Backspace removes the character to the left of the cursor.
+    * Delete removes the character under the cursor.
+    * Printable typing INSERTS at the cursor rather than replacing the line.
+- Enter executes the complete edited command and adds that edited command to
+  the 30-entry history ring.
+- Empty/whitespace-only input is not stored.
+
+Console implementation
+----------------------
+- Uses OS/2 KbdCharIn scan codes, not Win32 console key APIs.
+- Adds CmdO2VioGetScreenSize to the existing VIO service boundary for both the
+  direct C/386 OS/2 backend and native Win32 bootstrap backend.
+- Uses a horizontal input viewport on the row following the prompt.  The full
+  4096-byte command is retained even when it is wider than the visible field;
+  this avoids fragile editable-line wrapping at the bottom of a VIO screen.
+- The history ring and draft buffer are static/BSS storage (~124 KiB) and do
+  not enlarge the small C/386 runtime stack.
+
+Scope / safety
+--------------
+- Interactive shell only.
+- Batch-file input is unchanged.
+- CMD32 -c pipeline workers bypass the interactive editor/history exactly as
+  they bypass C:\OS2\ENV\STARTUP.CMD.
+- History is intentionally session-local; it is not written to disk.
+
+Regression
+----------
+Run:
+
+    make cmd32-history-check
+    make m31g-neko-r19-check
+
+On the Windows/i3 C/386 build host:
+
+    build-os2-shell.cmd
+
+Then launch interactively and verify Up/Down recall plus editing of a recalled
+command before pressing Enter.

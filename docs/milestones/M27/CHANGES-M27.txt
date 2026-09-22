@@ -1,0 +1,8 @@
+Milestone 27 - COPY /B and binary concatenation
+
+- accepts COPY /B in historical operand positions
+- implements byte-for-byte + concatenation with explicit destination
+- preserves NUL, Ctrl-Z and high-bit bytes
+- deliberately rejects COPY /A until text semantics are reconstructed
+- improves common filesystem error presentation
+- adds exact binary regression fixtures

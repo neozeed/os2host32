@@ -1,0 +1,53 @@
+M28E - dual LE/LX direct host + early-SDK file-buffer source compatibility
+==========================================================================
+
+os2host32
+---------
+* Auto-detects OS/2 LE and LX images from the linear-executable signature.
+* Keeps the existing LX direct-execution path unchanged.
+* Adds the 32-bit LE subset already proven by le2pe386:
+  - i386 / OS/2, little endian
+  - 32-bit objects for direct execution
+  - enumerated LE pages and ZEROED (flag 3) pages
+  - internal OFF32 fixups
+  - external ordinal REL32 fixups
+  - multiple import modules
+  - the same relocatable object-arena fallback used by LX
+  - the same original C/386 environment/argument startup bridge
+* LE physical pages and logical object-page entries are tracked separately.
+  This matters because LE e32_mpages counts physical data pages while an
+  object can also contain logical ZEROED pages which consume no file page.
+* LE fixup-page ownership is resolved through the 24-bit physical page number
+  in each four-byte LE object-page-map entry.
+* --info / --scan now work for mixed/16-bit LE files too, but direct execution
+  remains deliberately gated to the flat 32-bit OFF32/REL32 subset.
+
+cmdos2_os2.c
+------------
+* No longer names FILEFINDBUF3 or FILESTATUS3 directly.  Private wire-layout
+  structures are used for FIL_STANDARD buffers so early OS/2 2.0 prerelease
+  headers that do not publish those later typedef names can compile the
+  backend far enough for a real ABI test.
+* The private find layout includes oNextEntryOffset at byte 0, matching the
+  corrected M28A4 32-bit FILEFINDBUF3 ABI used by DOSCALLS.dll.
+
+Validation performed in this environment
+----------------------------------------
+* Strict C89 host build of os2host32.c passes.
+* Existing LX hi.exe scan is unchanged: 70 internal records / 159 sites,
+  12 external sites, and the same eight DOSCALLS imports.
+* A synthetic LE repack of that exact LX fixture is accepted by both the new
+  os2host32 scanner and the independent le2pe386 LE parser, with identical
+  fixup/import counts.  The repack itself is not included in this bundle.
+* Real 85 KB PMEXEC.EXE (LE, mixed 16/32-bit) is parsed and scanned correctly
+  as 20 physical / 21 logical pages and is correctly rejected from the direct
+  execution subset because its entry objects are 16-bit.
+
+Not tested here
+---------------
+* Win32 execution of a real LINK386-produced flat 32-bit LE program.  The
+  container has no 32-bit MinGW/Wine runtime, so Jason's old LINK386 output is
+  the decisive execution test.
+* Compilation of cmdos2_os2.c with the exact Beta 2 header set.  The source no
+  longer depends on FILEFINDBUF3/FILESTATUS3 names, but other prerelease SDK
+  ABI/name differences may still surface and should be fixed from evidence.

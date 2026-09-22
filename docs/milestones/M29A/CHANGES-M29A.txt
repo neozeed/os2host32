@@ -1,0 +1,19 @@
+Milestone 29A
+=============
+
+* Added Win32-host VIOCALLS.dll and KBDCALLS.dll personality modules.
+* Added historical-ordinal exports needed by the current shell:
+    KbdCharIn @4, KbdFlushBuffer @13
+    VioScrollUp @7, VioGetCurPos @9, VioSetCurPos @15,
+    VioWrtTTY @19, VioGetMode @21
+* Moved interactive prompt rendering through VioWrtTTY.
+* Replaced interactive fgets(stdin) with KbdCharIn-based line input and VIO echo.
+* Moved PAUSE through KbdFlushBuffer/KbdCharIn and VioWrtTTY.
+* Moved CLS through VioGetMode/VioScrollUp/VioSetCurPos.
+* Added console-boundary-check to keep Win32 console APIs out of CMD proper.
+* Added m29a-console-test.cmd native regression.
+* Added vio-kbd-probe.c archaeology test for the historical C/386 VIO/KBD
+  import/fixup form.
+* Kept the genuine C/386 backend on temporary DosRead/DosWrite console
+  fallbacks until that thunk form is captured; no guessed 16:32 ABI was added.
+* Retains M28E direct loading of the supported flat-32 LE and LX subsets.

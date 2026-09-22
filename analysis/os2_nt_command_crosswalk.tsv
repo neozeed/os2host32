@@ -1,0 +1,41 @@
+command	os2_664_handler	nt_function	nt_rva	nt_source	confidence	notes
+DIR	2:396A	_eDirectory	0x0002099C	C:\nt\private\windows\cmd\cinfo.c	high	direct semantic/name match
+ERASE	2:28E7	_eDelete	0x0001E5E2	C:\nt\private\windows\cmd\cfile.c	high	direct semantic/name match
+DEL	2:28E7	_eDelete	0x0001E5E2	C:\nt\private\windows\cmd\cfile.c	high	direct semantic/name match
+TYPE	2:3981	_eType	0x000209B4	C:\nt\private\windows\cmd\cinfo.c	high	direct semantic/name match
+COPY	2:28D0	_eCopy	0x0001E5CA	C:\nt\private\windows\cmd\cfile.c	high	direct semantic/name match
+CD	2:3DCF	_eChdir	0x00020594	C:\nt\private\windows\cmd\cpath.c	high	direct semantic/name match
+CHDIR	2:3DCF	_eChdir	0x00020594	C:\nt\private\windows\cmd\cpath.c	high	direct semantic/name match
+RENAME	2:2F01	_eRename	0x0001EE02	C:\nt\private\windows\cmd\cfile.c	high	direct semantic/name match
+REN	2:2F01	_eRename	0x0001EE02	C:\nt\private\windows\cmd\cfile.c	high	direct semantic/name match
+ECHO	2:0703	_eEcho	0x000140EE	C:\nt\private\windows\cmd\cbatch.c	high	direct semantic/name match
+SET	3:11B7	_eSet	0x000132FE	C:\nt\private\windows\cmd\cenv.c	high	direct semantic/name match
+PAUSE	2:105E	_ePause	0x00014CD2	C:\nt\private\windows\cmd\cbatch.c	high	direct semantic/name match
+DATE	3:16DC	_eDate	0x000193F4	C:\nt\private\windows\cmd\cclock.c	high	direct semantic/name match
+TIME	3:171F	_eTime	0x00019458	C:\nt\private\windows\cmd\cclock.c	high	direct semantic/name match
+PROMPT	3:118E	_ePrompt	0x000132D2	C:\nt\private\windows\cmd\cenv.c	high	direct semantic/name match
+MD	2:3D1C	_eMkdir	0x000204E0	C:\nt\private\windows\cmd\cpath.c	high	direct semantic/name match
+MKDIR	2:3D1C	_eMkdir	0x000204E0	C:\nt\private\windows\cmd\cpath.c	high	direct semantic/name match
+RD	2:3ECD	_eRmdir	0x0002092C	C:\nt\private\windows\cmd\cpath.c	high	direct semantic/name match
+RMDIR	2:3ECD	_eRmdir	0x0002092C	C:\nt\private\windows\cmd\cpath.c	high	direct semantic/name match
+PATH	3:1088	_ePath	0x000131D6	C:\nt\private\windows\cmd\cenv.c	high	direct semantic/name match
+GOTO	2:0D26	_eGoto	0x00014982	C:\nt\private\windows\cmd\cbatch.c	high	direct semantic/name match
+SHIFT	2:1147	_eShift	0x00014D92	C:\nt\private\windows\cmd\cbatch.c	high	direct semantic/name match
+CLS	3:1B2C	_eCls	0x00019ADA	C:\nt\private\windows\cmd\cother.c	high	direct semantic/name match
+CALL	2:12C4	_eCall	0x00014FA6	C:\nt\private\windows\cmd\cbatch.c	high	direct semantic/name match
+VERIFY	3:1BBB	_eVerify	0x00019BAE	C:\nt\private\windows\cmd\cother.c	high	direct semantic/name match
+VER	3:002E	_eVersion	0x00020BF8	C:\nt\private\windows\cmd\cinfo.c	high	direct semantic/name match
+VOL	3:0097	_eVolume	0x00020C78	C:\nt\private\windows\cmd\cinfo.c	high	direct semantic/name match
+EXIT	3:1BA4	_eExit	0x00019B9A	C:\nt\private\windows\cmd\cother.c	high	direct semantic/name match
+SETLOCAL	2:11AF	_eSetlocal	0x00014E0E	C:\nt\private\windows\cmd\cbatch.c	high	direct semantic/name match
+ENDLOCAL	2:1224	_eEndlocal	0x00014EE6	C:\nt\private\windows\cmd\cbatch.c	high	direct semantic/name match
+CHCP	3:0000	_eChcp	0x0001FDA6	C:\nt\private\windows\cmd\cfile.c	high	direct semantic/name match
+START	3:0017	_eStart	0x0001FDBE	C:\nt\private\windows\cmd\cfile.c	high	direct semantic/name match
+DPATH	3:16C7	_eAppend	0x000131EA	C:\nt\private\windows\cmd\cenv.c	medium	strong semantic candidate; verify control-flow/strings
+KEYS	3:2E42	_eKeys	0x000176E4	C:\nt\private\windows\cmd\ckeys.c	high	direct semantic/name match
+MOVE	2:3334	_eMove	0x0001F4A6	C:\nt\private\windows\cmd\cfile.c	high	direct semantic/name match
+FOR	2:07B5	_eFor	0x000141BE	C:\nt\private\windows\cmd\cbatch.c	high	direct semantic/name match
+IF	2:0F39	_eIf	0x00014BA6	C:\nt\private\windows\cmd\cbatch.c	high	direct semantic/name match
+DETACH	3:0B16	_eDetach	0x00011410	C:\nt\private\windows\cmd\cop.c	high	direct semantic/name match
+REM	NO-OP	_ParseRem	0x00019F50	C:\nt\private\windows\cmd\cparse.c	medium	strong semantic candidate; verify control-flow/strings
+EXTPROC	2:14C8	_eExtproc	0x000151F2	C:\nt\private\windows\cmd\cbatch.c	high	direct semantic/name match

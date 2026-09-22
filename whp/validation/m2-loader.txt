@@ -1,0 +1,1 @@
+loader negative check PASS: corrupt migration fragment rejected

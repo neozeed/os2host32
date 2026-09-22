@@ -1,0 +1,66 @@
+--- /mnt/data/m30c/os2host32.c	2026-09-17 17:37:02.484439726 +0000
++++ /mnt/data/m30d/os2host32.c	2026-09-17 17:51:50.385421973 +0000
+@@ -329,6 +329,10 @@
+ static int g_guest_process_exit = 0;
+ /* M30: synthetic module handle 1 represents the main guest executable. */
+ static char g_main_guest_program[260];
++/* M30D: actual mapped main-thread stack bounds published to DOSCALLS so
++ * DosGetInfoBlocks can return an OS/2-compatible TIB. */
++static U32 g_main_guest_stack_low = 0;
++static U32 g_main_guest_stack_high = 0;
+ #endif
+ 
+ static U16 rd16(const U8 *p)
+@@ -2598,6 +2602,18 @@
+     return O2_NO_ERROR;
+ }
+ 
++__declspec(dllexport) U32 __cdecl OS2HostQueryMainStack(U32 *plow, U32 *phigh)
++{
++    if (!plow || !phigh)
++        return O2_ERROR_INVALID_PARAMETER;
++    if (g_main_guest_stack_low == 0 ||
++        g_main_guest_stack_high <= g_main_guest_stack_low)
++        return O2_ERROR_INVALID_PARAMETER;
++    *plow = g_main_guest_stack_low;
++    *phigh = g_main_guest_stack_high;
++    return O2_NO_ERROR;
++}
++
+ __declspec(dllexport) U32 __cdecl OS2HostModuleQueryName(U32 hmod,
+                                                          U32 cb,
+                                                          char *buffer)
+@@ -3829,6 +3845,16 @@
+         }
+ #ifdef _WIN32
+         map_objects(&x);
++        g_main_guest_stack_low =
++            (U32)(unsigned long)x.objects[x.stack_object - 1].mapped;
++        g_main_guest_stack_high =
++            g_main_guest_stack_low + x.stack_esp;
++        if (!g_quiet)
++            printf("M30D TIB stack   : %08lX..%08lX (%lu KB)\n",
++                   (unsigned long)g_main_guest_stack_low,
++                   (unsigned long)g_main_guest_stack_high,
++                   (unsigned long)((g_main_guest_stack_high -
++                                    g_main_guest_stack_low) / 1024UL));
+         resolve_imports(&x);
+         apply_fixups(&x);
+         apply_emx_aout_sidecar_relocs(&x, name);
+@@ -3868,6 +3894,16 @@
+         }
+ #ifdef _WIN32
+         map_objects(&x);
++        g_main_guest_stack_low =
++            (U32)(unsigned long)x.objects[x.stack_object - 1].mapped;
++        g_main_guest_stack_high =
++            g_main_guest_stack_low + x.stack_esp;
++        if (!g_quiet)
++            printf("M30D TIB stack   : %08lX..%08lX (%lu KB)\n",
++                   (unsigned long)g_main_guest_stack_low,
++                   (unsigned long)g_main_guest_stack_high,
++                   (unsigned long)((g_main_guest_stack_high -
++                                    g_main_guest_stack_low) / 1024UL));
+         resolve_imports(&x);
+         apply_fixups(&x);
+         apply_emx_aout_sidecar_relocs(&x, name);

@@ -1,0 +1,41 @@
+CMD32 TABCOMP R3 - generic trailing-directory separator fix
+
+Based on TABCOMP R2 / PMAUTO R2.
+
+Observed on the real C/386 shell:
+
+    [C:\os2>]copy env.cmd bin\
+    File not found - bin\
+
+while:
+
+    [C:\os2>]copy env.cmd bin
+             1 file(s) copied.
+
+Cause:
+  TABCOMP R2 fixed DIR's trailing-separator case directly, but COPY/MOVE/DEL
+  use cmdfile.c's shared cf_is_directory() helper.  The underlying OS/2 path
+  attribute query can reject a trailing slash even though the path is a valid
+  directory.
+
+Fix:
+  cf_is_directory() now strips trailing '\\' or '/' only for the directory
+  attribute probe, while preserving drive roots such as C:\\ and the caller's
+  original spelling.  The original destination string is retained when the
+  final path is built.
+
+This makes directory operands consistent across the file-command engine:
+
+    DIR  bin\
+    COPY file bin\
+    MOVE file bin\
+
+and keeps DEL's directory protection consistent too.
+
+Regression:
+  cmd32-copy-qol-host-test deliberately makes the mock backend accept BIN but
+  reject BIN\\.  COPY C:\\TEST.TXT BIN\\ must still open BIN\\TEST.TXT.
+
+Build the C/386 shell with:
+
+    build-os2-shell.cmd

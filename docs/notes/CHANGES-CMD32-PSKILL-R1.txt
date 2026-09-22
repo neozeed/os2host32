@@ -1,0 +1,88 @@
+CMD32 PS/KILL R1 - post-M31G shell/session quality-of-life
+==========================================================
+
+Scope
+-----
+This is an additive post-M31G change.  It does not change the frozen M31G R19
+PM/NEKO path.  It builds on the earlier CMD32 STARTUP, history/editor and COPY
+quality-of-life patches.
+
+What it adds
+------------
+* CMD32 built-in PS
+    - lists live related child sessions created by START from this shell
+    - columns: TASK, host PID, executable, session title
+    - TASK is the SESMGR session id and is the identifier accepted by KILL
+
+* CMD32 built-in KILL task-id
+    - calls the Session Manager stop boundary rather than Win32 from CMD proper
+    - implemented by SESMGR.8 DosStopSession
+    - V1 currently maps stop to forced termination because no cooperative
+      session-close protocol exists yet
+    - related START sessions are placed in a Win32 Job Object when possible,
+      so KILL terminates the hosted session process tree; if job assignment is
+      unavailable, SESMGR safely falls back to terminating the root host
+
+* Shared SESMGR session registry
+    - named shared-memory registry plus named mutex across os2host32 processes
+    - records task/session id, host PID, owner PID, executable and title
+    - records process creation timestamps to protect against Win32 PID reuse
+    - stale/dead child and dead-owner entries are reaped lazily
+    - session ids are allocated from the shared registry rather than per-DLL
+
+* Title tracking
+    - SESMGR.5 DOSSMSETTITLE is now present as a flat-32 V1 personality
+    - START's PgmTitle seeds the registry title
+    - a hosted child calling DOSSMSETTITLE updates the title seen by PS
+    - session id 0 is accepted as a V1 convenience meaning "my current
+      registered session"
+
+Registration race hardening
+---------------------------
+Related START children are created CREATE_SUSPENDED.  SESMGR assigns the task
+id and publishes executable/title/PID into the shared registry before
+ResumeThread.  Therefore a child can call DOSSMSETTITLE immediately at startup
+without racing its parent's registration.
+
+Historical/private boundaries
+-----------------------------
+SESMGR.5    DOSSMSETTITLE       title update personality
+SESMGR.8    DosStopSession      historical child-session stop boundary
+SESMGR.17   DosStartSession     existing START boundary
+SESMGR.1000 O2HostQuerySessions private V1 query used only by reconstructed CMD
+
+The private query is intentionally not presented as a historical OS/2 API.
+
+Deliberate R1 boundary
+----------------------
+PS/KILL manage related sessions created by START.  They do not yet enumerate
+ordinary synchronous DosExecPgm children, pipeline workers, or DETACH/
+EXEC_BACKGROUND processes.  Those use DOSCALLS process lifecycle bookkeeping,
+not SESMGR, and should be unified deliberately in a later task-registry step.
+
+Test fixture
+------------
+build-os2-shell.cmd also builds:
+
+    cmd32-pskill-child.exe
+
+Inside CMD32:
+
+    start cmd32-pskill-child
+    ps
+
+The child calls DOSSMSETTITLE(0, "title updated by child") and sleeps for 60
+seconds.  PS should show that updated title.  Then:
+
+    kill <task-id>
+    ps
+
+The task should disappear from the second PS listing.
+
+Regression
+----------
+    make cmd32-pskill-check
+    make m31g-neko-r19-check
+
+Both were green in the packaging environment.  The final Microsoft C/386 /
+LINK386 executable build must still be performed on the Windows/i3 toolchain.

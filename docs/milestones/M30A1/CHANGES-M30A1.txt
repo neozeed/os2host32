@@ -1,0 +1,9 @@
+M30A1 — EMX first-run diagnostic checkpoint
+
+- Preserve the validated M30A generic EMX bridge implementation.
+- Add a complete audit of the supplied emx.dll import surface.
+- Current compatibility DLLs resolve 64 of 108 distinct ordinal imports.
+- Remaining 44 imports intentionally use M30 trap-on-use stubs.
+- Add a Windows test driver that scans emx.dll and launches dhyrstone.exe.
+
+No new mixed-mode execution claims are made until the Win32/i686 runtime test.

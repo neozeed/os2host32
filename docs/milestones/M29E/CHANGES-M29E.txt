@@ -1,0 +1,23 @@
+M29E - descriptor-driven Microsoft C/386 far16 bridge
+
+* Refactors native C/386 far16 stub generation around an API descriptor table.
+* Descriptor arguments are 2-byte unsigned scalars or 4-byte values/tokens in
+  Pascal-frame memory order; one generic x86 emitter widens/loads each value,
+  pushes the Win32 cdecl argument list, calls the compatibility DLL and emits
+  the correct RET <frame-size> cleanup.
+* Existing proven targets remain described without bespoke stub code:
+      VIOCALLS.19  VioWrtTTY      2,2,4
+      KBDCALLS.4   KbdCharIn      2,2,4
+      KBDCALLS.9   KbdStringIn    2,2,4,4
+* Adds KBDCALLS.13 KbdFlushBuffer with a scalar-only 2-byte Pascal frame.
+* Adds c386-far16-kbdflush-test.c/.def, LINK386 response-file build script and
+  examples/m29e-far16-kbdflush-test.cmd.
+* Scan/runtime diagnostics now include the descriptor API name; runtime also
+  reports the Pascal frame size.
+* The host-independent OS2HOST32 build and parser/batch/environment/boundary
+  regression suite pass in the build environment.  The new Win32/C386 scalar
+  probe still requires validation on the i3.
+
+The single-thunk execution restriction remains deliberate.  The next ABI
+research target is a real C/386 executable containing several far16 VIO/KBD
+imports so multi-thunk pairing can be implemented from observed LINK386 output.

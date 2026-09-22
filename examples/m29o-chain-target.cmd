@@ -1,0 +1,3 @@
+@echo off
+echo M29O_CHAIN_TARGET_OK
+set M29O_CHAIN_TARGET_OK_FLAG=1

@@ -1,0 +1,979 @@
+--- /dev/null
++++ b/README-V2-PM-R10.txt
+@@ -0,0 +1,121 @@
++WHP OS/2 V2 R10 - minimal Presentation Manager window
++====================================================
++Cumulative source release based on R9, whose callback1 and callbackdll tests
++passed on the user's Windows WHP host with Microsoft C/386 6.00.081 and the
++IBM 2.01.005 LX linker. This release adds a deliberately small PMWIN bridge.
++No rebuilt Windows host or PM guest executable is included.
++
++BUILD AND RUN
++  build-v2.cmd                  (x64 MSVC developer prompt)
++  build-c386-pm.cmd              (your C/386 environment)
++  run-pmhello.cmd                (Windows WHP)
++
++Copy the resulting pmhello.exe beside whp_os2_v2_hi.exe if building separately.
++The guest build uses the original SDK declarations, os2386.lib and libc.lib;
++C386LIB defaults to \c386\lib. No resource compiler or new SDK is required.
++The host now links User32.lib and Gdi32.lib as well as WinHvPlatform.lib.
++
++You should see a resizable window titled:
++  WHP OS/2 R10 - guest PM window
++It paints black text on white. Type a printable key: the displayed text should
++change to "Last character: X". Resize or uncover it and check that it repaints.
++Close the window (or press Escape) after seeing the text. Expected console:
++  pmhello PASS (<n> paints, <n> character messages)
++Native close/resize/keyboard behavior needs this interactive Windows check.
++
++For a short automated guest-path smoke test:
++  run-pmhello.cmd --auto
++This paints, yields within the guest paint callback while a worker runs,
++posts a synthetic OS/2 WM_CHAR, repaints with 'A', then posts WM_CLOSE.
++It checks at least two paints and a character message before printing PASS.
++It is not a substitute for checking real keyboard input and the displayed
++window. Diagnostics go to pmhello-trace.txt (overwritten each run).
++No long torture batch is required. Suggested focused regressions:
++  run-callback.cmd
++  run-sync.cmd
++
++DESIGN
++One guest thread owns one HAB, one message queue, one registered class and
++one standard frame/client pair. Guest handles are fixed 32-bit tokens;
++Windows HWND/HDC and runtime pointers remain on the 64-bit host.
++
++The native Windows window procedure only translates and queues messages.
++It never calls a guest code address. WinGetMsg parks the guest thread when
++its queue is empty. Other runnable guest threads continue normally; when
++all guests are blocked, the scheduler waits for native input or the nearest
++guest deadline. WinDispatchMsg and WinSendMsg enter the guest window procedure
++using R9's saved-context continuation frames. Nested calls and guest sleeps
++inside the procedure therefore use the existing scheduler, without recursive
++host run loops. Dispatch/Send return the guest procedure's MRESULT in EAX.
++
++WinCreateStdWindow calls guest WM_CREATE before returning the frame handle;
++a nonzero result rejects creation and clears the client output handle.
++The native window becomes visible after successful WM_CREATE. WinDestroyWindow
++calls guest WM_DESTROY before releasing native resources. The test checks
++both callbacks and a nested WinSendMsg from WM_CREATE returning 17+25=42.
++
++The supplied legacy SDK QMSG layout is explicitly marshalled as 28 bytes:
++HWND at 0; USHORT message at 4; zero padding at 6; mp1 at 8; mp2 at 12;
++time at 16; POINTL at 20. No native Windows MSG layout leaks into guest RAM.
++RECTL uses 32-bit coordinates and OS/2 bottom-left coordinates; drawing
++converts these to the native top-left coordinate system.
++
++IMPLEMENTED PMWIN ORDINALS
++  703 WinBeginPaint         716 WinCreateMsgQueue
++  726 WinDestroyMsgQueue    728 WinDestroyWindow
++  738 WinEndPaint           743 WinFillRect
++  763 WinInitialize        765 WinInvalidateRect
++  840 WinQueryWindowRect   888 WinTerminate
++  902 WinPostQueueMsg      908 WinCreateStdWindow
++  911 WinDefWindowProc     912 WinDispatchMsg
++  913 WinDrawText          915 WinGetMsg
++  919 WinPostMsg           920 WinSendMsg
++  926 WinRegisterClass
++Ordinals match the existing V1 PMWIN export definitions. This fixture uses
++only SDK calls; there are no synthetic WHPTEST imports in pmhello.
++
++CURRENT BOUNDARIES
++- One PM owner thread, queue, class and frame/client pair per guest process.
++  PM calls from another guest thread fail. No cross-thread Send/Post support.
++- Frame and client tokens map to one native top-level window. No child-window
++  tree, arbitrary controls, dialogs, menus, resources or window extra bytes.
++  Supported frame flags are TITLEBAR, SYSMENU, SIZEBORDER, MINBUTTON,
++  MAXBUTTON, SHELLPOSITION and TASKLIST. Default native position/size is used.
++  Test passes zero client style, resource module and resource ID.
++- WinGetMsg supports only an unfiltered queue. Queue capacity is 128; pending
++  paint/size/close messages are coalesced. A full explicit Post returns FALSE;
++  overflow from native input stops execution with a diagnostic.
++- Translated input is WM_CREATE, WM_DESTROY, WM_SIZE, WM_PAINT, WM_CLOSE and
++  basic character WM_CHAR. No mouse, virtual-key/key-up/modifier tracking,
++  accelerators, focus protocol, timers or accurate QMSG pointer position.
++- WM_CREATE parameters are zero. WM_SIZE supplies the new size in mp2;
++  previous-size mp1 is zero. WinDefWindowProc handles close by posting quit;
++  other defaults return zero.
++- Painting covers the full client area with a temporary native DC. Native
++  paint damage is validated when queued; guest BeginPaint reports the full
++  rectangle. No PM update-region/clip-region emulation or persistent HPS.
++- WinDrawText uses the supplied Beta2 SHORT length, including -1 for a NUL
++  terminated string. Maximum 1023 bytes. Basic palette colors, horizontal/
++  vertical alignment and DT_ERASERECT only; a native default font is used.
++- Existing cooperative scheduling and integer-only callback context remain.
++  Compute-only guest code does not pump Windows messages until a WHP exit.
++- PMGPI remains explicitly unsupported. This is a PM bridge test, not yet
++  enough to run SarienPM. Unsupported PMWIN calls log and return zero.
++
++VALIDATION PERFORMED HERE
++- pmhello.c passes GCC -m32 C89 syntax/type checking against the supplied
++  Beta2 headers with legacy compiler keywords removed for that check.
++  This does not claim Microsoft C/386 compilation or linking.
++- Production PM, callback and scheduler helpers compile and execute under
++  AddressSanitizer/UndefinedBehaviorSanitizer with Windows/WHP test doubles.
++  Tests check callback results/nesting, creation rejection, QMSG packing and
++  bounds, native-to-guest character translation, paint coalescing, full queue,
++  blocking GetMsg/native wakeup, sleeping peer scheduling, rectangle mapping,
++  paint-handle lifetime, invalid inputs, destruction and cleanup.
++- Existing R7/R8/R9 native scheduler/info/queue/mutex/callback checks pass in
++  the same run, including thread recycling. Logs: validation/r10-native-check.*
++  Reproduce on a Linux development host with GCC:
++    ASAN_OPTIONS=detect_leaks=0 python3 tests/run-sync-check.py
++  LeakSanitizer is disabled for the ptrace-based execution environment.
++- No live Windows build, C/386 link or WHP GUI execution was available here.
++  Earlier release notes and validation files are retained as historical records.
+--- /dev/null
++++ b/build-c386-pm.cmd
+@@ -0,0 +1,13 @@
++@echo off
++setlocal
++if "%C386LIB%"=="" set C386LIB=\c386\lib
++cl386 -c -Gs -Od -W3 -B1 C1_386 pmhello.c
++if errorlevel 1 exit /b %errorlevel%
++>pmhello.lnk echo pmhello.obj
++>>pmhello.lnk echo pmhello.exe
++>>pmhello.lnk echo pmhello.map
++>>pmhello.lnk echo %C386LIB%\libc.lib %C386LIB%\os2386.lib
++>>pmhello.lnk echo pmhello.def
++link386 @pmhello.lnk
++if errorlevel 1 exit /b %errorlevel%
++exit /b 0
+--- a/build-v2.cmd
++++ b/build-v2.cmd
+@@ -1,3 +1,3 @@
+ @echo off
+ setlocal
+-cl /nologo /W4 /O2 /D_CRT_SECURE_NO_WARNINGS whp_os2_v2_hi.c /link WinHvPlatform.lib
++cl /nologo /W4 /O2 /D_CRT_SECURE_NO_WARNINGS whp_os2_v2_hi.c /link WinHvPlatform.lib User32.lib Gdi32.lib
+--- /dev/null
++++ b/pmhello.c
+@@ -0,0 +1,110 @@
++/* Microsoft C/386 6.00 + original 32-bit OS/2 SDK. */
++#define INCL_WIN
++#define INCL_DOSPROCESS
++#include <os2.h>
++#include <stdio.h>
++#include <string.h>
++
++static HAB hab;
++static HMQ hmq;
++static ULONG creates, destroys, paints, characters;
++static int automatic;
++static CHAR line[] = "Type a key; resize the window; close it to finish.";
++static CHAR keyline[] = "Last character: ?";
++static volatile ULONG worker_done;
++
++static void fail(ULONG n)
++{
++    printf("pmhello FAIL line %lu\n",n);
++    DosExit(EXIT_PROCESS,1);
++}
++#define CHECK(x) do { if (!(x)) fail((ULONG)__LINE__); } while (0)
++
++static VOID APIENTRY worker(ULONG unused)
++{
++    (void)unused;
++    CHECK(DosSleep(30)==0);
++    worker_done=1;
++    DosExit(EXIT_THREAD,0);
++}
++
++static MRESULT EXPENTRY client_proc(HWND hwnd, USHORT msg, MPARAM mp1, MPARAM mp2)
++{
++    HPS hps;
++    RECTL rect;
++    switch(msg) {
++    case WM_CREATE:
++        ++creates;
++        /* Re-enter this same guest procedure through a nested host call. */
++        CHECK((ULONG)WinSendMsg(hwnd,WM_USER,MPFROMLONG(17),MPFROMLONG(25))==42UL);
++        return (MRESULT)0;
++    case WM_USER:
++        return (MRESULT)((ULONG)mp1+(ULONG)mp2);
++    case WM_PAINT:
++        hps=WinBeginPaint(hwnd,(HPS)0,&rect);
++        CHECK(hps!=(HPS)0);
++        CHECK(WinQueryWindowRect(hwnd,&rect));
++        CHECK(WinFillRect(hps,&rect,CLR_WHITE));
++        CHECK(WinDrawText(hps,-1,(PCH)(characters ? keyline : line),&rect,
++                         CLR_BLACK,CLR_WHITE,DT_CENTER|DT_VCENTER)>0);
++        CHECK(WinEndPaint(hps));
++        ++paints;
++        if(automatic) {
++            if(!characters) {
++                /* Yield inside a window callback while the worker runs. */
++                CHECK(DosSleep(50)==0);
++                CHECK(worker_done==1);
++                CHECK(WinPostMsg(hwnd,WM_CHAR,MPFROMLONG(KC_CHAR),MPFROMSHORT('A')));
++            } else {
++                CHECK(WinPostMsg(hwnd,WM_CLOSE,(MPARAM)0,(MPARAM)0));
++            }
++        }
++        return (MRESULT)0;
++    case WM_CHAR:
++        if((USHORT)(ULONG)mp1 & KC_CHAR) {
++            ++characters;
++            keyline[16]=(char)(ULONG)mp2;
++            CHECK(WinInvalidateRect(hwnd,(PRECTL)0,FALSE));
++            if((USHORT)(ULONG)mp2==27)
++                CHECK(WinPostMsg(hwnd,WM_CLOSE,(MPARAM)0,(MPARAM)0));
++        }
++        return (MRESULT)0;
++    case WM_CLOSE:
++        CHECK(WinPostQueueMsg(hmq,WM_QUIT,(MPARAM)0,(MPARAM)0));
++        return (MRESULT)0;
++    case WM_DESTROY:
++        ++destroys;
++        return (MRESULT)0;
++    }
++    return WinDefWindowProc(hwnd,msg,mp1,mp2);
++}
++
++int main(int argc, char **argv)
++{
++    HWND frame,client;
++    QMSG msg;
++    TID tid;
++    ULONG flags=FCF_TITLEBAR|FCF_SYSMENU|FCF_SIZEBORDER|
++                FCF_MINBUTTON|FCF_MAXBUTTON|FCF_SHELLPOSITION|FCF_TASKLIST;
++    CHAR cls[]="WHP_PMHELLO";
++    CHAR title[]="WHP OS/2 R10 - guest PM window";
++    automatic=argc>1 && strcmp(argv[1],"--auto")==0;
++    CHECK(sizeof(QMSG)==28);
++    CHECK(sizeof(RECTL)==16);
++    CHECK(DosCreateThread(&tid,(PFNTHREAD)worker,0,0,16384)==0);
++    hab=WinInitialize(0);CHECK(hab!=(HAB)0);
++    hmq=WinCreateMsgQueue(hab,0);CHECK(hmq!=(HMQ)0);
++    CHECK(WinRegisterClass(hab,(PSZ)cls,client_proc,CS_SIZEREDRAW,0));
++    frame=WinCreateStdWindow(HWND_DESKTOP,WS_VISIBLE,&flags,(PSZ)cls,(PSZ)title,0,
++                             (HMODULE)0,0,&client);
++    CHECK(frame!=(HWND)0 && client!=(HWND)0 && creates==1);
++    while(WinGetMsg(hab,&msg,(HWND)0,0,0)) WinDispatchMsg(hab,&msg);
++    CHECK(WinDestroyWindow(frame));
++    CHECK(destroys==1 && paints>0);
++    if(automatic) CHECK(characters>0 && paints>=2);
++    CHECK(WinDestroyMsgQueue(hmq));
++    CHECK(WinTerminate(hab));
++    CHECK(DosWaitThread(&tid,0)==0 && worker_done==1);
++    printf("pmhello PASS (%lu paints, %lu character messages)\n",paints,characters);
++    return 0;
++}
+--- /dev/null
++++ b/pmhello.def
+@@ -0,0 +1,3 @@
++NAME PMHELLO WINDOWAPI
++PROTMODE
++STACKSIZE 65536
+--- /dev/null
++++ b/run-pmhello.cmd
+@@ -0,0 +1,11 @@
++@echo off
++setlocal
++pushd "%~dp0"
++whp_os2_v2_hi.exe pmhello.exe %* 2>pmhello-trace.txt
++if errorlevel 1 goto failed
++popd
++exit /b 0
++:failed
++echo FAIL - inspect pmhello-trace.txt
++popd
++exit /b 1
+--- /dev/null
++++ b/tests/pm-check.inc
+@@ -0,0 +1,98 @@
++static int pm_entered;
++static uint32_t pcall(uint32_t ordinal,const uint32_t *args,size_t count)
++{
++ size_t i;
++ for(i=0;i<count;i++)guest_put_u32(&rt,0x804+(uint32_t)i*4,args[i]);
++ pm_entered=0;
++ return dispatch_pm(&rt,ordinal,0x800,0x11002,&pm_entered);
++}
++#define PCALL(n,...) pcall(n,(const uint32_t[]){__VA_ARGS__},sizeof((const uint32_t[]){__VA_ARGS__})/4)
++static void pm_return(uint32_t value)
++{
++ uint32_t sp=current_guest_thread(&rt)->callbacks->entry_sp;
++ guest_put_u32(&rt,sp,value);
++ assert(return_guest_callback(&rt,sp,GUEST_CALLBACK_RETURN_STUB+6)==0);
++}
++static void test_pm(void)
++{
++ uint32_t i;
++ RECT rect;
++ cpu[1].Reg64=0x27000;
++ assert(PCALL(763,1)==0);
++ assert(PCALL(763,0)==PM_HAB);
++ assert(PCALL(716,PM_HAB,0)==PM_HMQ);
++ strcpy((char *)rt.ram+0x900,"PMTEST");
++ strcpy((char *)rt.ram+0xa00,"Test title");
++ assert(PCALL(926,PM_HAB,0x900,0x12000,4,0)==1);
++ guest_put_u32(&rt,0xb00,0xc3b);
++ assert(PCALL(908,1,0x80000000,0xb00,0x900,0xa00,0,0,0,0xb04)==0);
++ assert(pm_entered && current_guest_thread(&rt)->callback_depth==1);
++ assert(guest_u32(&rt,0xb04)==PM_CLIENT && !mock_shows);
++ assert(guest_u32(&rt,(uint32_t)cpu[1].Reg64+8)==1); /* WM_CREATE */
++ assert(PCALL(728,PM_FRAME)==0 && !pm_entered); /* cannot destroy mid-create */
++ assert(PCALL(920,PM_CLIENT,0x1000,17,25)==0 && pm_entered);
++ assert(current_guest_thread(&rt)->callback_depth==2);
++ pm_return(42);assert(cpu[3].Reg64==42);
++ pm_return(0);assert(cpu[3].Reg64==PM_FRAME && mock_shows==1);
++ /* Exact legacy QMSG width and zeroed USHORT padding, followed by guards. */
++ memset(rt.ram+0xc00,0xcc,32);
++ assert(PCALL(919,PM_CLIENT,0x7a,1,65)==1);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==1);
++ assert(guest_u32(&rt,0xc00)==PM_CLIENT && guest_u32(&rt,0xc04)==0x7a);
++ assert(guest_u32(&rt,0xc08)==1 && guest_u32(&rt,0xc0c)==65);
++ assert(guest_u32(&rt,0xc14)==0 && guest_u32(&rt,0xc1c)==0xcccccccc);
++ assert(PCALL(912,PM_HAB,0xc00)==0 && pm_entered);
++ pm_return(0x12345678);assert(cpu[3].Reg64==0x12345678);
++ assert(PCALL(915,PM_HAB,RAM_SIZE-27,0,0,0)==0);
++ assert(current_guest_thread(&rt)->state==THREAD_RUNNING);
++ /* Native translation never enters guest code; bounded paint coalescing. */
++ pm_native_proc(mock_hwnd,WM_CHAR,'Z',0);
++ assert(!current_guest_thread(&rt)->callbacks);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==1 && guest_u32(&rt,0xc0c)=='Z');
++ for(i=0;i<200;i++)pm_native_proc(mock_hwnd,WM_PAINT,0,0);
++ assert(rt.pm->count==1);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==1 && guest_u32(&rt,0xc04)==0x23);
++ /* Idle GetMsg wakes through the native message wait, not a deadlock. */
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==0);
++ assert(pm_waiting(&rt));park(0);
++ assert(schedule_next_thread(&rt)==0 && mock_waits==1);
++ assert(cpu[3].Reg64==1 && guest_u32(&rt,0xc04)==0x29);
++ /* Sleeping guest peer runs while PM owner is blocked. */
++ spawn();select_thread(1);assert(guest_sleep(&rt,25)==0);park(0);select_thread(0);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==0);park(0);
++ assert(schedule_next_thread(&rt)==0 && rt.current_thread==1 && pm_waiting(&rt));
++ pm_native_proc(mock_hwnd,WM_CHAR,'A',0);pm_pump(&rt);
++ assert(rt.threads[0].state==THREAD_RUNNABLE && rt.threads[0].regs[3].Reg64==1);
++ finish_guest_thread(&rt);select_thread(0);
++ /* Paint and bottom-left rectangle conversion, invalid pointers and HPS. */
++ assert(PCALL(703,PM_CLIENT,0,0xd00)==PM_HPS);
++ assert(PCALL(703,PM_CLIENT,0,0xd00)==0);
++ assert(PCALL(840,PM_CLIENT,0xd00)==1);
++ guest_put_u32(&rt,0xd00,10);guest_put_u32(&rt,0xd04,20);
++ guest_put_u32(&rt,0xd08,100);guest_put_u32(&rt,0xd0c,80);
++ assert(pm_rect(&rt,0xd00,&rect) && rect.top==280 && rect.bottom==340);
++ assert(PCALL(743,PM_HPS,0xd00,0xfffffffe)==1);
++ assert(PCALL(913,PM_HPS,0xffff,0xa00,0xd00,0xffffffff,0xfffffffe,0x200)==10);
++ assert(PCALL(913,PM_HPS,0xfffe,0xa00,0xd00,0,0,0)==0);
++ assert(PCALL(913,PM_HPS,0xffff,0xa00,0xd00,0,0,1)==0);
++ assert(PCALL(738,PM_HPS)==1 && !rt.pm->paint_dc);
++ assert(PCALL(765,PM_CLIENT,0,0)==1);pm_pump(&rt);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==1);
++ /* Full queue refuses posts without corrupting pending messages. */
++ for(i=0;i<PM_CAPACITY;i++)assert(PCALL(919,PM_CLIENT,0x1000,i,0)==1);
++ assert(PCALL(919,PM_CLIENT,0x1000,999,0)==0);
++ for(i=0;i<PM_CAPACITY;i++) {
++   assert(PCALL(915,PM_HAB,0xc00,0,0,0)==1);
++   assert(guest_u32(&rt,0xc08)==i);
++ }
++ assert(PCALL(911,PM_CLIENT,0x29,0,0)==1);
++ assert(PCALL(915,PM_HAB,0xc00,0,0,0)==0 && guest_u32(&rt,0xc04)==0x2a);
++ assert(PCALL(728,PM_FRAME)==0 && pm_entered);pm_return(0);
++ assert(cpu[3].Reg64==1 && !mock_live && !rt.pm->window);
++ /* Guest WM_CREATE rejection unwinds its frame and clears client output. */
++ assert(PCALL(908,1,0x80000000,0xb00,0x900,0xa00,0,0,0,0xb04)==0 && pm_entered);
++ pm_return(1);assert(cpu[3].Reg64==0 && guest_u32(&rt,0xb04)==0 && !mock_live);
++ assert(PCALL(726,PM_HMQ)==1);
++ assert(PCALL(888,PM_HAB)==1 && !rt.pm);
++ puts("pm-check PASS: guest callbacks, QMSG ABI, native queue wake, guest sleep, paint, cleanup");
++}
+--- /dev/null
++++ b/tests/pm-win32-mock.h
+@@ -0,0 +1,92 @@
++/* UI test double: NOT a Windows/WHP execution test. */
++typedef void *HWND;
++typedef void *HDC;
++typedef void *HBRUSH;
++typedef uint32_t UINT;
++typedef int32_t LONG;
++typedef intptr_t LONG_PTR;
++typedef uintptr_t WPARAM;
++typedef intptr_t LPARAM;
++typedef intptr_t LRESULT;
++typedef uint32_t COLORREF;
++typedef struct {LONG left,top,right,bottom;} RECT;
++typedef struct {void *lpCreateParams;} CREATESTRUCTA;
++typedef struct {int unused;} PAINTSTRUCT;
++typedef struct {UINT message;WPARAM wParam;LPARAM lParam;} MSG;
++typedef struct {UINT style;LRESULT (*lpfnWndProc)(HWND,UINT,WPARAM,LPARAM);void *hInstance;const char *lpszClassName;void *hCursor;} WNDCLASSA;
++#define CALLBACK
++#define TRUE 1
++#define GWLP_USERDATA (-21)
++#define WM_NCCREATE 0x81
++#define WM_NCDESTROY 0x82
++#define WM_PAINT 15
++#define WM_ERASEBKGND 20
++#define WM_SIZE 5
++#define WM_CLOSE 16
++#define WM_CHAR 0x102
++#define WM_QUIT 18
++#define PM_REMOVE 1
++#define SW_SHOW 5
++#define CS_HREDRAW 2
++#define CS_VREDRAW 1
++#define WS_CAPTION 0xc00000u
++#define WS_SYSMENU 0x80000u
++#define WS_THICKFRAME 0x40000u
++#define WS_MINIMIZEBOX 0x20000u
++#define WS_MAXIMIZEBOX 0x10000u
++#define CW_USEDEFAULT ((int)0x80000000u)
++#define IDC_ARROW ((const char *)32512)
++#define ERROR_CLASS_ALREADY_EXISTS 1410
++#define DT_SINGLELINE 0x20
++#define DT_NOPREFIX 0x800
++#define DT_CENTER 1
++#define DT_RIGHT 2
++#define DT_VCENTER 4
++#define DT_BOTTOM 8
++#define TRANSPARENT 1
++#define INFINITE 0xffffffffu
++#define QS_ALLINPUT 0x4ff
++#define MWMO_INPUTAVAILABLE 4
++#define WAIT_FAILED 0xffffffffu
++#define RGB(r,g,b) ((COLORREF)((r)|((g)<<8)|((b)<<16)))
++static LONG_PTR mock_user;
++static WNDCLASSA mock_class;
++static MSG mock_msg;
++static int mock_pending,mock_live,mock_shows,mock_waits;
++static HWND mock_hwnd=(void *)(uintptr_t)1;
++static LONG_PTR GetWindowLongPtrA(HWND h,int n){(void)h;(void)n;return mock_user;}
++static LONG_PTR SetWindowLongPtrA(HWND h,int n,LONG_PTR p){(void)h;(void)n;mock_user=p;return 0;}
++static LRESULT DefWindowProcA(HWND h,UINT m,WPARAM w,LPARAM l){(void)h;(void)m;(void)w;(void)l;return 0;}
++static HDC BeginPaint(HWND h,PAINTSTRUCT *p){(void)p;return h;}
++static int EndPaint(HWND h,PAINTSTRUCT *p){(void)h;(void)p;return 1;}
++static int PeekMessageA(MSG *m,HWND h,UINT a,UINT b,UINT f){(void)h;(void)a;(void)b;(void)f;if(!mock_pending)return 0;*m=mock_msg;mock_pending=0;return 1;}
++static int TranslateMessage(const MSG *m){(void)m;return 1;}
++static LRESULT DispatchMessageA(const MSG *m){return mock_class.lpfnWndProc(mock_hwnd,m->message,m->wParam,m->lParam);}
++static int ReleaseDC(HWND h,HDC d){(void)h;(void)d;return 1;}
++static int DestroyWindow(HWND h){mock_live=0;mock_class.lpfnWndProc(h,WM_NCDESTROY,0,0);return 1;}
++static int ShowWindow(HWND h,int s){(void)s;assert(h && mock_live);++mock_shows;return 1;}
++static int GetClientRect(HWND h,RECT *r){(void)h;r->left=r->top=0;r->right=640;r->bottom=360;return 1;}
++static void *GetModuleHandleA(const char *s){(void)s;return mock_hwnd;}
++static void *LoadCursorA(void *a,const char *b){(void)a;(void)b;return mock_hwnd;}
++static int RegisterClassA(const WNDCLASSA *w){mock_class=*w;return 1;}
++static DWORD GetLastError(void){return 0;}
++static HWND CreateWindowExA(DWORD ex,const char *cl,const char *title,DWORD style,int x,int y,int w,int h,HWND parent,void *menu,void *instance,void *param)
++{
++ CREATESTRUCTA cs; (void)ex;(void)cl;(void)title;(void)style;(void)x;(void)y;(void)w;(void)h;(void)parent;(void)menu;(void)instance;
++ cs.lpCreateParams=param;mock_live=1;mock_class.lpfnWndProc(mock_hwnd,WM_NCCREATE,0,(LPARAM)&cs);return mock_hwnd;
++}
++static HDC GetDC(HWND h){return h;}
++static HBRUSH CreateSolidBrush(COLORREF c){(void)c;return mock_hwnd;}
++static int FillRect(HDC h,const RECT *r,HBRUSH b){(void)h;(void)r;(void)b;return 1;}
++static int DeleteObject(void *o){(void)o;return 1;}
++static COLORREF SetTextColor(HDC h,COLORREF c){(void)h;return c;}
++static int SetBkMode(HDC h,int mode){(void)h;return mode;}
++static int DrawTextA(HDC h,const char *t,int n,RECT *r,UINT f){(void)h;(void)t;(void)n;(void)r;(void)f;return 16;}
++static int InvalidateRect(HWND h,const RECT *r,int erase){(void)h;(void)r;(void)erase;mock_msg.message=WM_PAINT;mock_pending=1;return 1;}
++static DWORD MsgWaitForMultipleObjectsEx(DWORD n,const void *h,DWORD ms,DWORD mask,DWORD flags)
++{
++ (void)n;(void)h;(void)mask;(void)flags;++mock_waits;
++ if(ms!=INFINITE)clock_ms+=ms;
++ else {mock_msg.message=WM_CLOSE;mock_pending=1;}
++ return 0;
++}
+--- a/tests/run-sync-check.py
++++ b/tests/run-sync-check.py
+@@ -21,7 +21,7 @@
+     p=pathlib.Path(tmp)
+     (p/'defs.inc').write_text(macros+'\n'+structs+'\n'+(root/'v2_sync_types.h').read_text())
+     (p/'production.inc').write_text('\n'.join(map(func,helpers))+'\n'+
+-        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_callback.h','v2_sync.h','v2_queue.h'])+'\n'+
++        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_callback.h','v2_sync.h','v2_queue.h','v2_pm.h'])+'\n'+
+         '\n'.join(map(func,['create_guest_thread','schedule_next_thread','switch_after_hypercall'])))
+     subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',
+         '-g','-I'+tmp,str(root/'tests/sync-check.c'),'-o',str(p/'check')],check=True)
+--- a/tests/sync-check.c
++++ b/tests/sync-check.c
+@@ -31,9 +31,11 @@
+ static HRESULT WHvSetVirtualProcessorRegisters(void *p,int vp,const WHV_REGISTER_NAME *n,
+  unsigned count,const WHV_REGISTER_VALUE *in)
+ { (void)p;(void)vp;(void)n;memcpy(cpu,in,count*sizeof(*in));return 0; }
++#include "pm-win32-mock.h"
+ #include "defs.inc"
+ struct HostStub { uint32_t ordinal,address; };
+ struct Runtime {
++ struct GuestPM *pm;
+  void *partition; uint8_t *ram;
+  struct HostStub doscall_stubs[MAX_IMPORTS]; uint32_t stub_next;
+  struct GuestAlloc allocs[MAX_ALLOCS]; uint32_t alloc_next;
+@@ -81,6 +83,7 @@
+  assert(load_thread_context(&rt,&rt.threads[0])==0);
+ }
+ static void spawn(void) { assert(create_guest_thread(&rt,0x500,0x10000,0,0,8192)==0); }
++#include "pm-check.inc"
+ int main(void)
+ {
+  uint32_t h,old,q,q2,ev,i,j,base,end,tid,deadline,token;
+@@ -270,5 +273,6 @@
+  assert(rt.threads[0].state==THREAD_RUNNABLE && rt.threads[1].state==THREAD_FREE);
+  select_thread(0);assert(guest_wait_thread(&rt,0x500,1)==0);
+  finish_guest_thread(&rt);assert(rt.process_exited && rt.process_rc==0);
++ reset();test_pm();
+  free(rt.ram);puts("sync-check PASS: callback continuations + R8 scheduler/queue/mutex/recycling + R7 info");return 0;
+ }
+--- a/v2_callback.h
++++ b/v2_callback.h
+@@ -21,7 +21,7 @@
+     uint32_t sp,bytes,i;
+     HRESULT hr;
+     if (!t || t->state!=THREAD_RUNNING || !entry || !guest_range(entry,1) ||
+-        argc>8u || !result_out || !guest_range(result_out,4))
++        argc>8u || (result_out && !guest_range(result_out,4)))
+         return OS2_ERROR_INVALID_PARAMETER;
+     if (t->callback_depth>=16u) return OS2_ERROR_NOT_ENOUGH_MEMORY;
+     hr=WHvGetVirtualProcessorRegisters(rt->partition,0,thread_reg_names,THREAD_REG_COUNT,regs);
+@@ -59,10 +59,11 @@
+     if (!f || rip!=GUEST_CALLBACK_RETURN_STUB+6u || esp!=f->entry_sp ||
+         !guest_range(esp,4)) return OS2_ERROR_INVALID_PARAMETER;
+     result=guest_u32(rt,esp); /* return sentinel preserved guest EAX */
+-    f->caller[3].Reg64=OS2_NO_ERROR; /* fixture host API's return code */
++    f->caller[3].Reg64 = f->complete ? f->complete(rt,result) :
++                         (f->result_out ? OS2_NO_ERROR : result);
+     hr=WHvSetVirtualProcessorRegisters(rt->partition,0,thread_reg_names,THREAD_REG_COUNT,f->caller);
+     if (FAILED(hr)) return OS2_ERROR_INVALID_FUNCTION;
+-    guest_put_u32(rt,f->result_out,result);
++    if (f->result_out) guest_put_u32(rt,f->result_out,result);
+     t->callbacks=f->previous; --t->callback_depth;
+     free(f);
+     return OS2_NO_ERROR;
+--- /dev/null
++++ b/v2_pm.h
+@@ -0,0 +1,285 @@
++/* R10: one PM owner thread, queue, class and standard frame/client pair.
++ * Native WndProc NEVER enters guest code. It queues translated PM messages.
++ * Guest callbacks execute only in the normal WHP run loop.
++ */
++#define PM_HAB 0x51000001u
++#define PM_HMQ 0x52000001u
++#define PM_FRAME 0x50000001u
++#define PM_CLIENT 0x50000002u
++#define PM_HPS 0x53000001u
++#define PM_CAPACITY 128u
++struct PMMessage { uint32_t hwnd,msg,mp1,mp2,time; };
++struct GuestPM {
++    uint32_t tid,proc,head,count,client_out;
++    int queue,creating,visible,destroying,fault;
++    char class_name[128];
++    HWND window;
++    HDC paint_dc;
++    struct PMMessage messages[PM_CAPACITY];
++};
++static int pm_enqueue(struct Runtime *rt,uint32_t hwnd,uint32_t msg,uint32_t a,uint32_t b)
++{
++    struct GuestPM *p=rt->pm;
++    struct PMMessage *m;
++    uint32_t i;
++    if (!p || !p->queue) return 0;
++    if (msg==0x23 || msg==7 || msg==0x29) {
++        for(i=0;i<p->count;i++) {
++            m=&p->messages[(p->head+i)%PM_CAPACITY];
++            if(m->hwnd==hwnd && m->msg==msg) {m->mp1=a;m->mp2=b;return 1;}
++        }
++    }
++    if(p->count==PM_CAPACITY) return 0;
++    m=&p->messages[(p->head+p->count++)%PM_CAPACITY];
++    m->hwnd=hwnd;m->msg=msg;m->mp1=a;m->mp2=b;m->time=(uint32_t)GetTickCount64();
++    return 1;
++}
++static LRESULT CALLBACK pm_native_proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
++{
++    struct Runtime *rt=(struct Runtime *)GetWindowLongPtrA(hwnd,GWLP_USERDATA);
++    uint32_t pmmsg=0,a=0,b=0;
++    if(msg==WM_NCCREATE) {
++        rt=(struct Runtime *)((CREATESTRUCTA *)lp)->lpCreateParams;
++        SetWindowLongPtrA(hwnd,GWLP_USERDATA,(LONG_PTR)rt);
++        return TRUE;
++    }
++    if(!rt || !rt->pm) return DefWindowProcA(hwnd,msg,wp,lp);
++    switch(msg) {
++    case WM_PAINT:
++    {
++        PAINTSTRUCT ps;
++        BeginPaint(hwnd,&ps);EndPaint(hwnd,&ps);
++        pmmsg=0x23;break;
++    }
++    case WM_ERASEBKGND: return 1;
++    case WM_SIZE: pmmsg=7;b=(uint32_t)lp;break;
++    case WM_CLOSE: pmmsg=0x29;break;
++    case WM_CHAR: pmmsg=0x7a;a=1u | (1u<<16);b=(uint32_t)wp & 0xffffu;break;
++    case WM_NCDESTROY:
++        rt->pm->window=NULL;
++        SetWindowLongPtrA(hwnd,GWLP_USERDATA,0);
++        return DefWindowProcA(hwnd,msg,wp,lp);
++    default: return DefWindowProcA(hwnd,msg,wp,lp);
++    }
++    if(pmmsg && !rt->pm->destroying && !pm_enqueue(rt,PM_CLIENT,pmmsg,a,b))
++        rt->pm->fault=1;
++    return 0;
++}
++/* Beta2 QMSG: HWND+0, USHORT msg+4, padding+6, mp1+8, mp2+12,
++ * time+16, POINTL+20. No host MSG/HWND layout is exposed. */
++static uint32_t pm_take(struct Runtime *rt,uint32_t output)
++{
++    struct GuestPM *p=rt->pm;
++    struct PMMessage m=p->messages[p->head];
++    p->head=(p->head+1u)%PM_CAPACITY;--p->count;
++    memset(rt->ram+output,0,28);
++    guest_put_u32(rt,output,m.hwnd);guest_put_u32(rt,output+4,m.msg & 0xffffu);
++    guest_put_u32(rt,output+8,m.mp1);guest_put_u32(rt,output+12,m.mp2);
++    guest_put_u32(rt,output+16,m.time);
++    return m.msg!=0x2au;
++}
++static int pm_waiting(struct Runtime *rt)
++{
++    struct GuestThread *t;
++    if(!rt->pm || !rt->pm->queue) return 0;
++    t=find_thread(rt,rt->pm->tid);
++    return t && t->state==THREAD_WAIT_PM;
++}
++static void pm_pump(struct Runtime *rt)
++{
++    MSG msg;
++    struct GuestThread *t;
++    if(!rt->pm) return;
++    while(PeekMessageA(&msg,NULL,0,0,PM_REMOVE)) {
++        if(msg.message==WM_QUIT) {
++            if(!pm_enqueue(rt,0,0x2a,0,0)) rt->pm->fault=1;
++        } else { TranslateMessage(&msg);DispatchMessageA(&msg); }
++    }
++    if(rt->pm->fault) {
++        fprintf(stderr,"v2: PM native message queue overflow\n");
++        rt->process_exited=1;rt->process_rc=1;return;
++    }
++    t=find_thread(rt,rt->pm->tid);
++    if(t && t->state==THREAD_WAIT_PM && rt->pm->count)
++        sync_ready(t,pm_take(rt,t->queue_args[0]));
++}
++static void pm_destroy_native(struct Runtime *rt)
++{
++    struct GuestPM *p=rt->pm;
++    if(!p) return;
++    p->destroying=1;
++    if(p->paint_dc) {ReleaseDC(p->window,p->paint_dc);p->paint_dc=NULL;}
++    if(p->window) DestroyWindow(p->window);
++    p->window=NULL;p->head=p->count=0;
++}
++static void pm_cleanup(struct Runtime *rt)
++{
++    pm_destroy_native(rt);free(rt->pm);rt->pm=NULL;
++}
++static uint32_t pm_created(struct Runtime *rt,uint32_t result)
++{
++    rt->pm->creating=0;
++    if(result || !rt->pm->window) {
++        guest_put_u32(rt,rt->pm->client_out,0);pm_destroy_native(rt);return 0;
++    }
++    if(rt->pm->visible) ShowWindow(rt->pm->window,SW_SHOW);
++    return PM_FRAME;
++}
++static uint32_t pm_destroyed(struct Runtime *rt,uint32_t result)
++{
++    (void)result;pm_destroy_native(rt);return 1;
++}
++static uint32_t pm_call(struct Runtime *rt,uint32_t hwnd,uint32_t msg,uint32_t a,uint32_t b,
++                       uint32_t resume,int *entered)
++{
++    uint32_t args[4],rc;
++    args[0]=hwnd;args[1]=msg;args[2]=a;args[3]=b;
++    rc=begin_guest_callback(rt,rt->pm->proc,args,4,0,resume);
++    if(rc) {fprintf(stderr,"v2: PM callback launch failed rc=%u\n",rc);return 0;}
++    *entered=1;return 0;
++}
++static int pm_rect(struct Runtime *rt,uint32_t address,RECT *r)
++{
++    RECT client;
++    int64_t top,bottom;
++    if(!address || !guest_range(address,16) || !rt->pm->window ||
++       !GetClientRect(rt->pm->window,&client)) return 0;
++    r->left=(LONG)guest_u32(rt,address);r->right=(LONG)guest_u32(rt,address+8);
++    bottom=(int64_t)client.bottom-(int32_t)guest_u32(rt,address+4);
++    top=(int64_t)client.bottom-(int32_t)guest_u32(rt,address+12);
++    if(top<INT32_MIN || top>INT32_MAX || bottom<INT32_MIN || bottom>INT32_MAX) return 0;
++    r->top=(LONG)top;r->bottom=(LONG)bottom;
++    return r->right>=r->left && r->bottom>=r->top;
++}
++static COLORREF pm_color(uint32_t value)
++{
++    static const COLORREF palette[16]={
++        RGB(255,255,255),RGB(0,0,255),RGB(255,0,0),RGB(255,0,255),
++        RGB(0,255,0),RGB(0,255,255),RGB(255,255,0),RGB(0,0,0),
++        RGB(128,128,128),RGB(0,0,128),RGB(128,0,0),RGB(128,0,128),
++        RGB(0,128,0),RGB(0,128,128),RGB(128,128,0),RGB(192,192,192)};
++    if(value==0xfffffffeu) return RGB(255,255,255);
++    if(value>=16u) return RGB(0,0,0);
++    return palette[value];
++}
++static uint32_t dispatch_pm(struct Runtime *rt,uint32_t ordinal,uint32_t esp,
++                           uint32_t resume,int *entered)
++{
++    uint32_t a[9],i,n;
++    struct GuestPM *p=rt->pm;
++    struct GuestThread *t=current_guest_thread(rt);
++    RECT r;
++    n=ordinal==908 ? 9u : (ordinal==913 ? 7u :
++      ((ordinal==926 || ordinal==915) ? 5u :
++      ((ordinal==911 || ordinal==919 || ordinal==920 || ordinal==902) ? 4u :
++      ((ordinal==703 || ordinal==743 || ordinal==765) ? 3u :
++      ((ordinal==716 || ordinal==912 || ordinal==840) ? 2u : 1u)))));
++    if(!guest_range(esp,(n+1u)*4u) || !t) return 0;
++    memset(a,0,sizeof(a));for(i=0;i<n;i++)a[i]=guest_u32(rt,esp+4u+i*4u);
++    fprintf(stderr,"v2: PMWIN.%u(%08X,%08X,%08X,%08X)\n",ordinal,a[0],a[1],a[2],a[3]);
++    if(ordinal==763) {
++        if(a[0] || p) return 0;
++        p=(struct GuestPM *)calloc(1,sizeof(*p));if(!p)return 0;
++        rt->pm=p;p->tid=t->tid;return PM_HAB;
++    }
++    if(!p || t->tid!=p->tid) return 0;
++    switch(ordinal) {
++    case 716: if(a[0]!=PM_HAB || p->queue)return 0;p->queue=1;return PM_HMQ;
++    case 726: if(a[0]!=PM_HMQ || p->window)return 0;p->queue=0;p->count=0;return 1;
++    case 888: if(a[0]!=PM_HAB || p->queue || p->window)return 0;pm_cleanup(rt);return 1;
++    case 926:
++        if(a[0]!=PM_HAB || !p->queue || p->proc || !a[2] || !guest_range(a[2],1) || a[4])return 0;
++        if(!guest_copy_cstr(rt,a[1],p->class_name,sizeof(p->class_name)) || !p->class_name[0])return 0;
++        p->proc=a[2];return 1;
++    case 908:
++    {
++        WNDCLASSA wc;char cls[128],title[256];uint32_t flags;DWORD style=0;
++        if(!p->queue || !p->proc || p->window || a[0]!=1u || !a[2] || !guest_range(a[2],4) ||
++           !a[8] || !guest_range(a[8],4) || a[6] || a[7])return 0;
++        if(!guest_copy_cstr(rt,a[3],cls,sizeof(cls)) || strcmp(cls,p->class_name) ||
++           !guest_copy_cstr(rt,a[4],title,sizeof(title)))return 0;
++        guest_put_u32(rt,a[8],0);
++        flags=guest_u32(rt,a[2]);
++        if(flags & ~0x00000c3bu) {fprintf(stderr,"v2: unsupported frame flags %08X\n",flags);return 0;}
++        if(flags&1u)style|=WS_CAPTION;
++        if(flags&2u)style|=WS_SYSMENU;
++        if(flags&8u)style|=WS_THICKFRAME;
++        if(flags&0x10u)style|=WS_MINIMIZEBOX;
++        if(flags&0x20u)style|=WS_MAXIMIZEBOX;
++        memset(&wc,0,sizeof(wc));wc.lpfnWndProc=pm_native_proc;
++        wc.style=CS_HREDRAW|CS_VREDRAW;
++        wc.hInstance=GetModuleHandleA(NULL);wc.lpszClassName="WHP_OS2_R10";
++        wc.hCursor=LoadCursorA(NULL,IDC_ARROW);
++        if(!RegisterClassA(&wc) && GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)return 0;
++        p->destroying=0;p->creating=1;p->visible=(a[1]&0x80000000u)!=0;
++        p->window=CreateWindowExA(0,wc.lpszClassName,title,style,
++                   CW_USEDEFAULT,CW_USEDEFAULT,640,360,NULL,NULL,wc.hInstance,rt);
++        if(!p->window){p->creating=0;return 0;}
++        p->client_out=a[8];guest_put_u32(rt,a[8],PM_CLIENT);
++        pm_call(rt,PM_CLIENT,1,0,0,resume,entered);
++        if(!*entered){guest_put_u32(rt,a[8],0);p->creating=0;pm_destroy_native(rt);return 0;}
++        t->callbacks->complete=pm_created;return 0;
++    }
++    case 915:
++        if(a[0]!=PM_HAB || !p->queue || !a[1] || !guest_range(a[1],28) || a[2] || a[3] || a[4])return 0;
++        if(p->count)return pm_take(rt,a[1]);
++        t->queue_args[0]=a[1];sync_block(rt,THREAD_WAIT_PM,PM_HMQ,SEM_INDEFINITE_WAIT);return 0;
++    case 912:
++        if(a[0]!=PM_HAB || !a[1] || !guest_range(a[1],28) || !p->window || guest_u32(rt,a[1])!=PM_CLIENT)return 0;
++        return pm_call(rt,PM_CLIENT,guest_u32(rt,a[1]+4)&0xffffu,guest_u32(rt,a[1]+8),guest_u32(rt,a[1]+12),resume,entered);
++    case 920:
++        if(a[0]!=PM_CLIENT || !p->window)return 0;
++        return pm_call(rt,a[0],a[1]&0xffffu,a[2],a[3],resume,entered);
++    case 919: case 902:
++        if(!p->queue || (ordinal==902 ? a[0]!=PM_HMQ : a[0]!=PM_CLIENT))return 0;
++        return pm_enqueue(rt,ordinal==902 ? 0 : a[0],a[1]&0xffffu,a[2],a[3]);
++    case 911:
++        if(a[0]==PM_CLIENT && (a[1]&0xffffu)==0x29)return pm_enqueue(rt,0,0x2a,0,0);
++        return 0;
++    case 728:
++        if((a[0]!=PM_FRAME && a[0]!=PM_CLIENT) || !p->window || p->destroying || p->creating)return 0;
++        pm_call(rt,PM_CLIENT,2,0,0,resume,entered);
++        if(*entered){p->destroying=1;t->callbacks->complete=pm_destroyed;}return 0;
++    case 840:
++        if(a[0]!=PM_CLIENT || !a[1] || !guest_range(a[1],16) || !p->window || !GetClientRect(p->window,&r))return 0;
++        guest_put_u32(rt,a[1],0);guest_put_u32(rt,a[1]+4,0);
++        guest_put_u32(rt,a[1]+8,(uint32_t)r.right);guest_put_u32(rt,a[1]+12,(uint32_t)r.bottom);return 1;
++    case 703:
++        if(a[0]!=PM_CLIENT || a[1] || !p->window || p->paint_dc || (a[2] && !guest_range(a[2],16)))return 0;
++        p->paint_dc=GetDC(p->window);if(!p->paint_dc)return 0;
++        if(a[2] && GetClientRect(p->window,&r)) {
++            guest_put_u32(rt,a[2],0);guest_put_u32(rt,a[2]+4,0);
++            guest_put_u32(rt,a[2]+8,(uint32_t)r.right);guest_put_u32(rt,a[2]+12,(uint32_t)r.bottom);
++        }
++        return PM_HPS;
++    case 738:
++        if(a[0]!=PM_HPS || !p->paint_dc)return 0;
++        ReleaseDC(p->window,p->paint_dc);p->paint_dc=NULL;return 1;
++    case 743:
++    {
++        HBRUSH brush;int ok;
++        if(a[0]!=PM_HPS || !p->paint_dc || !pm_rect(rt,a[1],&r))return 0;
++        brush=CreateSolidBrush(pm_color(a[2]));if(!brush)return 0;
++        ok=FillRect(p->paint_dc,&r,brush);DeleteObject(brush);return ok!=0;
++    }
++    case 913:
++    {
++        char text[1024];int len;UINT flags=DT_SINGLELINE|DT_NOPREFIX;
++        if(a[0]!=PM_HPS || !p->paint_dc || !pm_rect(rt,a[3],&r))return 0;
++        len=(int16_t)(a[1]&0xffffu); /* supplied Beta2 API uses SHORT */
++        if(len==-1){if(!guest_copy_cstr(rt,a[2],text,sizeof(text)))return 0;len=(int)strlen(text);}
++        else {if(len<0 || len>1023 || !a[2] || !guest_range(a[2],(uint32_t)len))return 0;memcpy(text,rt->ram+a[2],(size_t)len);text[len]=0;}
++        if(a[6]&~0x8f00u)return 0;
++        if(a[6]&0x100)flags|=DT_CENTER;else if(a[6]&0x200)flags|=DT_RIGHT;
++        if(a[6]&0x400)flags|=DT_VCENTER;else if(a[6]&0x800)flags|=DT_BOTTOM;
++        SetTextColor(p->paint_dc,pm_color(a[4]));SetBkMode(p->paint_dc,TRANSPARENT);
++        if(a[6]&0x8000){HBRUSH b=CreateSolidBrush(pm_color(a[5]));if(!b)return 0;FillRect(p->paint_dc,&r,b);DeleteObject(b);}
++        return DrawTextA(p->paint_dc,text,len,&r,flags)>0 ? (uint32_t)len : 0;
++    }
++    case 765:
++        if(a[0]!=PM_CLIENT || !p->window)return 0;
++        if(a[1] && !pm_rect(rt,a[1],&r))return 0;
++        return InvalidateRect(p->window,a[1]?&r:NULL,a[2]!=0)!=0;
++    default: fprintf(stderr,"v2: unsupported PMWIN.%u\n",ordinal);return 0;
++    }
++}
+--- a/whp_os2_v2_hi.c
++++ b/whp_os2_v2_hi.c
+@@ -23,7 +23,7 @@
+  * Build from an x64 Visual Studio Developer Command Prompt:
+  *
+  *   cl /nologo /W4 /O2 /D_CRT_SECURE_NO_WARNINGS whp_os2_v2_hi.c ^
+- *      /link WinHvPlatform.lib
++ *      /link WinHvPlatform.lib User32.lib Gdi32.lib
+  *
+  * Run:
+  *
+@@ -72,6 +72,7 @@
+ #define HC_DOSCALLS         0x01000000u
+ #define HC_QUECALLS         0x03000000u
+ #define HC_WHPTEST          0x04000000u
++#define HC_PMWIN            0x05000000u
+ #define HC_RUNTIME_CALLBACK_RETURN 2u
+ #define GUEST_CALLBACK_RETURN_STUB 0x000F7FE0u
+ #define HC_RUNTIME          0x02000000u
+@@ -234,14 +235,17 @@
+     THREAD_SLEEP,
+     THREAD_WAIT_MUTEX,
+     THREAD_WAIT_QUEUE,
++    THREAD_WAIT_PM,
+     THREAD_SUSPENDED,
+     THREAD_DEAD
+ };
+ 
++struct Runtime;
+ struct GuestCallback {
+     struct GuestCallback *previous;
+     WHV_REGISTER_VALUE caller[THREAD_REG_COUNT];
+     uint32_t result_out, entry_sp;
++    uint32_t (*complete)(struct Runtime *, uint32_t);
+ };
+ 
+ struct GuestThread {
+@@ -297,6 +301,7 @@
+ 
+ struct Runtime {
+     WHV_PARTITION_HANDLE partition;
++    struct GuestPM *pm;
+     uint8_t *ram;
+     struct GuestAlloc allocs[MAX_ALLOCS];
+     HANDLE files[MAX_FILES];
+@@ -1334,8 +1339,8 @@
+ 
+     for (i = 0; i < x->num_impmods; ++i) {
+         const char *mod = x->modules[i].name;
+-        if (_stricmp(mod, "PMWIN") == 0 || _stricmp(mod, "PMGPI") == 0) {
+-            fprintf(stderr, "v2: %s requires %s: personality not implemented in V2 R8.\n",
++        if (_stricmp(mod, "PMGPI") == 0) {
++            fprintf(stderr, "v2: %s requires %s: personality not implemented in V2 R10.\n",
+                     owner, mod);
+             fatal("use --check for phase-1 loader validation; guest was not started");
+         }
+@@ -1344,6 +1349,8 @@
+         const char *mod = x->modules[x->imports[i].module].name;
+         if (_stricmp(mod, "DOSCALLS") == 0) {
+             addr = hostcall_stub(rt, HC_DOSCALLS, x->imports[i].ordinal);
++        } else if (_stricmp(mod, "PMWIN") == 0) {
++            addr = hostcall_stub(rt, HC_PMWIN, x->imports[i].ordinal);
+         } else if (_stricmp(mod, "WHPTEST") == 0) {
+             addr = hostcall_stub(rt, HC_WHPTEST, x->imports[i].ordinal);
+         } else if (_stricmp(mod, "QUECALLS") == 0) {
+@@ -1731,6 +1738,7 @@
+     case THREAD_SLEEP: return "SLEEP";
+     case THREAD_WAIT_MUTEX: return "WAIT_MUTEX";
+     case THREAD_WAIT_QUEUE: return "WAIT_QUEUE";
++    case THREAD_WAIT_PM: return "WAIT_PM";
+     case THREAD_SUSPENDED: return "SUSPENDED";
+     case THREAD_DEAD: return "DEAD";
+     default: return "?";
+@@ -1878,6 +1886,7 @@
+ #include "v2_callback.h"
+ #include "v2_sync.h"
+ #include "v2_queue.h"
++#include "v2_pm.h"
+ 
+ static uint32_t create_guest_thread(struct Runtime *rt, uint32_t ptid,
+                                     uint32_t entry, uint32_t param,
+@@ -2385,6 +2394,8 @@
+ 
+     for (;;) {
+         DWORD wait_ms;
++        pm_pump(rt);
++        if (rt->process_exited) return 1;
+         wake_expired_waiters(rt);
+         next = next_runnable_thread(rt);
+         if (next >= 0)
+@@ -2392,6 +2403,13 @@
+ 
+         /* Host sleeps only when every guest is blocked, until the nearest
+            sleep/event/mutex deadline. Guest waits never block a runnable peer. */
++        if (pm_waiting(rt)) {
++            if (!next_wait_timeout(rt, &wait_ms)) wait_ms = INFINITE;
++            if (MsgWaitForMultipleObjectsEx(0,NULL,wait_ms,QS_ALLINPUT,MWMO_INPUTAVAILABLE)==WAIT_FAILED) {
++                fprintf(stderr,"v2: PM message wait failed\n"); return 1;
++            }
++            continue;
++        }
+         if (!next_wait_timeout(rt, &wait_ms)) {
+             fprintf(stderr, "v2: scheduler deadlock: no runnable guest thread and no finite timeout\n");
+             return 1;
+@@ -2443,6 +2461,8 @@
+ 
+     for (;;) {
+         WHV_RUN_VP_EXIT_CONTEXT ec;
++        pm_pump(rt);
++        if (rt->process_exited) return (int)rt->process_rc;
+         memset(&ec, 0, sizeof(ec));
+         hr = WHvRunVirtualProcessor(rt->partition, 0, &ec, sizeof(ec));
+         if (FAILED(hr)) {
+@@ -2491,12 +2511,17 @@
+                 uint32_t args[2];
+                 args[0]=guest_u32(rt,(uint32_t)rsp+8u);
+                 args[1]=guest_u32(rt,(uint32_t)rsp+12u);
+-                rc = ordinal == 1 ? begin_guest_callback(rt,
++                rc = ordinal == 1 && guest_u32(rt,(uint32_t)rsp+16u) ? begin_guest_callback(rt,
+                     guest_u32(rt,(uint32_t)rsp+4u),args,2,
+                     guest_u32(rt,(uint32_t)rsp+16u),
+                     (uint32_t)(ec.VpContext.Rip+ec.VpContext.InstructionLength)) :
+-                    OS2_ERROR_INVALID_FUNCTION;
++                    (ordinal == 1 ? OS2_ERROR_INVALID_PARAMETER : OS2_ERROR_INVALID_FUNCTION);
+                 if (rc == 0) continue; /* enter callback; do not advance its RIP */
++            } else if (module == HC_PMWIN) {
++                int entered=0;
++                rc=dispatch_pm(rt,ordinal,(uint32_t)rsp,
++                    (uint32_t)(ec.VpContext.Rip+ec.VpContext.InstructionLength),&entered);
++                if (entered) continue;
+             } else if (module == HC_DOSCALLS) {
+                 rc = dispatch_doscalls(rt, ordinal, (uint32_t)rsp);
+             } else if (module == HC_QUECALLS) {
+@@ -2613,7 +2638,7 @@
+         return 1;
+     }
+ 
+-    fprintf(stderr, "WHP OS/2 V2 R9 host-to-guest callbacks - LE/LX loader + threads + events + guest DLLs + file I/O\n");
++    fprintf(stderr, "WHP OS/2 V2 R10 minimal Presentation Manager - LE/LX loader + threads + events + guest DLLs + file I/O\n");
+     fprintf(stderr, "v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);
+@@ -2798,6 +2823,7 @@
+     goto cleanup;
+ 
+ cleanup:
++    pm_cleanup(&rt);
+     for (i = 0; i < MAX_THREADS; ++i) cancel_guest_callbacks(&rt.threads[i]);
+     for (i = 0; i < MAX_SEARCHES; ++i)
+         if (rt.searches[i].active) FindClose(rt.searches[i].native);

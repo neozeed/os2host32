@@ -1,0 +1,45 @@
+M31G R2 - NEKO first PMSHAPI import boundary
+==============================================
+
+Baseline
+--------
+M31G R1 is the parent.  M31F FINAL R7 remains the frozen known-good PM/GPI
+baseline and the entire M31F regression set must remain green.
+
+Observed R1 boundary
+--------------------
+The untouched OS/2 2.0 GA NEKO.EXE now maps all three LX objects correctly,
+including its two iterated pages, and import resolution stops at:
+
+    os2host32: PMSHAPI ordinal 129 is not exported
+
+Historical OS/2 ordinal maps identify PMSHAPI.129 as:
+
+    WinRemoveSwitchEntry(HSWITCH)
+
+The API removes a Window List / task-switch entry and returns a return code,
+where 0 is success.
+
+Changes
+-------
+* Export WinRemoveSwitchEntry @129 NONAME from PMSHAPI.dll.
+* Add a one-argument O2HSWITCH implementation.
+* Preserve the existing PMSHAPI compatibility model: WinAddSwitchEntry
+  returns a synthetic nonzero switch token while the native Win32 top-level
+  window already participates in the host task switcher.  Removing that
+  compatibility token therefore succeeds without manipulating the Win32 task
+  list.
+* Return 0 for successful completion.
+* Add OS2_PM_TRACE logging for the switch handle.
+* Add tools/check_m31g_r2_pmshapi.py and make m31g-neko-r2-check.
+* Add examples/m31g-neko/m31g-neko-r2-test.cmd.
+
+Expected Win32 result
+---------------------
+Rebuild PMSHAPI.dll (or `make compat`) and run NEKO again.  The previous
+PMSHAPI.129 loader error should disappear and execution should stop at the
+next genuinely unsupported ordinal/API or advance into guest startup.
+
+This increment intentionally does not pre-implement the other NEKO imports.
+No application-name-specific behavior was added.  No WHP/V2 work was added.
+EMX remains frozen.

@@ -1,0 +1,10 @@
+M31A R13
+========
+
+* Correct packaging error in R12: include and activate pm_runtime_stack_size().
+* map_objects() now extends eligible small PM stack mappings to 256 KB.
+* Raise initial ESP from the historical end-of-object stack to the promoted top.
+* Preserve declared object size/pages/fixups and data/BSS addresses.
+* Keep WinDrawText host-heap text isolation from the corrected working tree.
+* Keep R11/R12 relocation, metrics, and global-corruption diagnostics.
+* Sarien and other already-large PM stacks are not promoted.

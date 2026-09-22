@@ -1,0 +1,6 @@
+M28D3
+
+- Synchronize inherited Win32 standard HANDLEs into native CRT fd 0/1/2 at CMD startup.
+- After _dup2, republish _get_osfhandle(fd) with SetStdHandle so DosExecPgm/CreateProcess never inherits a stale temporary HANDLE.
+- Preserve separate DOSCALLS-owned and CRT-owned standard-handle duplicates.
+- Add m28d3-pipe-test.cmd with direct stdin/stdout filter sanity before pipeline cases.

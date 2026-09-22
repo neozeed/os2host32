@@ -1,0 +1,2 @@
+cmdfs-check PASS: cwd marshaling, mkdir/move/remove, real pipe/duplicate lifetime and explicit process boundaries
+file helper tests PASS (POSIX backend shim; Windows execution still required)

@@ -1,0 +1,6 @@
+Milestone 19b
+-------------
+* DosExecPgm @283 no longer calls CreateProcessA on the small guest OS/2 stack.
+* Added native Win32 worker thread for process creation/waiting.
+* Command line and worker context live on the process heap.
+* EXEC_SYNC semantics and RESULTCODES propagation retained.

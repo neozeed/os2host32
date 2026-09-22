@@ -1,0 +1,14 @@
+Milestone 30F
+-------------
+
+* Identified DOSCALLS ordinal 378 as DosSetSignalExceptionFocus.
+* Added single-process signal-exception focus nesting semantics.
+* enable=1 acquires focus, enable=0 releases it, and pulTimes receives the
+  resulting nesting count.
+* Added DOSCALLS ordinal 418 DosAcknowledgeSignalException as the paired
+  acknowledgement path likely to follow focus acquisition during runtime init.
+* Added opt-in `M30F SIGNAL:` tracing under OS2_TRACE_EMX_SELF.
+* Host Ctrl-C/Ctrl-Break delivery into the guest exception chain is not yet
+  implemented; M30F supplies normal startup bookkeeping only.
+* Keeps M30C a.out relocation, M30D TIB stack, and M30E exception-chain
+  registration behavior unchanged.

@@ -1,0 +1,9 @@
+; WMCHAR Definition file
+; Created by Microsoft, IBM Corporation 1990
+;
+NAME            wmchar	WINDOWAPI
+
+DESCRIPTION     'WM_CHAR sample application'
+
+HEAPSIZE	1024
+STACKSIZE	8192

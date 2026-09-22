@@ -1,0 +1,6 @@
+Milestone 30H
+- Implement DOSCALLS ordinal 382 as DosSetRelMaxFH.
+- Maintain a logical OS/2 process HFILE ceiling (initial 20, maximum 256).
+- Support query-only delta 0, relative increases/decreases, minimum 20, and preservation of already-open HFILEs.
+- Make automatic HFILE allocation honor the logical ceiling.
+- Add M30H tracing and test script.

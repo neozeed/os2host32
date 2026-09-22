@@ -1,0 +1,117 @@
+WHP OS/2 V2 M2 CMD bridge R1 - LE/LX loader + threads + events + guest DLLs + file I/O
+v2: input C:\proj\whp\cmd32os2_os2.exe (91231 bytes)
+v2: resolve DOSCALLS     .256  -> 000F0000  (6 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .257  -> 000F0008  (5 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .323  -> 000F0010  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .259  -> 000F0018  (2 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .260  -> 000F0020  (5 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .263  -> 000F0028  (2 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .264  -> 000F0030  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .265  -> 000F0038  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .270  -> 000F0040  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .271  -> 000F0048  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .273  -> 000F0050  (4 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .274  -> 000F0058  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .275  -> 000F0060  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .280  -> 000F0068  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .281  -> 000F0070  (5 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .282  -> 000F0078  (4 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .283  -> 000F0080  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .220  -> 000F0088  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .223  -> 000F0090  (3 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .226  -> 000F0098  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .425  -> 000F00A0  (14 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .239  -> 000F00A8  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .255  -> 000F00B0  (1 site) [cmd32os2_os2.exe]
+v2: resolve SESMGR       .8    -> 000F00B8  (1 site) [cmd32os2_os2.exe]
+v2: resolve SESMGR       .17   -> 000F00C0  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .348  -> 000F00C8  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .224  -> 000F00D0  (2 sites) [cmd32os2_os2.exe]
+v2: resolve SESMGR       .1000 -> 000F00D8  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .234  -> 000F00E0  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .272  -> 000F00E8  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .299  -> 000F00F0  (2 sites) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .304  -> 000F00F8  (1 site) [cmd32os2_os2.exe]
+v2: resolve DOSCALLS     .305  -> 000F0100  (1 site) [cmd32os2_os2.exe]
+v2: resolve KBDCALLS     .4    -> 000F0108  (1 site) [cmd32os2_os2.exe]
+v2: resolve VIOCALLS     .7    -> 000F0110  (1 site) [cmd32os2_os2.exe]
+v2: resolve VIOCALLS     .9    -> 000F0118  (1 site) [cmd32os2_os2.exe]
+v2: resolve KBDCALLS     .13   -> 000F0120  (1 site) [cmd32os2_os2.exe]
+v2: resolve VIOCALLS     .15   -> 000F0128  (1 site) [cmd32os2_os2.exe]
+v2: resolve VIOCALLS     .19   -> 000F0130  (1 site) [cmd32os2_os2.exe]
+v2: resolve VIOCALLS     .21   -> 000F0138  (1 site) [cmd32os2_os2.exe]
+v2: C/386 bridge KBDCALLS.4 KbdCharIn helper=0001AEC3 packed=8 -> 000F0140
+v2: C/386 bridge VIOCALLS.7 VioScrollUp helper=0001AF2E packed=16 -> 000F0150
+v2: C/386 bridge VIOCALLS.9 VioGetCurPos helper=0001B06F packed=10 -> 000F0160
+v2: C/386 bridge KBDCALLS.13 KbdFlushBuffer helper=0001AE58 packed=2 -> 000F0170
+v2: C/386 bridge VIOCALLS.15 VioSetCurPos helper=0001B004 packed=6 -> 000F0180
+v2: C/386 bridge VIOCALLS.19 VioWrtTTY helper=0001B0DA packed=8 -> 000F0190
+v2: C/386 bridge VIOCALLS.21 VioGetMode helper=0001AF99 packed=6 -> 000F01A0
+v2: LE header       = 00000090
+v2: physical pages  = 21
+v2: entry           = object 1 + 0000B98C -> 0001B98C
+v2: stack           = object 3 + 00051990 -> 00081990 (initial ESP 0008197C)
+v2: object 1       = pref 00010000 guest 00010000 size=0000F169 flags=00002005 pages=16 @1
+v2: object 2       = pref 00020000 guest 00020000 size=00000062 flags=00001005 pages=1 @17
+v2: object 3       = pref 00030000 guest 00030000 size=00051990 flags=00002003 pages=65 @18
+v2: imports          = 40 ordinal + 0 named / 82 sites
+v2:   DOSCALLS     .256  -> 000F0000 (6 sites)
+v2:   DOSCALLS     .257  -> 000F0008 (5 sites)
+v2:   DOSCALLS     .323  -> 000F0010 (1 site)
+v2:   DOSCALLS     .259  -> 000F0018 (2 sites)
+v2:   DOSCALLS     .260  -> 000F0020 (5 sites)
+v2:   DOSCALLS     .263  -> 000F0028 (2 sites)
+v2:   DOSCALLS     .264  -> 000F0030 (1 site)
+v2:   DOSCALLS     .265  -> 000F0038 (1 site)
+v2:   DOSCALLS     .270  -> 000F0040 (1 site)
+v2:   DOSCALLS     .271  -> 000F0048 (1 site)
+v2:   DOSCALLS     .273  -> 000F0050 (4 sites)
+v2:   DOSCALLS     .274  -> 000F0058 (1 site)
+v2:   DOSCALLS     .275  -> 000F0060 (1 site)
+v2:   DOSCALLS     .280  -> 000F0068 (1 site)
+v2:   DOSCALLS     .281  -> 000F0070 (5 sites)
+v2:   DOSCALLS     .282  -> 000F0078 (4 sites)
+v2:   DOSCALLS     .283  -> 000F0080 (1 site)
+v2:   DOSCALLS     .220  -> 000F0088 (1 site)
+v2:   DOSCALLS     .223  -> 000F0090 (3 sites)
+v2:   DOSCALLS     .226  -> 000F0098 (1 site)
+v2:   DOSCALLS     .425  -> 000F00A0 (14 sites)
+v2:   DOSCALLS     .239  -> 000F00A8 (1 site)
+v2:   DOSCALLS     .255  -> 000F00B0 (1 site)
+v2:   SESMGR       .8    -> 000F00B8 (1 site)
+v2:   SESMGR       .17   -> 000F00C0 (1 site)
+v2:   DOSCALLS     .348  -> 000F00C8 (1 site)
+v2:   DOSCALLS     .224  -> 000F00D0 (2 sites)
+v2:   SESMGR       .1000 -> 000F00D8 (1 site)
+v2:   DOSCALLS     .234  -> 000F00E0 (1 site)
+v2:   DOSCALLS     .272  -> 000F00E8 (1 site)
+v2:   DOSCALLS     .299  -> 000F00F0 (2 sites)
+v2:   DOSCALLS     .304  -> 000F00F8 (1 site)
+v2:   DOSCALLS     .305  -> 000F0100 (1 site)
+v2:   KBDCALLS     .4    -> 000F0108 (1 site)
+v2:   VIOCALLS     .7    -> 000F0110 (1 site)
+v2:   VIOCALLS     .9    -> 000F0118 (1 site)
+v2:   KBDCALLS     .13   -> 000F0120 (1 site)
+v2:   VIOCALLS     .15   -> 000F0128 (1 site)
+v2:   VIOCALLS     .19   -> 000F0130 (1 site)
+v2:   VIOCALLS     .21   -> 000F0138 (1 site)
+v2: internal fixups  = 753 records
+v2: startup          = ENV=00E00000 PGM=00E02903 ARG=00E02920
+v2: scheduler        = TID 1 active; thread-return stub=000F7FF0
+---------------- guest begins ----------------
+v2: DOSCALLS.348 DosQuerySysInfo(11,12,00032650,8)
+v2: DOSCALLS.299 DosAllocMem(pp=00081900,size=4194304,flags=00000043,res=00000000)
+v2:              -> guest 01000000
+v2: DOSCALLS.305 DosSetMem(01000000,4096,00000013)
+v2: DOSCALLS.299 DosAllocMem(pp=00081894,size=4096,flags=00000013,res=00000000)
+v2:              -> guest 01400000
+v2: DOSCALLS.224 DosQueryHType(2,0008196C,00081970)
+v2: DOSCALLS.224 DosQueryHType(1,0008196C,00081970)
+v2: DOSCALLS.224 DosQueryHType(0,0008196C,00081970)
+v2: DOSCALLS.305 DosSetMem(01001000,16384,00000013)
+v2: DOSCALLS.305 DosSetMem(01005000,16384,00000013)
+v2: DOSCALLS.282 DosWrite(1,0008043C,12,00080650)
+v2: DOSCALLS.234 DosExit(action=1,result=0)
+v2: guest process exited rc=0
+---------------- guest ended -----------------
+PASS: untouched OS/2 LE/LX executed under WHP and exited rc=0

@@ -1,0 +1,26 @@
+Milestone 28A - move CMD filesystem/process boundary into DOSCALLS
+
+- adds cmdos2.h, a C89 OS/2-facing service boundary for reconstructed CMD
+- adds cmdos2_win32.c, the native bootstrap backend which resolves DOSCALLS
+  by historical 32-bit ordinals; CMD modules no longer load/call these APIs
+  themselves
+- cmdfile.c has no Win32 dependency now: COPY /B, binary concatenation,
+  DEL/ERASE, REN/RENAME, MOVE and wildcard enumeration use DOSCALLS services
+- TYPE, DIR, CD/CHDIR, MD/MKDIR, RD/RMDIR, command resolution and batch EXIST
+  now go through cmdos2/DOSCALLS
+- external execution now goes through CmdO2ExecPgm -> DOSCALLS.283 rather than
+  a DOSCALLS function pointer stored in the shell
+- DOSCALLS.dll gains the missing service surface needed by CMD:
+    226 DosDeleteDir
+    255 DosSetCurrentDir
+    263 DosFindClose
+    265 DosFindNext
+    271 DosMove
+    274 DosQueryCurrentDir
+    275 DosQueryCurrentDisk
+- DosFindFirst now retains a real search handle for DosFindNext/Close instead
+  of closing after the first match (Sarien's old first-only usage still works)
+- remaining direct Win32 in CMD is intentionally limited to bootstrap layers:
+  pipe worker CreateProcess/handle wiring, environment snapshot/setlocal,
+  and console CLS/input plumbing. Those move in M28B and later.
+- M27 binary-copy semantics and all parser/batch regressions are retained

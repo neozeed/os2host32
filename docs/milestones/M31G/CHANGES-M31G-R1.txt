@@ -1,0 +1,61 @@
+M31G R1 - NEKO / LX iterated-page loader support
+=================================================
+
+Baseline
+--------
+M31F FINAL R7 remains the frozen known-good PM/GPI baseline.  No M31F
+compatibility behavior is intentionally changed in this increment.
+
+Target
+------
+The untouched OS/2 2.0 GA NEKO.EXE (Cat and Mouse), SHA-256:
+3315d6ccbb8ec2f2a1ffb53c3444257bf798f7af4cad9527738cb54cb1d45b0b
+
+NEKO is a flat 32-bit LX image and remains on the V1/native-Win32 path.
+It contains only OFF32 internal and REL32 external fixups.  It is not a
+16-bit / selector / WHP target.
+
+R7 blocker
+----------
+R7 maps object 1 and then stops at object 2 with:
+
+    os2host32: iterated/compressed/invalid LX page is not supported yet
+
+The image has exactly two LX PAGE_ITERATED (flag 1) pages:
+
+    page 5: 1856 encoded bytes -> 4096 logical bytes, 62 records
+    page 6: 2622 encoded bytes -> 3244 logical bytes, 146 records
+
+Changes
+-------
+* Parse the LX Object Iterated Pages Offset (header + 0x4c).
+* Add generic PAGE_ITERATED decoding to the LX object mapper.
+* Decode standard records as:
+      uint16 repeat_count
+      uint16 pattern_length
+      byte   pattern[pattern_length]
+  and repeat the pattern repeat_count times.
+* Enforce strict encoded-input and logical-output bounds.
+* Keep invalid and compressed LX pages explicitly unsupported.
+* Add examples/m31g-neko/NEKO.EXE unchanged as the regression specimen.
+* Add tools/check_m31g_neko.py and make m31g-neko-r1-check.
+
+Expected Win32 result
+---------------------
+M31G R1 is deliberately loader-only.  After rebuilding os2host32.exe,
+NEKO should get beyond the old iterated-page mapping failure.  It is
+expected to stop later during import resolution because R7 does not yet
+provide all 63 NEKO imports (including HELPMGR and PMWP personalities).
+That later failure is the starting boundary for M31G R2.
+
+Validation performed here
+-------------------------
+* host C89 build of os2host32.c succeeds (only pre-existing warnings)
+* os2host32-host --scan identifies NEKO as direct-host supported
+* make m31f-jigsaw-static-check remains green
+* make m31g-neko-r1-check validates the untouched NEKO image and both
+  iterated-page streams
+
+No application-name-specific behavior was added.
+No WHP/emulation/V2 work was introduced.
+EMX remains frozen.

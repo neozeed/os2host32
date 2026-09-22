@@ -1,0 +1,12 @@
+
+/tmp/info-fs-probe.bin:     file format binary
+
+
+Disassembly of section .data:
+
+00000000 <.data>:
+   0:	8c e0                	mov    %fs,%eax
+   2:	8e e0                	mov    %eax,%fs
+   4:	8b 4c 24 04          	mov    0x4(%esp),%ecx
+   8:	64 8b 01             	mov    %fs:(%ecx),%eax
+   b:	c3                   	ret

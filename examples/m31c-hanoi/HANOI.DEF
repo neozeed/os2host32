@@ -1,0 +1,14 @@
+;-------------------------------------
+; HANOI.DEF module definition file
+;-------------------------------------
+
+NAME           HANOI  WINDOWAPI
+
+DESCRIPTION    'Tower of Hanoi Program, Jeff Johnson'
+PROTMODE
+HEAPSIZE       2048
+STACKSIZE      8192
+EXPORTS        ClientWndProc
+               EntryFldDlgProc
+
+

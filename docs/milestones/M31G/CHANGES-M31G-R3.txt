@@ -1,0 +1,52 @@
+M31G R3 - NEKO PMWIN.837 WinQueryWindowPos
+===========================================
+
+Baseline
+--------
+M31G R2 is the parent.  M31F FINAL R7 remains the frozen known-good PM/GPI
+baseline and the complete M31F regression set must remain green.
+
+Observed R2 boundary
+--------------------
+The untouched OS/2 2.0 GA NEKO.EXE maps all three LX objects, resolves
+PMSHAPI.129, PMWIN.834 and PMWIN.899, then stops at:
+
+    os2host32: PMWIN ordinal 837 is not exported
+
+Historical OS/2 ordinal/API material identifies PMWIN.837 as:
+
+    BOOL WinQueryWindowPos(HWND hwnd, PSWP pswp)
+
+Changes
+-------
+* Export WinQueryWindowPos @837 NONAME from PMWIN.dll.
+* Add the flat 32-bit OS/2 SWP structure layout:
+    ULONG fl;
+    LONG  cy, cx, y, x;
+    HWND  hwndInsertBehind, hwnd;
+    ULONG ulReserved1, ulReserved2;
+* Query native window geometry with GetWindowRect.
+* Convert Win32 screen/top-left coordinates to OS/2 parent-relative,
+  bottom-left coordinates.
+* Reflect native minimized/maximized state in SWP.fl.
+* Populate hwndInsertBehind from the native Z order and hwnd from the current
+  compatibility window handle.
+* Add OS2_PM_TRACE diagnostics for position/size/state.
+* Add tools/check_m31g_r3_pmwin.py and make m31g-neko-r3-check.
+* Add examples/m31g-neko/m31g-neko-r3-test.cmd.
+
+Regression
+----------
+The complete chained static gate passes, including the frozen OPENDLG, Sarien
+palette, JIGSAW, notification, and R7 device-PS coordinate checks.  NEKO's
+current uncovered import count falls from 23 to 22.
+
+Expected Win32 result
+---------------------
+Rebuild PMWIN.dll (or `make compat`) and run NEKO again.  The previous
+PMWIN.837 loader error should disappear.  Given import order and current
+coverage, PMWIN.778 is expected to be the next unresolved loader boundary.
+Capture the actual result before implementing R4.
+
+No application-name-specific behavior was added.  No WHP/V2 work was added.
+EMX remains frozen.

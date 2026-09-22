@@ -1,0 +1,19 @@
+Key R6 trace evidence used to identify the R7 coordinate bug:
+
+OS/2 rectangle requested:
+  p0=(258,98) p1=(425,225)
+
+Memory-to-memory blit (1536x801 surfaces) converted correctly:
+  dst=(258,576 167x127)
+
+Old device presentation path converted incorrectly:
+  dst=(258,-98 167x127)
+
+For the actual 317-pixel client height, correct Win32 Y is:
+  317 - 225 = 92
+
+Root cause: device CompatPS did not retain the HWND, so surface-height lookup
+could not use the real client rectangle. R7 stores WindowFromDC() in the PS,
+refreshes it in GpiAssociate, and uses the common height-aware StretchBlt path.
+
+Manual R7 result: drag offset/trails fixed and maximize/restore repaint fixed.

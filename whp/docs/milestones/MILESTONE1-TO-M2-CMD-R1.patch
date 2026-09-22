@@ -1,0 +1,1007 @@
+--- a/README-FIRST.md
++++ b/README-FIRST.md
+@@ -1,3 +1,7 @@
++# M2 CMD bridge R1 — development continuation
++
++Read **README-M2-CMD-R1.md** first. This directory includes new code beyond the frozen milestone below.
++
+ # WHP OS/2 V2 — Milestone 1
+ 
+ Frozen 20 September 2026 from R12 fix 2 after Jason's successful Space Quest II gameplay, restore, corrected geometry and clean exit. This is the WHP branch, separate from the earlier LE-to-PE translator and os2host32 M31.
+--- a/README-M2-CMD-R1.md
++++ b/README-M2-CMD-R1.md
+@@ -0,0 +1,63 @@
++# WHP OS/2 V2 — M2 CMD bridge R1
++
++Development continuation from frozen whp_os2_v2-milestone1. Goal: run the supplied cmd32os2_os2.exe through its C/386 VIO/KBD migration helpers. This is a first Windows test build, not a claimed successful live CMD session. Milestone 1 remains separately preserved.
++
++## First run
++
++Extract to a separate directory such as C:\proj\whp-cmd. From the same x64 MSVC developer prompt used for Milestone 1:
++
++```bat
++build-v2.cmd
++whp_os2_v2_hi.exe --check cmd32os2_os2.exe
++run-cmd32.cmd -c "echo WHP_CMD_OK"
++run-cmd32.cmd
++```
++
++The supplied 91231-byte CMD32 executable is included unchanged. No guest rebuild is needed for those commands. The launcher sets WHP_OS2_FIND_LAYOUT=GA for CMD32's explicitly defined FILEFINDBUF3 wire structure. It does not enable Sarien's uninitialized-count or geometry workarounds. The host's generic default remains Beta-2; run-sarien.cmd explicitly selects BETA within this development build.
++
++The launcher retains your current directory. At the interactive prompt, try ECHO, DIR, CD, CLS, Up/Down history, Left/Right editing and Tab completion, then EXIT. Confirm output/cursor placement before attempting more involved commands. Interactive CMD still reads its existing C:\OS2\ENV\STARTUP.CMD when present; any command errors there can appear before the prompt. The -c smoke test bypasses that startup script. stderr is saved to cmd32-trace.txt beside the launcher. If it stops, send that trace and stdout.
++
++A host usage string still identifies the generic LE/LX runtime. --check maps, validates and lowers recognized helpers with diagnostic import addresses; it does not execute guest instructions or prove console API behavior.
++
++## Scope and implementation
++
++Seven descriptor-driven APIs are implemented: KbdCharIn, KbdFlushBuffer, VioScrollUp, VioGetCurPos, VioSetCurPos, VioWrtTTY and VioGetMode. The source and packed Pascal signatures come from the preserved M31 CMD backend and prior bridge implementation.
++
++The loader accepts SEL16, PTR16:16 and PTR16:32 records only when they form the recognized C/386 migration graph: a 14-byte 16-bit fragment, a matching 32-bit return continuation, alias jump, SS comparison and helper prologue. Every nonflat fixup must be consumed and each 16-bit object must consist entirely of recognized fragments. It replaces the 32-bit helper entry in mapped guest memory with a jump to a WHP hypercall veneer, whose RET immediate cleans up the packed Pascal arguments. The disk executable is not patched. It does not execute arbitrary 16-bit code, install a general selector subsystem or load native Win32 VIO/KBD DLLs.
++
++DOSCALLS.425 DosFlatToSel is a register-ABI RET veneer, preserving EAX as a flat guest pointer token. It must not use the ordinary MOV-EAX hypercall stub, which would destroy the incoming pointer. Other APIs decode WORD scalars and DWORD pointer tokens in rightmost-argument-first Pascal frame order. No guest token is cast directly into a host pointer.
++
++VIO cursor/mode calls use coordinates relative to the native console viewport. Mode output is limited to the tested 12-byte prefix. Scroll/clear honors bounds and cell attributes. TTY writes guest bytes to host stdout. KbdCharIn writes the packed 10-byte KBDKEYINFO, supports wait/nowait, extended scan codes, shift state and repeats; empty blocking calls enter WAIT_KBD. The scheduler polls every 10 ms while letting runnable guest peers and PM progress. Input mode is restored on normal runtime cleanup. Console KBD services require an actual console; redirected input belongs to DosRead.
++
++Additional DOS services cover cwd/default drive queries/changes, mkdir/remove/move, handle duplication, anonymous pipe creation and LE/LX application-type queries. These support shell built-ins and their groundwork. Directory enumeration can explicitly return GA FILEFINDBUF3: next-offset at 0, attributes at 24, name length at 28, name at 29. Default Beta-2 remains name-at-23. Both currently return one entry per call.
++
++## Explicit next boundaries
++
++DOSCALLS.283 DosExecPgm, .280 DosWaitChild and SESMGR imports resolve, but return error 1 with an explicit diagnostic. External programs, pipeline worker processes, START, PS/KILL and PM auto-session launch are NOT implemented by this build. Imported services are not silently reported as successful. The inherited CMD banner describes the earlier os2host32 implementation, so it must not be read as a capability claim for this WHP host.
++
++Anonymous pipes exist, but pipe I/O itself retains the older synchronous DosRead path; guest-aware pipe I/O and process lifecycle need a subsequent phase. Standard handle duplication and file redirection have native helper checks, but Windows shell redirection needs live verification. No separate per-drive cwd table, UNC current-drive emulation, general VIO buffers or all KBD APIs are claimed. CLI input is cooperative polling, not compute-loop preemption.
++
++## Recovered source and guest test
++
++cmd32-source contains the seven shell/backend C modules, required headers/definitions and the existing complete console probe from os2host32-m31-final.zip. The source is preserved as recovered, including its provenance comments. This is the reconstructed command processor developed using OS/2/1991 NT command behavior; it is not an assertion that these files are the original Microsoft CMD source.
++
++```bat
++build-c386-cmd32.cmd
++run-console.cmd
++```
++
++The builder uses cl386 /Gd and the user's LINK386 shim, defaults OS2LIB to C:\c386\lib, and produces a rebuilt shell plus console test under cmd32-source. It deliberately does not overwrite the supplied root executable. The console test exercises cursor, clear, flush, TTY and a key read; press a key when prompted and look for M29H_OS2_CONSOLE_BACKEND_OK. C/386/MSVC compilation and actual WHP execution still require the user's Windows tools.
++
++## Completed native checks
++
++- Production LE/LX loader + bridge installer: the exact supplied CMD32 passes, reporting 753 internal records / 1149 sites and 82 external sites, with all seven helpers recognized. LE and LX hello fixtures pass. A corrupted migration fragment is rejected.
++- Packed console dispatch: pointer-token veneer, WORD/DWORD ordering, viewport/cursor mapping, mode write bounds, TTY bounds, clear, waiting/yield, extended keys, repeats/flush, unavailable console and mode restoration pass.
++- Existing scheduler/callback/info/PM/GPI/Sarien helper checks pass with the new WAIT_KBD path.
++- Directory checks pass for Beta-2 and explicit GA layouts, buffer guards and Sarien's existing opt-in count behavior.
++- Native filesystem shims test cwd wire layout, create/move/remove, pipe/duplicate lifetimes and explicit process-call failure; earlier file-I/O checks pass.
++
++These execute production C helpers with mocked Windows/WHP services or POSIX file handles under ASan/UBSan. They do not execute x86 guest instructions or establish actual Windows console behavior. Logs are in validation/m2-*. No old torture suite was rerun on Windows here.
++
++To repeat on Linux: tests/run-loader-check.py takes executable paths; tests/run-sync-check.py runs console/scheduler/graphics helpers; tests/find-check.c and tests/fileio-posix-check.c compile with GCC and ASan/UBSan. Use ASAN_OPTIONS=detect_leaks=0 in the existing sandbox environment. The latter's filesystem tests must run in a disposable test environment.
++
++Read SHA256SUMS-M2-CMD-R1.txt for this tree. All earlier milestone hashes/readmes are historical. Start next work from this development package after obtaining the first Windows trace; keep the Milestone 1 archive untouched.
+--- a/build-c386-cmd32.cmd
++++ b/build-c386-cmd32.cmd
+@@ -0,0 +1,30 @@
++@echo off
++setlocal
++if "%OS2LIB%"=="" set "OS2LIB=C:\c386\lib"
++pushd "%~dp0cmd32-source"
++if errorlevel 1 exit /b 1
++for %%N in (cmdparse cmdbatch cmdfile cmd32os2 cmdos2_os2 cmdos2_session_os2 cmdos2_env cmdos2_os2_console_test) do (
++  cl386 /nologo /Gd /c %%N.c
++  if errorlevel 1 goto fail
++)
++>cmd32.lnk echo cmd32os2.obj cmdparse.obj cmdbatch.obj cmdfile.obj cmdos2_os2.obj cmdos2_session_os2.obj cmdos2_env.obj
++>>cmd32.lnk echo cmd32os2_os2.exe
++>>cmd32.lnk echo cmd32os2_os2.map
++>>cmd32.lnk echo %OS2LIB%\LIBC.LIB %OS2LIB%\OS2386.LIB
++>>cmd32.lnk echo cmd32os2_os2.def
++link386 @cmd32.lnk
++if errorlevel 1 goto fail
++>console.lnk echo cmdos2_os2_console_test.obj cmdos2_os2.obj cmdos2_env.obj
++>>console.lnk echo cmdos2_os2_console_test.exe
++>>console.lnk echo cmdos2_os2_console_test.map
++>>console.lnk echo %OS2LIB%\LIBC.LIB %OS2LIB%\OS2386.LIB
++>>console.lnk echo cmdos2_os2_console_test.def
++link386 @console.lnk
++if errorlevel 1 goto fail
++popd
++echo Built CMD32 and console test under cmd32-source.
++echo The supplied cmd32os2_os2.exe beside the host has not been replaced.
++exit /b 0
++:fail
++popd
++exit /b 1
+--- a/run-cmd32.cmd
++++ b/run-cmd32.cmd
+@@ -0,0 +1,7 @@
++@echo off
++setlocal
++set "WHP_OS2_FIND_LAYOUT=GA"
++set "WHP_OS2_FIND_ZERO_COUNT="
++set "WHP_OS2_SARIEN_GEOMETRY="
++"%~dp0whp_os2_v2_hi.exe" "%~dp0cmd32os2_os2.exe" %* 2>"%~dp0cmd32-trace.txt"
++exit /b %errorlevel%
+--- a/run-console.cmd
++++ b/run-console.cmd
+@@ -0,0 +1,5 @@
++@echo off
++setlocal
++set "WHP_OS2_FIND_LAYOUT=GA"
++"%~dp0whp_os2_v2_hi.exe" "%~dp0cmd32-source\cmdos2_os2_console_test.exe" 2>"%~dp0console-trace.txt"
++exit /b %errorlevel%
+--- a/run-sarien.cmd
++++ b/run-sarien.cmd
+@@ -1,5 +1,6 @@
+ @echo off
+ setlocal
++set "WHP_OS2_FIND_LAYOUT=BETA"
+ rem Sarien leaves DosFindFirst input count uninitialized.
+ set "WHP_OS2_FIND_ZERO_COUNT=1"
+ rem Preserve the 320x200 client area expected by this Sarien port.
+--- a/tests/cmdfs-mock.inc
++++ b/tests/cmdfs-mock.inc
+@@ -0,0 +1,40 @@
++#include <ctype.h>
++#define MAX_PATH 260
++#define FALSE 0
++#define DUPLICATE_SAME_ACCESS 2
++#define MOD_TYPE_DLL 0x8000u
++static HANDLE std_mock[3];
++static HANDLE GetCurrentProcess(void){return NULL;}
++static int SetStdHandle(DWORD which,HANDLE h){assert(which<3);std_mock[which]=h;return 1;}
++static int DuplicateHandle(HANDLE p,HANDLE h,HANDLE q,HANDLE *out,DWORD access,int inherit,DWORD flags){int fd;(void)p;(void)q;(void)access;(void)inherit;(void)flags;fd=dup(fdof(h));if(fd<0){maperr();return 0;}*out=(HANDLE)(intptr_t)(fd+1);return 1;}
++static int CreatePipe(HANDLE *a,HANDLE *b,void *sa,DWORD size){int fds[2];(void)sa;(void)size;if(pipe(fds)){maperr();return 0;}*a=(HANDLE)(intptr_t)(fds[0]+1);*b=(HANDLE)(intptr_t)(fds[1]+1);return 1;}
++static int SetCurrentDirectoryA(const char *p){if(chdir(p)){maperr();return 0;}return 1;}
++static int RemoveDirectoryA(const char *p){if(rmdir(p)){maperr();return 0;}return 1;}
++static int CreateDirectoryA(const char *p,void *sa){(void)sa;if(mkdir(p,0700)){maperr();return 0;}return 1;}
++static int MoveFileA(const char *a,const char *b){struct stat st;if(!stat(b,&st)){last=183;return 0;}if(rename(a,b)){maperr();return 0;}return 1;}
++/* Fixed Windows-shaped cwd for marshaling; filesystem operations above use POSIX. */
++static DWORD GetCurrentDirectoryA(DWORD cb,char *p){const char *cwd="C:\\TEST";if(cb>strlen(cwd))strcpy(p,cwd);return (DWORD)strlen(cwd);}
++static DWORD GetLogicalDrives(void){return 4;}
++static uint32_t rd32(const uint8_t *p){uint32_t v;memcpy(&v,p,4);return v;}
++static uint8_t *load_file(const char *p,uint32_t *size){FILE *f=fopen(p,"rb");uint8_t *b;long n;if(!f)return NULL;fseek(f,0,SEEK_END);n=ftell(f);rewind(f);b=malloc((size_t)n);assert(b);assert(fread(b,1,(size_t)n,f)==(size_t)n);fclose(f);*size=(uint32_t)n;return b;}
++#include "../v2_cmdfs.h"
++static uint32_t fcall(struct Runtime *r,uint32_t ord,uint32_t a,uint32_t b,uint32_t c){guest_put_u32(r,104,a);guest_put_u32(r,108,b);guest_put_u32(r,112,c);return dispatch_cmdfs(r,ord,100);}
++static void test_cmdfs(void){
++ struct Runtime r;uint32_t a,b,c;char tmp[]="/tmp/whp-cmdfs-XXXXXX",cwd[4096];
++ memset(&r,0,sizeof(r));r.ram=calloc(1,RAM_SIZE);assert(r.ram);assert(getcwd(cwd,sizeof(cwd)));assert(mkdtemp(tmp));assert(chdir(tmp)==0);
++ strcpy((char*)r.ram+1000,"sub");strcpy((char*)r.ram+1100,"new");
++ assert(fcall(&r,270,1000,0,0)==0);assert(fcall(&r,271,1000,1100,0)==0);
++ assert(fcall(&r,255,1100,0,0)==0);assert(chdir("..")==0);assert(fcall(&r,226,1100,0,0)==0);
++ assert(fcall(&r,275,2000,2004,0)==0&&guest_u32(&r,2000)==3&&guest_u32(&r,2004)==4);
++ guest_put_u32(&r,2000,2);assert(fcall(&r,274,0,2100,2000)==111&&guest_u32(&r,2000)==5);
++ assert(fcall(&r,274,0,2100,2000)==0&&!strcmp((char*)r.ram+2100,"TEST"));
++ assert(fcall(&r,239,2000,2004,0)==0);a=guest_u32(&r,2000);b=guest_u32(&r,2004);
++ guest_put_u32(&r,2008,0xffffffffu);assert(fcall(&r,260,b,2008,0)==0);c=guest_u32(&r,2008);assert(c!=b);
++ assert(CloseHandle(r.files[b]));r.files[b]=NULL;assert(write(fdof(r.files[c]),"OK",2)==2);
++ assert(read(fdof(r.files[a]),r.ram+2200,2)==2&&!memcmp(r.ram+2200,"OK",2));
++ assert(CloseHandle(r.files[a])&&CloseHandle(r.files[c]));r.files[a]=r.files[c]=NULL;
++ assert(fcall(&r,260,127,2008,0)==6);assert(fcall(&r,239,2000,2000,0)==87);
++ assert(fcall(&r,280,0,0,0)==1&&fcall(&r,283,0,0,0)==1);
++ assert(chdir(cwd)==0&&rmdir(tmp)==0);free(r.ram);
++ puts("cmdfs-check PASS: cwd marshaling, mkdir/move/remove, real pipe/duplicate lifetime and explicit process boundaries");
++}
+--- a/tests/console-check.inc
++++ b/tests/console-check.inc
+@@ -0,0 +1,43 @@
++static uint32_t ccall(uint32_t id,const uint32_t *args)
++{
++ uint32_t i,at=0x1004;
++ for(i=0;i<far16_apis[id-1].count;i++) {
++  if(far16_apis[id-1].width[i]==2)file_put16(rt.ram+at,(uint16_t)args[i]);else guest_put_u32(&rt,at,args[i]);
++  at+=far16_apis[id-1].width[i];
++ }
++ return dispatch_console(&rt,id,0x1000);
++}
++#define CCALL(id,...) ccall(id,(uint32_t[]){__VA_ARGS__})
++static void test_console(void)
++{
++ DWORD timeout;uint32_t token;int ready;
++ reset();assert(far16_desc("KBDCALLS",4)==5&&far16_desc("KBDCALLS",99)==-1);
++ /* DOSCALLS.425 must be RET, not a veneer that overwrites the EAX pointer. */
++ token=hostcall_stub(&rt,HC_DOSCALLS,425);assert(rt.ram[token]==0xc3);
++ assert(CCALL(2,0,0x2200,0x2202)==0);
++ assert(rd16(rt.ram+0x2200)==3&&rd16(rt.ram+0x2202)==2);
++ assert(CCALL(3,0,79,24)==0&&mock_cursor.X==84&&mock_cursor.Y==34);
++ assert(CCALL(3,0,80,0)==87);
++ memset(rt.ram+0x2300,0xa5,16);file_put16(rt.ram+0x2300,12);
++ assert(CCALL(5,0,0x2300)==0&&rd16(rt.ram+0x2304)==80&&rd16(rt.ram+0x2306)==25&&rt.ram[0x230c]==0xa5);
++ file_put16(rt.ram+0x2300,10);assert(CCALL(5,0,0x2300)==87);
++ assert(CCALL(4,0,3,0x2400)==0&&mock_written==3);
++ assert(CCALL(4,0,3,RAM_SIZE-1)==87);
++ rt.ram[0x2500]=' ';rt.ram[0x2501]=7;mock_fill=0;
++ assert(CCALL(1,0,0x2500,0xffff,0xffff,0xffff,0,0)==0&&mock_fill==2000);
++ assert(CCALL(6,0,1,0x2600)==0&&rt.ram[0x2602]==0);
++ spawn();assert(CCALL(6,0,0,0x2600)==0&&rt.threads[0].state==THREAD_WAIT_KBD);
++ park(0);assert(next_runnable_thread(&rt)==1);select_thread(1);
++ assert(next_wait_timeout(&rt,&timeout)&&timeout==10);
++ clock_ms+=10;wake_expired_waiters(&rt);assert(rt.threads[0].state==THREAD_WAIT_KBD);
++ memset(&mock_key,0,sizeof(mock_key));mock_key.EventType=KEY_EVENT;
++ mock_key.Event.KeyEvent.bKeyDown=1;mock_key.Event.KeyEvent.wRepeatCount=2;
++ mock_key.Event.KeyEvent.wVirtualScanCode=0x48;mock_key.Event.KeyEvent.dwControlKeyState=SHIFT_PRESSED;
++ mock_key_pending=1;clock_ms+=10;assert(wake_expired_waiters(&rt));
++ assert(rt.threads[0].state==THREAD_RUNNABLE&&rt.ram[0x2601]==0x48&&rt.ram[0x2602]==0x40&&rd16(rt.ram+0x2604)==3);
++ assert(console_key_read(&rt,0x2600,&ready)==0&&ready&&console_repeat==0);
++ console_repeat=2;assert(CCALL(7,0)==0&&console_repeat==0);
++ mock_console_available=0;assert(CCALL(6,0,0,0x2600)==6);mock_console_available=1;
++ console_cleanup();assert(mock_console_mode==7);
++ puts("console-check PASS: packed frames, pointer token, viewport/cursor, mode bounds, TTY, clear, key wait/yield/repeat/flush and mode restoration");
++}
+--- a/tests/console-mock.h
++++ b/tests/console-mock.h
+@@ -0,0 +1,42 @@
++/* Console service test double; deliberately has a nonzero viewport origin. */
++typedef uint16_t WORD;typedef int16_t SHORT;typedef char CHAR;
++typedef struct {SHORT X,Y;} COORD;
++typedef struct {SHORT Left,Top,Right,Bottom;} SMALL_RECT;
++typedef struct {union {CHAR AsciiChar;} Char;WORD Attributes;} CHAR_INFO;
++typedef struct {COORD dwSize,dwCursorPosition;WORD wAttributes;SMALL_RECT srWindow;COORD dwMaximumWindowSize;} CONSOLE_SCREEN_BUFFER_INFO;
++typedef struct {int bKeyDown;WORD wRepeatCount,wVirtualKeyCode,wVirtualScanCode;union {CHAR AsciiChar;} uChar;DWORD dwControlKeyState;} KEY_EVENT_RECORD;
++typedef struct {WORD EventType;union {KEY_EVENT_RECORD KeyEvent;} Event;} INPUT_RECORD;
++#define STD_INPUT_HANDLE 0
++#define STD_OUTPUT_HANDLE 1
++#define KEY_EVENT 1
++#define ENABLE_LINE_INPUT 2
++#define ENABLE_ECHO_INPUT 4
++#define ENABLE_PROCESSED_INPUT 1
++#define VK_CAPITAL 0x14
++#define VK_NUMLOCK 0x90
++#define VK_SCROLL 0x91
++#define SHIFT_PRESSED 16
++#define LEFT_CTRL_PRESSED 8
++#define RIGHT_CTRL_PRESSED 4
++#define LEFT_ALT_PRESSED 2
++#define RIGHT_ALT_PRESSED 1
++#define SCROLLLOCK_ON 64
++#define NUMLOCK_ON 32
++#define CAPSLOCK_ON 128
++static INPUT_RECORD mock_key;
++static int mock_key_pending,mock_console_available=1;
++static DWORD mock_console_mode=7,mock_written,mock_fill;
++static COORD mock_cursor={8,12};
++static HANDLE GetStdHandle(DWORD which){return (HANDLE)(uintptr_t)(which+1);}
++static int GetConsoleMode(HANDLE h,DWORD *mode){(void)h;if(!mock_console_available)return 0;*mode=mock_console_mode;return 1;}
++static int SetConsoleMode(HANDLE h,DWORD mode){(void)h;mock_console_mode=mode;return 1;}
++static int PeekConsoleInputA(HANDLE h,INPUT_RECORD *r,DWORD n,DWORD *got){(void)h;(void)n;*got=mock_key_pending;if(*got)*r=mock_key;return 1;}
++static int ReadConsoleInputA(HANDLE h,INPUT_RECORD *r,DWORD n,DWORD *got){int ret=PeekConsoleInputA(h,r,n,got);mock_key_pending=0;return ret;}
++static int FlushConsoleInputBuffer(HANDLE h){(void)h;mock_key_pending=0;return 1;}
++static int WriteFile(HANDLE h,const void *p,DWORD n,DWORD *done,void *over){(void)h;(void)p;(void)over;mock_written=n;*done=n;return 1;}
++static int GetConsoleScreenBufferInfo(HANDLE h,CONSOLE_SCREEN_BUFFER_INFO *i){(void)h;memset(i,0,sizeof(*i));i->srWindow=(SMALL_RECT){5,10,84,34};i->dwCursorPosition=mock_cursor;return 1;}
++static int SetConsoleCursorPosition(HANDLE h,COORD p){(void)h;mock_cursor=p;return 1;}
++static int FillConsoleOutputCharacterA(HANDLE h,CHAR c,DWORD n,COORD p,DWORD *done){(void)h;(void)c;assert(p.X==5&&p.Y>=10&&p.Y<=34);mock_fill+=n;*done=n;return 1;}
++static int FillConsoleOutputAttribute(HANDLE h,WORD attr,DWORD n,COORD p,DWORD *done){(void)h;(void)p;assert(attr==7);*done=n;return 1;}
++static int ScrollConsoleScreenBufferA(HANDLE h,const SMALL_RECT *r,const SMALL_RECT *clip,COORD p,const CHAR_INFO *fill){(void)h;(void)clip;(void)fill;assert(p.Y<r->Top);return 1;}
++static void file_put16(uint8_t *p,uint16_t v){p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);}
+--- a/tests/fileio-posix-check.c
++++ b/tests/fileio-posix-check.c
+@@ -79,7 +79,9 @@
+ static int guest_copy_cstr(struct Runtime *r,uint32_t a,char *out,uint32_t cap){uint32_t i;for(i=0;i<cap;i++){if(!guest_range(a+i,1))return 0;out[i]=r->ram[a+i];if(!out[i])return 1;}return 0;}
+ #include "../v2_fileio.h"
+ static uint32_t call(struct Runtime *r,uint32_t ord,uint32_t a,uint32_t b,uint32_t c,uint32_t d){guest_put_u32(r,104,a);guest_put_u32(r,108,b);guest_put_u32(r,112,c);guest_put_u32(r,116,d);return dispatch_fileio(r,ord,100);}
++#include "cmdfs-mock.inc"
+ int main(void){
++ test_cmdfs();
+  struct Runtime r;uint32_t h;LARGE_INTEGER pos;uint8_t *ram=calloc(1,RAM_SIZE);memset(&r,0,sizeof(r));r.ram=ram;
+  guest_put_u32(&r,136,0xdeadbeefu); /* not a DosOpen argument */
+  strcpy((char*)ram+1000,"/tmp/v2-fileio-unit.dat");unlink((char*)ram+1000);
+--- a/tests/find-check.c
++++ b/tests/find-check.c
+@@ -184,5 +184,15 @@
+     for(i=0;i<32;++i)assert(first(&r,0xffffffffu,0,279,1,1)==0);
+     assert(first(&r,0xffffffffu,0,279,1,1)==4);
+     for(i=0;i<32;++i)assert(closefind(&r,r.searches[i].id)==0);
++    assert(setenv("WHP_OS2_FIND_LAYOUT","GA",1)==0);
++    assert(first(&r,0xffffffffu,0,284,1,1)==111);
++    memset(r.ram+3000,0xa5,292);
++    assert(first(&r,0xffffffffu,0,292,1,1)==0);h=guest_u32(&r,2000);
++    assert(guest_u32(&r,3000)==0 && guest_u32(&r,3016)==3);
++    assert(r.ram[3028]==9&&!strcmp((char*)r.ram+3029,"ALPHA.TXT")&&r.ram[3285]==0xa5);
++    assert(next(&r,h,292,1)==0&&!strcmp((char*)r.ram+3029,"BETA.TXT"));
++    assert(closefind(&r,h)==0);unsetenv("WHP_OS2_FIND_LAYOUT");
++    assert(first(&r,0xffffffffu,0,279,1,1)==0&&!strcmp((char*)r.ram+3023,"ALPHA.TXT"));
++    assert(closefind(&r,guest_u32(&r,2000))==0);
+     free(r.ram);puts("directory dispatcher tests PASS (mock Win32 enumeration)");return 0;
+ }
+--- a/tests/run-loader-check.py
++++ b/tests/run-loader-check.py
+@@ -0,0 +1,39 @@
++#!/usr/bin/env python3
++"""Execute production LE/LX parsing, fixups and C/386 bridge installation on Linux."""
++import pathlib,re,subprocess,tempfile,sys
++root=pathlib.Path(__file__).resolve().parents[1]
++s=(root/'whp_os2_v2_hi.c').read_text()
++def func(n):
++ m=re.search(r'^static [^\n]*\b'+n+r'\(',s,re.M);assert m,n
++ b=s.index('{',m.end());e=b+1;depth=1
++ while depth:depth+=(s[e]=='{')-(s[e]=='}');e+=1
++ return s[m.start():e]+'\n'
++macros='\n'.join(l for l in s.splitlines() if l.startswith('#define ') and not l.endswith('\\'))
++structs=s[s.index('struct LeObject {'):s.index('struct GuestAlloc {')]
++head='''#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <strings.h>
++#define _stricmp strcasecmp
++static __attribute__((noreturn)) void fatal(const char *s){fprintf(stderr,"fatal: %s\\n",s);exit(1);}
++'''
++functions=['rd16','rds16','rd32','wr32','align_up','file_range','load_file','parse_header','parse_objects','parse_import_modules','skip_objmod','source_object_offset','find_or_add_import','import_index','find_or_add_name_import','name_import_index','scan_fixups']
++with tempfile.TemporaryDirectory() as tmp:
++ p=pathlib.Path(tmp)
++ code=head+macros+'\n'+structs+'\nstruct Runtime {uint8_t *ram;uint32_t module_next,stub_next;};\n'+'\n'.join(map(func,functions))+'\n'+(root/'v2_far16.h').read_text()+'\n'+func('apply_fixups')+func('check_image')+'\nint main(int argc,char **argv){return argc==2?check_image(argv[1]):2;}\n'
++ (p/'check.c').write_text(code)
++ subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Wno-misleading-indentation','-Werror','-fsanitize=address,undefined','-g',str(p/'check.c'),'-o',str(p/'check')],check=True)
++ for arg in sys.argv[1:]:subprocess.run([str(p/'check'),str(pathlib.Path(arg).resolve())],check=True)
++
++ # Deliberately corrupt the first 14-byte fragment of the supplied CMD fixture.
++ # Mutation is temporary; the original guest executable is never rewritten.
++ if sys.argv[1:] and pathlib.Path(sys.argv[1]).name=='cmd32os2_os2.exe':
++  data=bytearray(pathlib.Path(sys.argv[1]).read_bytes())
++  matches=[i for i in range(len(data)-14) if data[i]==0x9a and data[i+5:i+8]==b'\x66\x67\xea']
++  assert matches
++  data[matches[0]]=0x90
++  bad=p/'bad-thunk.exe';bad.write_bytes(data)
++  result=subprocess.run([str(p/'check'),str(bad)],capture_output=True,text=True)
++  assert result.returncode!=0 and 'unrecognized far16 fragment' in result.stderr,result.stderr
++  print('loader negative check PASS: corrupt migration fragment rejected')
+--- a/tests/run-sync-check.py
++++ b/tests/run-sync-check.py
+@@ -20,9 +20,9 @@
+ with tempfile.TemporaryDirectory() as tmp:
+     p=pathlib.Path(tmp)
+     (p/'defs.inc').write_text(macros+'\n'+structs+'\n'+(root/'v2_sync_types.h').read_text())
+-    (p/'production.inc').write_text('\n'.join(map(func,helpers))+'\n'+
+-        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_callback.h','v2_sync.h','v2_queue.h','v2_pm.h','v2_gpi.h','v2_beep.h'])+'\n'+
++    (p/'production.inc').write_text('static int console_poll_wait(struct Runtime *,struct GuestThread *);\n'+(root/'v2_far16.h').read_text().split('static void install_far16')[0]+'\n'+'\n'.join(map(func,helpers))+'\n'+
++        '\n'.join((root/n).read_text() for n in ['v2_info.h','v2_callback.h','v2_sync.h','v2_queue.h','v2_pm.h','v2_gpi.h','v2_beep.h','v2_console.h'])+'\n'+
+         '\n'.join(map(func,['create_guest_thread','schedule_next_thread','switch_after_hypercall'])))
+-    subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',
++    subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Wno-misleading-indentation','-Werror','-fsanitize=address,undefined',
+         '-g','-I'+tmp,str(root/'tests/sync-check.c'),'-o',str(p/'check')],check=True)
+     subprocess.run([str(p/'check')],check=True)
+--- a/tests/sync-check.c
++++ b/tests/sync-check.c
+@@ -33,6 +33,7 @@
+  unsigned count,const WHV_REGISTER_VALUE *in)
+ { (void)p;(void)vp;(void)n;memcpy(cpu,in,count*sizeof(*in));return 0; }
+ #include "pm-win32-mock.h"
++#include "console-mock.h"
+ #include "defs.inc"
+ struct HostStub { uint32_t ordinal,address; };
+ struct Runtime {
+@@ -90,13 +91,14 @@
+ #include "pm-check.inc"
+ #include "gpi-check.inc"
+ #include "sarien-check.inc"
++#include "console-check.inc"
+ int main(void)
+ {
+  uint32_t h,old,q,q2,ev,i,j,base,end,tid,deadline,token;
+  uint32_t args[2]={123,456};
+  WHV_REGISTER_VALUE original[THREAD_REG_COUNT];
+  DWORD ms;
+- rt.ram=calloc(1,RAM_SIZE);assert(rt.ram);reset();spawn();spawn();
++ rt.ram=calloc(1,RAM_SIZE);assert(rt.ram);test_console();reset();spawn();spawn();
+  h=hostcall_stub(&rt,HC_DOSCALLS,9);q=hostcall_stub(&rt,HC_QUECALLS,9);
+  assert(h!=q && hostcall_stub(&rt,HC_QUECALLS,9)==q);
+  assert(guest_u32(&rt,h+1)==(HC_DOSCALLS|9) && guest_u32(&rt,q+1)==(HC_QUECALLS|9));
+--- a/v2_cmdfs.h
++++ b/v2_cmdfs.h
+@@ -0,0 +1,76 @@
++/* CMD phase 1: filesystem/cwd plus real handle duplication and anonymous pipes.
++   Process/session launch is reported unsupported until its lifecycle is wired. */
++static uint32_t cmd_install_handle(struct Runtime *rt,HANDLE h,uint32_t target)
++{
++ HANDLE old;
++ if(target<3) {
++  DWORD which=target==0?STD_INPUT_HANDLE:target==1?STD_OUTPUT_HANDLE:STD_ERROR_HANDLE;
++  old=os2_handle(rt,target);
++  if(!SetStdHandle(which,h))return GetLastError();
++  if(old!=INVALID_HANDLE_VALUE)CloseHandle(old);rt->std_closed[target]=0;
++ } else {if(rt->files[target])CloseHandle(rt->files[target]);rt->files[target]=h;}
++ return 0;
++}
++static uint32_t dispatch_cmdfs(struct Runtime *rt,uint32_t ordinal,uint32_t esp)
++{
++ uint32_t a[5],i,n,rc;char path[MAX_PATH],other[MAX_PATH];DWORD got;HANDLE h,dup;
++ for(i=0;i<5;i++)a[i]=guest_range(esp+4+i*4,4)?guest_u32(rt,esp+4+i*4):0;
++ switch(ordinal) {
++ case 255:case 226:case 270:case 271:
++  if(!a[0]||!guest_copy_cstr(rt,a[0],path,sizeof(path)))return 87;
++  if(ordinal==255)return SetCurrentDirectoryA(path)?0:GetLastError();
++  if(ordinal==226)return RemoveDirectoryA(path)?0:GetLastError();
++  if(ordinal==270){if(a[1])return 87;return CreateDirectoryA(path,NULL)?0:GetLastError();}
++  if(!a[1]||!guest_copy_cstr(rt,a[1],other,sizeof(other)))return 87;
++  return MoveFileA(path,other)?0:GetLastError();
++ case 275:
++  if(!a[0]||!a[1]||!guest_range(a[0],4)||!guest_range(a[1],4))return 87;
++  got=GetCurrentDirectoryA(sizeof(path),path);if(!got)return GetLastError();
++  if(got>=sizeof(path)||path[1]!=':')return 15;
++  guest_put_u32(rt,a[0],(uint32_t)(toupper((unsigned char)path[0])-'A'+1));
++  guest_put_u32(rt,a[1],GetLogicalDrives());return 0;
++ case 220:
++  if(a[0]<1||a[0]>26)return 15;
++  path[0]=(char)('A'+a[0]-1);path[1]=':';path[2]=0;
++  return SetCurrentDirectoryA(path)?0:GetLastError();
++ case 274:
++  if(a[0]>26||!a[1]||!a[2]||!guest_range(a[2],4))return 87;
++  n=guest_u32(rt,a[2]);
++  if(a[0]) {other[0]=(char)('A'+a[0]-1);other[1]=':';other[2]='.';other[3]=0;got=GetFullPathNameA(other,sizeof(path),path,NULL);}
++  else got=GetCurrentDirectoryA(sizeof(path),path);
++  if(!got)return GetLastError();if(got>=sizeof(path)||path[1]!=':')return 15;
++  i=2;if(path[i]=='\\'||path[i]=='/')i++;
++  got=(DWORD)strlen(path+i)+1;guest_put_u32(rt,a[2],got);
++  if(n<got)return 111;if(!guest_range(a[1],got))return 87;memcpy(rt->ram+a[1],path+i,got);return 0;
++ case 260:
++  if(!a[1]||!guest_range(a[1],4))return 87;
++  h=os2_handle(rt,a[0]);if(h==INVALID_HANDLE_VALUE)return 6;
++  n=guest_u32(rt,a[1]);
++  if(n==0xffffffffu){for(n=3;n<MAX_FILES&&rt->files[n];n++);}
++  if(n>=MAX_FILES)return 4;if(n==a[0])return 0;
++  if(!DuplicateHandle(GetCurrentProcess(),h,GetCurrentProcess(),&dup,0,FALSE,DUPLICATE_SAME_ACCESS))return GetLastError();
++  rc=cmd_install_handle(rt,dup,n);if(rc)CloseHandle(dup);else guest_put_u32(rt,a[1],n);return rc;
++ case 239:
++  if(!a[0]||!a[1]||!guest_range(a[0],4)||!guest_range(a[1],4)||a[0]==a[1])return 87;
++  for(i=3;i<MAX_FILES&&rt->files[i];i++);
++  for(n=i+1;n<MAX_FILES&&rt->files[n];n++);
++  if(n>=MAX_FILES)return 4;
++  if(!CreatePipe(&h,&dup,NULL,a[2]))return GetLastError();
++  rt->files[i]=h;rt->files[n]=dup;guest_put_u32(rt,a[0],i);guest_put_u32(rt,a[1],n);return 0;
++ case 323:
++  {
++   uint8_t *data;uint32_t size,off,flags;
++   if(!a[0]||!a[1]||!guest_range(a[1],4)||!guest_copy_cstr(rt,a[0],path,sizeof(path)))return 87;
++   data=load_file(path,&size);if(!data)return 2;
++   if(size<64||data[0]!='M'||data[1]!='Z'){free(data);return 193;}
++   off=rd32(data+0x3c);
++   if(off>size||size-off<0x14||data[off]!='L'||(data[off+1]!='E'&&data[off+1]!='X')){free(data);return 193;}
++   flags=rd32(data+off+0x10);free(data);
++   /* FAPPTYP_WINDOWAPI=3; window compatibility field matches module bits. */
++   guest_put_u32(rt,a[1],((flags>>8)&3u)|((flags&MOD_TYPE_DLL)?0x10u:0));return 0;
++  }
++ case 280:case 283:
++  fprintf(stderr,"v2: DOSCALLS.%u process execution/wait not yet supported by WHP CMD phase 1\n",ordinal);return 1;
++ }
++ return 1;
++}
+--- a/v2_console.h
++++ b/v2_console.h
+@@ -0,0 +1,126 @@
++/* Packed C/386 Pascal arguments; pointer tokens remain flat guest addresses. */
++static HANDLE console_input;
++static DWORD console_old_mode;
++static int console_mode_saved;
++static WORD console_repeat;
++static KEY_EVENT_RECORD console_key;
++static void console_cleanup(void)
++{
++ HANDLE h=GetStdHandle(STD_INPUT_HANDLE);DWORD mode;
++ if(console_mode_saved) {
++  if(GetConsoleMode(h,&mode))SetConsoleMode(h,console_old_mode);
++  else SetConsoleMode(console_input,console_old_mode);
++ }
++ console_mode_saved=0;console_repeat=0;
++}
++static uint32_t console_key_read(struct Runtime *rt,uint32_t out,int *ready)
++{
++ INPUT_RECORD rec;DWORD count,mode;HANDLE h=GetStdHandle(STD_INPUT_HANDLE);
++ *ready=0;
++ if(!out || !guest_range(out,10))return 87;
++ if(!GetConsoleMode(h,&mode))return 6; /* redirected input uses DosRead, not KbdCharIn */
++ if(!console_mode_saved) {
++  console_input=h;console_old_mode=mode;
++  if(!SetConsoleMode(h,mode&~(ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT|ENABLE_PROCESSED_INPUT)))return GetLastError();
++  console_mode_saved=1;
++ }
++ /* Bound one poll so a stream of mouse/resize records cannot starve peers. */
++ for(count=0;!console_repeat && count<64;count++) {
++  DWORD got;
++  if(!PeekConsoleInputA(h,&rec,1,&got))return GetLastError();
++  if(!got)break;
++  if(!ReadConsoleInputA(h,&rec,1,&got))return GetLastError();
++  if(got && rec.EventType==KEY_EVENT && rec.Event.KeyEvent.bKeyDown) {
++   KEY_EVENT_RECORD *k=&rec.Event.KeyEvent;
++   if(!k->uChar.AsciiChar && (k->wVirtualKeyCode==VK_SHIFT || k->wVirtualKeyCode==VK_CONTROL || k->wVirtualKeyCode==VK_MENU || k->wVirtualKeyCode==VK_CAPITAL || k->wVirtualKeyCode==VK_NUMLOCK || k->wVirtualKeyCode==VK_SCROLL))continue;
++   console_key=*k;console_repeat=k->wRepeatCount?k->wRepeatCount:1;
++  }
++ }
++ memset(rt->ram+out,0,10);
++ if(console_repeat) {
++  DWORD c=console_key.dwControlKeyState;uint16_t shift=0;
++  if(c&SHIFT_PRESSED)shift|=3;
++  if(c&(LEFT_CTRL_PRESSED|RIGHT_CTRL_PRESSED))shift|=4;
++  if(c&(LEFT_ALT_PRESSED|RIGHT_ALT_PRESSED))shift|=8;
++  if(c&SCROLLLOCK_ON)shift|=16;if(c&NUMLOCK_ON)shift|=32;if(c&CAPSLOCK_ON)shift|=64;
++  rt->ram[out]=(uint8_t)console_key.uChar.AsciiChar;
++  rt->ram[out+1]=(uint8_t)console_key.wVirtualScanCode;
++  rt->ram[out+2]=0x40;file_put16(rt->ram+out+4,shift);
++  guest_put_u32(rt,out+6,(uint32_t)GetTickCount64());console_repeat--;*ready=1;
++ }
++ return 0;
++}
++static int console_poll_wait(struct Runtime *rt,struct GuestThread *t)
++{
++ int ready;uint32_t rc=console_key_read(rt,t->queue_args[0],&ready);
++ if(!rc&&!ready)return 0;
++ sync_ready(t,rc);return 1;
++}
++static uint32_t dispatch_console(struct Runtime *rt,uint32_t id,uint32_t esp)
++{
++ const struct Far16Desc *d;uint32_t a[7]={0},i,at=esp+4,rc;
++ HANDLE h=GetStdHandle(STD_OUTPUT_HANDLE);CONSOLE_SCREEN_BUFFER_INFO info;COORD pos;DWORD done;
++ if(!id||id>7)return 1;d=&far16_apis[id-1];
++ for(i=0;i<d->count;i++) {
++  if(!guest_range(at,d->width[i]))return 87;
++  a[i]=d->width[i]==2?rd16(rt->ram+at):guest_u32(rt,at);at+=d->width[i];
++ }
++ if(a[0])return 6;
++ if(id==6) {
++  int ready;
++  if(a[1]>1)return 87;
++  rc=console_key_read(rt,a[2],&ready);
++  if(!rc&&!ready&&!a[1]) {
++   current_guest_thread(rt)->queue_args[0]=a[2];
++   sync_block(rt,THREAD_WAIT_KBD,0,10);
++  }
++  return rc;
++ }
++ if(id==7) {console_repeat=0;return FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE))?0:GetLastError();}
++ if(id==4) {
++  if(a[1]&&(!a[2]||!guest_range(a[2],a[1])))return 87;
++  if(!a[1])return 0;
++  return WriteFile(h,rt->ram+a[2],a[1],&done,NULL)?(done==a[1]?0:29):GetLastError();
++ }
++ if(!GetConsoleScreenBufferInfo(h,&info))return GetLastError();
++ if(id==2) {
++  if(!a[1]||!a[2]||!guest_range(a[1],2)||!guest_range(a[2],2))return 87;
++  file_put16(rt->ram+a[1],(uint16_t)(info.dwCursorPosition.X-info.srWindow.Left));
++  file_put16(rt->ram+a[2],(uint16_t)(info.dwCursorPosition.Y-info.srWindow.Top));return 0;
++ }
++ if(id==3) {
++  if(a[1]>(uint32_t)(info.srWindow.Right-info.srWindow.Left)||a[2]>(uint32_t)(info.srWindow.Bottom-info.srWindow.Top))return 87;
++  pos.X=(SHORT)(info.srWindow.Left+a[1]);pos.Y=(SHORT)(info.srWindow.Top+a[2]);
++  return SetConsoleCursorPosition(h,pos)?0:GetLastError();
++ }
++ if(id==5) {
++  uint32_t cb;
++  if(!a[1]||!guest_range(a[1],2))return 87;cb=rd16(rt->ram+a[1]);
++  if(cb<12||!guest_range(a[1],cb))return 87;
++  /* Only the documented prefix is supported; preserve the caller's cb. */
++  memset(rt->ram+a[1]+2,0,10);rt->ram[a[1]+2]=1;rt->ram[a[1]+3]=4;
++  file_put16(rt->ram+a[1]+4,(uint16_t)(info.srWindow.Right-info.srWindow.Left+1));
++  file_put16(rt->ram+a[1]+6,(uint16_t)(info.srWindow.Bottom-info.srWindow.Top+1));return 0;
++ }
++ if(id==1) {
++  SMALL_RECT rect;CHAR_INFO cell;uint32_t height,width,lines,row;
++  if(!a[1]||!guest_range(a[1],2))return 87;
++  width=(uint32_t)(info.srWindow.Right-info.srWindow.Left+1);height=(uint32_t)(info.srWindow.Bottom-info.srWindow.Top+1);
++  if(a[3]==0xffff)a[3]=width-1;if(a[4]==0xffff)a[4]=height-1;
++  if(a[6]>a[4]||a[5]>a[3]||a[3]>=width||a[4]>=height)return 87;
++  rect.Left=(SHORT)(info.srWindow.Left+a[5]);rect.Right=(SHORT)(info.srWindow.Left+a[3]);
++  rect.Top=(SHORT)(info.srWindow.Top+a[6]);rect.Bottom=(SHORT)(info.srWindow.Top+a[4]);
++  cell.Char.AsciiChar=(CHAR)rt->ram[a[1]];cell.Attributes=rt->ram[a[1]+1];
++  height=a[4]-a[6]+1;width=a[3]-a[5]+1;lines=a[2];if(!lines)return 0;
++  if(lines>=height) {
++   for(row=0;row<height;row++) {
++    pos.X=rect.Left;pos.Y=(SHORT)(rect.Top+row);
++    if(!FillConsoleOutputCharacterA(h,cell.Char.AsciiChar,width,pos,&done)||!FillConsoleOutputAttribute(h,cell.Attributes,width,pos,&done))return GetLastError();
++   }
++   return 0;
++  }
++  pos.X=rect.Left;pos.Y=(SHORT)(rect.Top-lines);
++  return ScrollConsoleScreenBufferA(h,&rect,&rect,pos,&cell)?0:GetLastError();
++ }
++ return 1;
++}
+--- a/v2_far16.h
++++ b/v2_far16.h
+@@ -0,0 +1,78 @@
++/* C/386 migration helper lowering. Original executable bytes on disk stay intact.
++ * No real 16-bit execution or selector tokens are claimed by this bridge. */
++struct Far16Desc { const char *module,*name; uint32_t ordinal; uint8_t count,width[7]; };
++static const struct Far16Desc far16_apis[]={
++ {"VIOCALLS","VioScrollUp",7,7,{2,4,2,2,2,2,2}},
++ {"VIOCALLS","VioGetCurPos",9,3,{2,4,4}},
++ {"VIOCALLS","VioSetCurPos",15,3,{2,2,2}},
++ {"VIOCALLS","VioWrtTTY",19,3,{2,2,4}},
++ {"VIOCALLS","VioGetMode",21,2,{2,4}},
++ {"KBDCALLS","KbdCharIn",4,3,{2,2,4}},
++ {"KBDCALLS","KbdFlushBuffer",13,1,{2}}
++};
++static int far16_desc(const char *module,uint32_t ordinal)
++{
++ uint32_t i;for(i=0;i<7;i++)if(!_stricmp(module,far16_apis[i].module)&&ordinal==far16_apis[i].ordinal)return (int)i;
++ return -1;
++}
++static void install_far16(struct LeImage *x,struct Runtime *rt)
++{
++ uint32_t i,j,k,n=0,covered[MAX_OBJECTS]={0};
++ struct {uint32_t obj,off,desc;} helpers[64];
++ static const uint8_t pro[]={0x55,0x8b,0xec,0x83,0xec,4,0x53,0x57,0x56,6};
++ static const uint8_t lss[]={0x66,0x0f,0xb2,0x24,0x24};
++ for(i=0;i<x->nbridge_fix;i++) {
++  struct BridgeFix *e=&x->bridge_fix[i],*ret=NULL,*alias=NULL,*stack=NULL;
++  uint32_t base,sel,lo,helper=0xffffffffu;uint8_t *code,*thunk;int d;
++  if(e->kind!=TGT_EXT_ORD || (e->type&0x1f)!=(SRC_PTR16|0x10))continue;
++  if(e->used || !e->off || n==64)fatal("invalid migration import");
++  d=far16_desc(x->modules[e->first-1].name,e->target);if(d<0)fatal("unknown far16 API");
++  base=e->off-1;
++  if((x->objects[e->obj].flags&OBJ_BIG)||x->objects[e->obj].size<14||base>x->objects[e->obj].size-14)fatal("invalid migration fragment");
++  thunk=rt->ram+x->objects[e->obj].mapped_addr+base;
++  if(thunk[0]!=0x9a||thunk[5]!=0x66||thunk[6]!=0x67||thunk[7]!=0xea)fatal("unrecognized far16 fragment");
++  for(j=0;j<x->nbridge_fix;j++) {
++   struct BridgeFix *b=&x->bridge_fix[j];
++   if(!b->used&&b->obj==e->obj&&b->off==base+8&&b->kind==TGT_INTERNAL&&(b->type&0x1f)==SRC_PTR32) {
++    if(ret)fatal("ambiguous far16 return");ret=b;
++   }
++  }
++  if(!ret)fatal("missing far16 return");
++  for(j=0;j<x->nbridge_fix;j++) {
++   struct BridgeFix *b=&x->bridge_fix[j];
++   if(!b->used&&b->kind==TGT_INTERNAL&&(b->type&0x1f)==(SRC_SEL16|0x10)&&b->first==e->obj+1&&b->obj==ret->first-1&&b->off+2==ret->target) {
++    if(alias)fatal("ambiguous far16 alias");alias=b;
++   }
++  }
++  if(!alias || !(x->objects[alias->obj].flags&OBJ_BIG))fatal("missing 32-bit migration helper");
++  sel=alias->off;code=rt->ram+x->objects[alias->obj].mapped_addr;
++  if(sel<9 || code[sel-4]!=0x66 || code[sel-3]!=0xea || rd16(code+sel-2)!=base || memcmp(code+sel-9,lss,5))fatal("invalid migration transition");
++  lo=sel>192?sel-192:0;
++  for(j=lo;j+sizeof(pro)<=sel;j++)if(!memcmp(code+j,pro,sizeof(pro)))helper=j;
++  if(helper==0xffffffffu)fatal("missing migration prologue");
++  for(j=0;j<x->nbridge_fix;j++) {
++   struct BridgeFix *b=&x->bridge_fix[j];
++   if(!b->used&&b->kind==TGT_INTERNAL&&(b->type&0x1f)==SRC_SEL16&&b->obj==alias->obj&&b->first==x->stack_object&&b->off>helper+1&&b->off<sel) {
++    if(stack)fatal("ambiguous migration stack");stack=b;
++   }
++  }
++  if(!stack || code[stack->off-2]!=0x66 || code[stack->off-1]!=0x3d)fatal("missing migration SS comparison");
++  for(k=0;k<n;k++)if(helpers[k].obj==alias->obj&&helpers[k].off==helper)fatal("overlapping migration helpers");
++  helpers[n].obj=alias->obj;helpers[n].off=helper;helpers[n++].desc=(uint32_t)d;
++  covered[e->obj]+=14;e->used=ret->used=alias->used=stack->used=1;
++ }
++ for(i=0;i<x->nbridge_fix;i++)if(!x->bridge_fix[i].used)fatal("nonflat relocation outside recognized migration helpers");
++ for(i=0;i<x->num_objects;i++)if(!(x->objects[i].flags&OBJ_BIG)&&covered[i]!=x->objects[i].size)fatal("16-bit object is not entirely migration fragments");
++ /* Validate everything before installing replacements. Packed Pascal frame:
++    return DWORD, rightmost arg first, WORD scalars / DWORD flat pointer tokens. */
++ for(i=0;i<n;i++) {
++  uint32_t va=align_up(rt->stub_next,16),src=x->objects[helpers[i].obj].mapped_addr+helpers[i].off,bytes=0;
++  uint8_t *p;const struct Far16Desc *d=&far16_apis[helpers[i].desc];
++  if(va+16>GUEST_STUB_LIMIT)fatal("far16 veneer overflow");p=rt->ram+va;
++  for(j=0;j<d->count;j++)bytes+=d->width[j];
++  p[0]=0xb8;wr32(p+1,HC_CONSOLE|(helpers[i].desc+1));p[5]=0xe7;p[6]=0xf0;
++  p[7]=0xc2;p[8]=(uint8_t)bytes;p[9]=(uint8_t)(bytes>>8);
++  rt->ram[src]=0xe9;wr32(rt->ram+src+1,va-(src+5));rt->stub_next=va+16;
++  fprintf(stderr,"v2: C/386 bridge %s.%u %s helper=%08X packed=%u -> %08X\n",d->module,d->ordinal,d->name,src,bytes,va);
++ }
++}
+--- a/v2_find.h
++++ b/v2_find.h
+@@ -24,8 +24,10 @@
+     size_t n;
+     uint8_t *p;
+     uint32_t allocation;
++    const char *layout=getenv("WHP_OS2_FIND_LAYOUT");
++    int ga=layout && !strcmp(layout,"GA");
+     guest_put_u32(rt,count,0);
+-    if (cb < BETA_FINDBUF_SIZE) return 111u;
++    if (cb < (ga ? 285u : BETA_FINDBUF_SIZE)) return 111u;
+     for (;;) {
+         if (!s->pending) {
+             if (s->ended) return 18u;
+@@ -42,7 +44,8 @@
+     n=strlen(s->data.cFileName);
+     if (n>255u || s->data.nFileSizeHigh) return 111u;
+     p=rt->ram+buf;
+-    memset(p,0,BETA_FINDBUF_SIZE);
++    memset(p,0,ga ? 285u : BETA_FINDBUF_SIZE);
++    if(ga)p+=4; /* oNextEntryOffset remains zero: one returned record. */
+     file_stamp(p,&s->data.ftCreationTime);
+     file_stamp(p+4,&s->data.ftLastAccessTime);
+     file_stamp(p+8,&s->data.ftLastWriteTime);
+@@ -50,9 +53,13 @@
+     allocation=s->data.nFileSizeLow;
+     if (allocation<=0xfffff000u) allocation=(allocation+4095u)&~4095u;
+     wr32(p+16,allocation);
+-    file_put16(p+20,(uint16_t)(s->data.dwFileAttributes&0x37u));
+-    p[22]=(uint8_t)n;
+-    memcpy(p+23,s->data.cFileName,n+1u);
++    if(ga) {
++        wr32(p+20,s->data.dwFileAttributes&0x37u);p[24]=(uint8_t)n;
++        memcpy(p+25,s->data.cFileName,n+1u);
++    } else {
++        file_put16(p+20,(uint16_t)(s->data.dwFileAttributes&0x37u));
++        p[22]=(uint8_t)n;memcpy(p+23,s->data.cFileName,n+1u);
++    }
+     s->pending=0;
+     guest_put_u32(rt,count,1);
+     return 0;
+--- a/whp_os2_v2_hi.c
++++ b/whp_os2_v2_hi.c
+@@ -52,6 +52,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <ctype.h>
+ 
+ #pragma comment(lib, "WinHvPlatform.lib")
+ 
+@@ -95,6 +96,11 @@
+ #define THREAD_REG_COUNT    16u
+ 
+ #define SRC_MASK            0x0f
++#define SRC_SEL16 2u
++#define SRC_PTR16 3u
++#define SRC_PTR32 6u
++#define HC_CONSOLE 0x07000000u
++#define HC_SESMGR 0x08000000u
+ #define SRC_OFF32           0x07
+ #define SRC_REL32           0x08
+ #define SRC_LIST            0x20
+@@ -181,7 +187,10 @@
+     uint32_t sites;
+ };
+ 
++struct BridgeFix { uint32_t obj,off,first,target,type,kind,used; };
+ struct LeImage {
++    struct BridgeFix bridge_fix[256];
++    uint32_t nbridge_fix;
+     uint8_t *file;
+     uint32_t file_size;
+     uint32_t le;
+@@ -237,6 +246,7 @@
+     THREAD_WAIT_MUTEX,
+     THREAD_WAIT_QUEUE,
+     THREAD_WAIT_PM,
++    THREAD_WAIT_KBD,
+     THREAD_SUSPENDED,
+     THREAD_DEAD
+ };
+@@ -513,8 +523,8 @@
+         o->mapsize  = rd32(x->file + off + 16);
+         o->reserved = rd32(x->file + off + 20);
+ 
+-        if ((o->flags & OBJ_BIG) == 0)
+-            fatal("V2 DLL milestone supports only flat 32-bit LE objects");
++        if (!(o->flags & OBJ_BIG) && (!(o->flags & OBJ_EXEC) || o->size > 65536u))
++            fatal("only bounded C/386 migration code objects are supported");
+         if (o->size != 0) {
+             if (o->addr > 0xffffffffu - o->size)
+                 fatal("LE object preferred range overflows");
+@@ -534,6 +544,9 @@
+     }
+ 
+     if (is_main) {
++        if (!(x->objects[x->entry_object-1].flags & OBJ_BIG) ||
++            !(x->objects[x->stack_object-1].flags & OBJ_BIG))
++            fatal("16-bit entry/stack unsupported");
+         if (x->entry_offset >= x->objects[x->entry_object - 1u].size ||
+             x->stack_offset < 20u ||
+             x->stack_offset > x->objects[x->stack_object - 1u].size)
+@@ -826,8 +839,9 @@
+             flags = x->file[p++];
+             st = type & SRC_MASK;
+             kind = flags & TGT_MASK;
+-            if (st != SRC_OFF32 && st != SRC_REL32)
++            if (st != SRC_OFF32 && st != SRC_REL32 && st != SRC_SEL16 && st != SRC_PTR16 && st != SRC_PTR32)
+                 fatal("V2 DLL milestone supports OFF32/REL32 fixups only");
++            if ((type&0x10) && st!=SRC_SEL16 && st!=SRC_PTR16) fatal("unsupported alias fixup");
+             if (flags & TGT_CHAIN)
+                 fatal("chained LE fixups are unsupported");
+ 
+@@ -848,24 +862,27 @@
+             target = 0;
+ 
+             if (kind == TGT_INTERNAL) {
+-                if (st != SRC_OFF32)
+-                    fatal("internal fixup is not OFF32");
++                if (st != SRC_OFF32 && st != SRC_SEL16 && st != SRC_PTR32)
++                    fatal("unsupported internal fixup kind");
+                 if (first == 0 || first > x->num_objects)
+                     fatal("internal fixup has invalid object");
+-                if (flags & TGT_OFF32) {
++                if (st == SRC_SEL16) {
++                    target = 0;
++                } else if (flags & TGT_OFF32) {
+                     if (end - q < 4) fatal("truncated internal target");
+-                    q += 4;
++                    target = rd32(x->file+q); q += 4;
+                 } else {
+                     if (end - q < 2) fatal("truncated internal target");
+-                    q += 2;
++                    target = rd16(x->file+q); q += 2;
+                 }
+                 if (flags & TGT_ADDITIVE)
+                     fatal("additive internal fixup unsupported");
+                 ++x->internal_records;
+                 x->internal_sites += count;
+             } else if (kind == TGT_EXT_ORD) {
+-                if (st != SRC_REL32)
+-                    fatal("external ordinal fixup is not REL32");
++                if (st != SRC_REL32 && st != SRC_PTR16)
++                    fatal("unsupported ordinal fixup kind");
++                if (st == SRC_PTR16 && (flags & TGT_ADDITIVE)) fatal("additive far16 import unsupported");
+                 if (first == 0 || first > x->num_impmods)
+                     fatal("external fixup has invalid module");
+                 if (flags & TGT_ORD8) {
+@@ -914,6 +931,21 @@
+                 fatal("unknown LE target kind");
+             }
+ 
++            if (st == SRC_SEL16 || st == SRC_PTR16 || st == SRC_PTR32) {
++                uint32_t j,at;
++                int16_t source;
++                for(j=0;j<count;j++) {
++                    struct BridgeFix *b;
++                    if(x->nbridge_fix==256)fatal("too many migration fixups");
++                    at=(type&SRC_LIST)?q+j*2u:start; /* non-list source is immediately after header */
++                    if(type&SRC_LIST) { if(at+2u>end)fatal("truncated migration list"); }
++                    source=rds16(x->file+((type&SRC_LIST)?at:p-2u));
++                    b=&x->bridge_fix[x->nbridge_fix++];
++                    b->off=source_object_offset(x,physical,source,&b->obj);
++                    if(st==SRC_PTR32 && (x->objects[b->obj].size<6 || b->off>x->objects[b->obj].size-6))fatal("far32 source overflow");
++                    b->first=first;b->target=target;b->type=type;b->kind=kind;b->used=0;
++                }
++            }
+             p = q;
+             if (type & SRC_LIST) {
+                 if (p > end || count * 2u > end - p)
+@@ -931,11 +963,18 @@
+     }
+ }
+ 
++#include "v2_far16.h"
++
+ static uint32_t hostcall_stub(struct Runtime *rt, uint32_t module, uint32_t ordinal)
+ {
+     uint32_t i, va, id;
+     uint8_t *s;
+ 
++    /* C/386 register ABI: keep the original flat guest token in EAX. */
++    if(module==HC_DOSCALLS && ordinal==425) {
++        va=rt->stub_next++;if(va>=GUEST_STUB_LIMIT)fatal("stub overflow");
++        rt->ram[va]=0xc3;return va;
++    }
+     id = module | (ordinal & 0x00ffffffu);
+     for (i = 0; i < MAX_IMPORTS; ++i) {
+         if (rt->doscall_stubs[i].address != 0 &&
+@@ -996,7 +1035,9 @@
+ 
+             if (kind == TGT_INTERNAL) {
+                 target = first;
+-                if (flags & TGT_OFF32) {
++                if ((type&SRC_MASK)==SRC_SEL16) {
++                    target_off = 0;
++                } else if (flags & TGT_OFF32) {
+                     target_off = rd32(x->file + q); q += 4;
+                 } else {
+                     target_off = rd16(x->file + q); q += 2;
+@@ -1032,6 +1073,7 @@
+                 source_off = source_object_offset(x, physical, source, &src_obj_index);
+                 src_va = x->objects[src_obj_index].mapped_addr + source_off;
+ 
++                if ((type&SRC_MASK)==SRC_SEL16 || (type&SRC_MASK)==SRC_PTR16 || (type&SRC_MASK)==SRC_PTR32) continue;
+                 if (kind == TGT_INTERNAL) {
+                     /* Preserve LINK386's 32-bit biased-offset arithmetic. */
+                     dst_va = x->objects[target - 1u].mapped_addr + target_off;
+@@ -1085,7 +1127,9 @@
+     }
+     for (i = 0; i < x.nname_imports; ++i)
+         x.name_imports[i].address = GUEST_STUB_BASE + (x.nimports + i) * 8u;
++    rt.stub_next=GUEST_STUB_BASE+(x.nimports+x.nname_imports)*8u;
+     apply_fixups(&x, rt.ram);
++    install_far16(&x, &rt);
+     fprintf(stderr, "PASS: page mapping and fixup application; %u ordinal + %u named imports.\n",
+            x.nimports, x.nname_imports);
+     fprintf(stderr, "CHECK ONLY: import addresses are placeholders; no guest code executed.\n");
+@@ -1343,6 +1387,12 @@
+         const char *mod = x->modules[x->imports[i].module].name;
+         if (_stricmp(mod, "DOSCALLS") == 0) {
+             addr = hostcall_stub(rt, HC_DOSCALLS, x->imports[i].ordinal);
++        } else if (_stricmp(mod,"VIOCALLS")==0 || _stricmp(mod,"KBDCALLS")==0) {
++            int d=far16_desc(mod,x->imports[i].ordinal);
++            if(d<0)fatal("unsupported VIO/KBD import");
++            addr=hostcall_stub(rt,HC_CONSOLE,(uint32_t)d+1);
++        } else if (_stricmp(mod,"SESMGR")==0) {
++            addr=hostcall_stub(rt,HC_SESMGR,x->imports[i].ordinal);
+         } else if (_stricmp(mod, "PMGPI") == 0) {
+             addr = hostcall_stub(rt, HC_PMGPI, x->imports[i].ordinal);
+         } else if (_stricmp(mod, "PMWIN") == 0) {
+@@ -1438,6 +1488,7 @@
+     scan_fixups(&g->image);
+     resolve_imports(rt, &g->image, g->request_name);
+     apply_fixups(&g->image, rt->ram);
++    install_far16(&g->image, rt);
+     g->state = 2;
+ 
+     for (i = 0; i < g->image.num_objects; ++i) {
+@@ -1734,6 +1785,7 @@
+     case THREAD_SLEEP: return "SLEEP";
+     case THREAD_WAIT_MUTEX: return "WAIT_MUTEX";
+     case THREAD_WAIT_QUEUE: return "WAIT_QUEUE";
++    case THREAD_WAIT_KBD: return "WAIT_KBD";
+     case THREAD_WAIT_PM: return "WAIT_PM";
+     case THREAD_SUSPENDED: return "SUSPENDED";
+     case THREAD_DEAD: return "DEAD";
+@@ -1811,6 +1863,7 @@
+     }
+ }
+ 
++static int console_poll_wait(struct Runtime *rt, struct GuestThread *t);
+ static int wake_expired_waiters(struct Runtime *rt)
+ {
+     uint32_t i;
+@@ -1820,6 +1873,13 @@
+     woke = 0;
+     for (i = 0; i < MAX_THREADS; ++i) {
+         struct GuestThread *t = &rt->threads[i];
++        if(t->state==THREAD_WAIT_KBD) {
++            if(t->wait_deadline_ms<=now) {
++                if(console_poll_wait(rt,t))woke=1;
++                else t->wait_deadline_ms=now+10;
++            }
++            continue;
++        }
+         if ((t->state != THREAD_WAIT_EVENT && t->state != THREAD_WAIT_MUTEX &&
+              t->state != THREAD_SLEEP) || t->wait_deadline_ms == 0)
+             continue;
+@@ -1844,7 +1904,7 @@
+     for (i = 0; i < MAX_THREADS; ++i) {
+         struct GuestThread *t = &rt->threads[i];
+         if ((t->state != THREAD_WAIT_EVENT && t->state != THREAD_WAIT_MUTEX &&
+-             t->state != THREAD_SLEEP) || t->wait_deadline_ms == 0)
++             t->state != THREAD_SLEEP && t->state != THREAD_WAIT_KBD) || t->wait_deadline_ms == 0)
+             continue;
+         if (earliest == 0 || t->wait_deadline_ms < earliest)
+             earliest = t->wait_deadline_ms;
+@@ -1887,6 +1947,8 @@
+ #include "v2_pm.h"
+ #include "v2_gpi.h"
+ #include "v2_beep.h"
++#include "v2_console.h"
++#include "v2_cmdfs.h"
+ 
+ static uint32_t create_guest_thread(struct Runtime *rt, uint32_t ptid,
+                                     uint32_t entry, uint32_t param,
+@@ -2059,6 +2121,9 @@
+     a5 = guest_range(esp + 20u, 4) ? guest_u32(rt, esp + 20u) : 0u;
+ 
+     switch (ordinal) {
++    case 220: case 226: case 239: case 255: case 260: case 270: case 271:
++    case 274: case 275: case 280: case 283: case 323:
++        return dispatch_cmdfs(rt,ordinal,esp);
+     case 263: case 264: case 265:
+     {
+         uint32_t find_rc = dispatch_find(rt, ordinal, esp);
+@@ -2526,6 +2591,11 @@
+                 rc=dispatch_pm(rt,ordinal,(uint32_t)rsp,
+                     (uint32_t)(ec.VpContext.Rip+ec.VpContext.InstructionLength),&entered);
+                 if (entered) continue;
++            } else if (module == HC_CONSOLE) {
++                rc=dispatch_console(rt,ordinal,(uint32_t)rsp);
++            } else if (module == HC_SESMGR) {
++                fprintf(stderr,"v2: SESMGR.%u not yet supported by WHP CMD phase 1\n",ordinal);
++                rc=OS2_ERROR_INVALID_FUNCTION;
+             } else if (module == HC_DOSCALLS) {
+                 rc = dispatch_doscalls(rt, ordinal, (uint32_t)rsp);
+             } else if (module == HC_QUECALLS) {
+@@ -2642,7 +2712,7 @@
+         return 1;
+     }
+ 
+-    fprintf(stderr, "WHP OS/2 V2 Milestone 1 (R12 fix 2) - LE/LX loader + threads + events + guest DLLs + file I/O\n");
++    fprintf(stderr, "WHP OS/2 V2 M2 CMD bridge R1 - LE/LX loader + threads + events + guest DLLs + file I/O\n");
+     fprintf(stderr, "v2: input %s (%u bytes)\n", argv[1], x.file_size);
+ 
+     hr = WHvCreatePartition(&rt.partition);
+@@ -2672,6 +2742,7 @@
+     resolve_imports(&rt, &x, base_name(argv[1]));
+     emit_runtime_stubs(&rt);
+     apply_fixups(&x, rt.ram);
++    install_far16(&x, &rt);
+ 
+     entry = x.objects[x.entry_object - 1u].mapped_addr + x.entry_offset;
+     stack_top = x.objects[x.stack_object - 1u].mapped_addr + x.stack_offset;
+@@ -2827,6 +2898,7 @@
+     goto cleanup;
+ 
+ cleanup:
++    console_cleanup();
+     pm_cleanup(&rt);
+     for (i = 0; i < MAX_THREADS; ++i) cancel_guest_callbacks(&rt.threads[i]);
+     for (i = 0; i < MAX_SEARCHES; ++i)

@@ -1,0 +1,27 @@
+M31 FINAL
+
+Freeze point: M31G R19 FINAL + CMD32 post-freeze QoL through TABCOMP R3.
+
+PM/runtime preserved:
+  WMCHAR, HANOI, BIO, HELLO+OPENDLG, Sarien PM, JIGSAW, NEKO+NEKO.DLL.
+
+CMD32 QoL frozen:
+  - optional C:\OS2\ENV\STARTUP.CMD
+  - 30-entry editable command history
+  - COPY source => . and normalized self-copy protection
+  - PS/KILL related-session registry + title support
+  - automatic PM routing based on DosQueryAppType
+  - START /PMC attached-console override
+  - DOSCALLS.323 32-bit DosQueryAppType export
+  - filesystem Tab completion
+  - consistent trailing-directory operands including DIR/COPY/MOVE path\
+
+Accepted host behavior:
+  NEKO may be obscured by an active native Windows application. Do not convert
+  guest HWND_TOP requests to permanent HWND_TOPMOST just to force overlay.
+
+Final gates:
+  make cmd32-tabcomp-check
+  make m31g-neko-r19-check
+
+See MILESTONE31-FINAL.md and NEXT-CHAT-HANDOFF.md.

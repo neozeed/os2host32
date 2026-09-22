@@ -1,0 +1,43 @@
+M31G R19 - WC_SLIDER and HWND_DESKTOP namespace isolation
+
+The R18 Windows run is a major runtime milestone: the untouched OS/2 2.00 GA
+NEKO.EXE now loads its original NEKO.DLL resource module, animates the original
+cat frames, subclasses the native public control, receives its PM timer, and
+moves correctly over the Windows 10 x64 desktop.
+
+Two generic compatibility gaps were exposed by the working application.
+
+1. HWND_DESKTOP enumeration safety
+
+NEKO's Hide mode intentionally enumerates the OS/2 desktop and hides other PM
+windows until the cat is caught.  V1 had mapped HWND_DESKTOP directly to the
+real Win32 desktop and WinBeginEnumWindows returned arbitrary host top-level
+windows.  This allowed an OS/2 guest to hide Explorer and unrelated Windows
+applications.
+
+R19 keeps HWND_DESKTOP as a guest namespace boundary.  When enumerating the
+desktop, WinBeginEnumWindows snapshots only windows owned by the current
+os2host32 process.  Non-desktop child enumeration is unchanged.  As a second
+safety fence, WinShowWindow refuses to hide the native desktop and refuses
+foreign-process HWNDs.
+
+2. WC_SLIDER
+
+NEKO's setup dialog contains three OS/2 slider controls (class ordinal 38) for
+Play time, Speed, and Step.  The old dialog translator did not recognize class
+38 and silently created STATIC controls, leaving three blank gaps.
+
+R19 maps WC_SLIDER to the Win32 common-control trackbar.  The bridge supports
+the messages NEKO actually uses:
+  SLM_QUERYSLIDERINFO 0x036C
+  SLM_SETSLIDERINFO   0x0371
+  SLM_SETTICKSIZE     0x0372
+
+SMA_SLIDERARMPOSITION/SMA_INCREMENTVALUE maps to the native trackbar position,
+arm-size requests map to trackbar thumb length, and tick requests populate the
+native scale.  Native trackbar WM_HSCROLL notifications are translated back to
+OS/2 WM_CONTROL using SLN_CHANGE / SLN_SLIDERTRACK and the current arm value.
+This makes the controls functional rather than decorative.
+
+No executable-name checks or NEKO-specific resource IDs are used.  The change
+is a general PM class/desktop-namespace compatibility improvement.

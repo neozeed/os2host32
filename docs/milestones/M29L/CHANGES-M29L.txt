@@ -1,0 +1,25 @@
+Milestone 29L - first real OS/2 Session Manager / START slice
+
+- freezes M29K4 ordinary-process semantics
+- adds SESMGR.dll as a distinct Win32 personality module
+- implements SESMGR ordinal 17, DosStartSession
+- models the 32-bit pack(2), 60-byte STARTDATA wire structure
+- adds CmdO2StartSession to the host-neutral CMD backend boundary
+- direct Microsoft C/386 shell imports SESMGR.17 rather than approximating
+  START with DOSCALLS.283
+- native Win32 bootstrap resolves the same SESMGR.17 implementation by ordinal
+- START <program> [args] now creates a related, separate OS/2 session and
+  returns immediately to the parent command prompt
+- session launch uses a fresh console for VIO/default sessions and retains
+  the M29K2 environment-normalization rules
+- started sessions are deliberately outside DOSCALLS/DosWaitChild process
+  tracking; SESMGR owns its own session table
+- adds m29l-session-child.exe and cmdos2_os2_start_test.exe regressions
+- does not yet implement historical START switches, CMD/BAT START, session
+  stop/select APIs, termination queues, or detailed PM/fullscreen policy
+
+Expected scan delta for cmd32os2_os2.exe:
+- import modules: DOSCALLS, VIOCALLS, KBDCALLS, SESMGR
+- SESMGR.17: one site
+- C/386 far16 migration thunks: still seven
+- 16-bit thunk object: still 0x62 bytes

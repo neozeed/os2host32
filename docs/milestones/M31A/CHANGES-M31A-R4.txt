@@ -1,0 +1,18 @@
+Milestone 31A R4 - WM_CREATE callback fault isolation
+=====================================================
+
+R3 proves WMCHAR reaches native CreateWindow and then disappears on the first
+native WM_CREATE before WinCreateStdWindow returns.
+
+WMCHAR's original MainWndProc does not handle WM_CREATE itself; it immediately
+falls through to WinDefWindowProc.  R4 therefore adds diagnostics around that
+single host->guest->host round trip without changing the normal PM semantics:
+
+  * call_guest enter/leave trace with guest callback address
+  * WinDefWindowProc entry trace
+  * vectored exception trace with exception code/address and EIP/ESP/EBP
+
+For fault isolation only, OS2_PM_BYPASS_WM_CREATE=1 suppresses the guest
+WM_CREATE callback.  This is deliberately opt-in and is NOT the intended PM
+implementation.  If the normal trace faults but bypass reaches WM_PAINT, it
+proves the problem is the re-entrant WM_CREATE callback path.

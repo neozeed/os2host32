@@ -1,0 +1,2 @@
+file helper tests PASS (POSIX backend shim; Windows execution still required)
+directory dispatcher tests PASS (mock Win32 enumeration)

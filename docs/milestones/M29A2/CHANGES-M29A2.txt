@@ -1,0 +1,10 @@
+M29A2 - MinGW console-header compatibility fix
+
+- Fix KBDCALLS control-state translation to use Win32 SHIFT_PRESSED.
+- Win32 console input defines one Shift-state flag, not LEFT_SHIFT_PRESSED /
+  RIGHT_SHIFT_PRESSED (Ctrl and Alt do have separate left/right flags).
+- Preserve the M29A OS/2 fsState approximation by setting both Shift bits
+  when Win32 reports Shift pressed.
+- Add a local SHIFT_PRESSED fallback (0x0010) for older MinGW/SDK headers.
+
+No loader, DOSCALLS, VIO, pipeline, or shell semantics changed.

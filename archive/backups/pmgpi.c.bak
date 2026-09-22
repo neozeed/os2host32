@@ -1,0 +1,871 @@
+/*
+ * pmgpi.c - tiny PMGPI personality for the Sarien C/386 PM backend.
+ *
+ * HPS and HBITMAP are private 32-bit pointers to small compatibility objects.
+ * A bitmap is kept as a bottom-up 8-bit buffer and GpiBitBlt presents it with
+ * StretchDIBits to the native HDC supplied by PMWIN/DevOpenDC.
+ */
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <stdio.h>
+#include <string.h>
+#include "pmcompat.h"
+
+#ifndef __cdecl
+#define __cdecl
+#endif
+
+typedef DWORD O2ULONG;
+typedef LONG O2LONG;
+typedef WORD O2USHORT;
+typedef BYTE O2BYTE;
+typedef DWORD O2HAB;
+typedef DWORD O2HDC;
+typedef DWORD O2HPS;
+typedef DWORD O2HBITMAP;
+
+typedef struct O2POINTL {
+    O2LONG x;
+    O2LONG y;
+} O2POINTL;
+
+typedef struct O2SIZEL {
+    O2LONG cx;
+    O2LONG cy;
+} O2SIZEL;
+
+typedef struct O2RECTL {
+    O2LONG xLeft;
+    O2LONG yBottom;
+    O2LONG xRight;
+    O2LONG yTop;
+} O2RECTL;
+
+typedef struct O2BITMAPINFOHEADER2 {
+    O2ULONG cbFix;
+    O2ULONG cx;
+    O2ULONG cy;
+    O2USHORT cPlanes;
+    O2USHORT cBitCount;
+    O2ULONG ulCompression;
+    O2ULONG cbImage;
+    O2ULONG cxResolution;
+    O2ULONG cyResolution;
+    O2ULONG cclrUsed;
+    O2ULONG cclrImportant;
+    O2USHORT usUnits;
+    O2USHORT usReserved;
+    O2USHORT usRecording;
+    O2USHORT usRendering;
+    O2ULONG cSize1;
+    O2ULONG cSize2;
+    O2ULONG ulColorEncoding;
+    O2ULONG ulIdentifier;
+} O2BITMAPINFOHEADER2;
+
+
+#define BM_MAGIC 0x4d42324fUL /* O2BM */
+
+static int gpi_trace_enabled(void)
+{
+    char value[8];
+    DWORD n;
+    n = GetEnvironmentVariableA("OS2_PM_TRACE", value, sizeof(value));
+    return n != 0 && n < sizeof(value) && value[0] != '0';
+}
+
+typedef struct O2FONTMETRICS {
+    char szFamilyname[32];
+    char szFacename[32];
+    O2USHORT idRegistry;
+    O2USHORT usCodePage;
+    O2LONG lEmHeight;
+    O2LONG lXHeight;
+    O2LONG lMaxAscender;
+    O2LONG lMaxDescender;
+    O2LONG lLowerCaseAscent;
+    O2LONG lLowerCaseDescent;
+    O2LONG lInternalLeading;
+    O2LONG lExternalLeading;
+    O2LONG lAveCharWidth;
+    O2LONG lMaxCharInc;
+    O2LONG lEmInc;
+    O2LONG lMaxBaselineExt;
+    short sCharSlope;
+    short sInlineDir;
+    short sCharRot;
+    O2USHORT usWeightClass;
+    O2USHORT usWidthClass;
+    short sXDeviceRes;
+    short sYDeviceRes;
+    short sFirstChar;
+    short sLastChar;
+    short sDefaultChar;
+    short sBreakChar;
+    short sNominalPointSize;
+    short sMinimumPointSize;
+    short sMaximumPointSize;
+    O2USHORT fsType;
+    O2USHORT fsDefn;
+    O2USHORT fsSelection;
+    O2USHORT fsCapabilities;
+    O2LONG lSubscriptXSize;
+    O2LONG lSubscriptYSize;
+    O2LONG lSubscriptXOffset;
+    O2LONG lSubscriptYOffset;
+    O2LONG lSuperscriptXSize;
+    O2LONG lSuperscriptYSize;
+    O2LONG lSuperscriptXOffset;
+    O2LONG lSuperscriptYOffset;
+    O2LONG lUnderscoreSize;
+    O2LONG lUnderscorePosition;
+    O2LONG lStrikeoutSize;
+    O2LONG lStrikeoutPosition;
+    short sKerningPairs;
+    short sFamilyClass;
+    O2LONG lMatch;
+} O2FONTMETRICS;
+
+static struct CompatPS *ps_from(O2HPS hps)
+{
+    struct CompatPS *p;
+    p = (struct CompatPS *)(DWORD)hps;
+    if (!p || p->magic != PMCOMPAT_PS_MAGIC)
+        return NULL;
+    return p;
+}
+
+
+static COLORREF gpi_native_color(O2LONG color)
+{
+    switch (color) {
+    case -2L: return RGB(255,255,255); /* CLR_WHITE */
+    case -1L: return RGB(0,0,0);       /* CLR_BLACK */
+    case 0L:  return RGB(192,192,192); /* CLR_BACKGROUND */
+    case 1L:  return RGB(0,0,255);
+    case 2L:  return RGB(255,0,0);
+    case 3L:  return RGB(255,0,255);
+    case 4L:  return RGB(0,255,0);
+    case 5L:  return RGB(0,255,255);
+    case 6L:  return RGB(255,255,0);
+    case 7L:  return RGB(192,192,192);
+    case 8L:  return RGB(128,128,128);
+    case 9L:  return RGB(0,0,128);
+    case 10L: return RGB(128,0,0);
+    case 11L: return RGB(128,0,128);
+    case 12L: return RGB(0,128,0);
+    case 13L: return RGB(0,128,128);
+    case 14L: return RGB(128,128,0);
+    case 15L: return RGB(224,224,224);
+    default:  return (COLORREF)(DWORD)color;
+    }
+}
+static struct CompatBitmap *bm_from(O2HBITMAP hbm)
+{
+    struct CompatBitmap *b;
+    b = (struct CompatBitmap *)(DWORD)hbm;
+    if (!b || b->magic != BM_MAGIC)
+        return NULL;
+    return b;
+}
+
+static void make_bmi(struct CompatBitmap *b, BITMAPINFOHEADER *h,
+                     RGBQUAD *colors)
+{
+    int i;
+    memset(h, 0, sizeof(*h));
+    h->biSize = sizeof(*h);
+    h->biWidth = b->width;
+    h->biHeight = b->height;
+    h->biPlanes = 1;
+    h->biBitCount = b->bitcount;
+    h->biCompression = BI_RGB;
+    h->biSizeImage = (DWORD)(b->stride * b->height);
+    if (b->bitcount <= 8) {
+        h->biClrUsed = 256;
+        h->biClrImportant = 256;
+        for (i = 0; i < 256; ++i)
+            colors[i] = b->palette[i];
+    }
+}
+
+/* 355 */
+O2LONG __cdecl GpiBitBlt(O2HPS target, O2HPS source, O2LONG count,
+                         O2POINTL *points, O2LONG rop, O2ULONG bbo)
+{
+    struct CompatPS *dst;
+    struct CompatPS *src;
+    struct CompatBitmap *b;
+    struct {
+        BITMAPINFOHEADER h;
+        RGBQUAD colors[256];
+    } bi;
+    int dx, dy, w, h, sx, sy, rc;
+    int client_h;
+    HDC tmpdc;
+    HBITMAP tmpbm;
+    HGDIOBJ oldbm;
+    RECT cr;
+    (void)rop; (void)bbo;
+    dst = ps_from(target);
+    src = ps_from(source);
+    if (!dst || !src || !points || count < 3)
+        return 0;
+    dx = (int)points[0].x;
+    dy = (int)points[0].y;
+    w = (int)(points[1].x - points[0].x);
+    h = (int)(points[1].y - points[0].y);
+    sx = (int)points[2].x;
+    sy = (int)points[2].y;
+
+    /* Screen/window PS -> memory bitmap, used by BIO's clipboard path. */
+    if (dst->bitmap && src->dc) {
+        b = dst->bitmap;
+        if (w <= 0) w = (int)b->width;
+        if (h <= 0) h = (int)b->height;
+        client_h = h;
+        if (src->hwnd && GetClientRect(src->hwnd, &cr))
+            client_h = cr.bottom - cr.top;
+        tmpdc = CreateCompatibleDC(src->dc);
+        tmpbm = CreateCompatibleBitmap(src->dc, w, h);
+        if (!tmpdc || !tmpbm) {
+            if (tmpdc) DeleteDC(tmpdc);
+            if (tmpbm) DeleteObject(tmpbm);
+            return 0;
+        }
+        oldbm = SelectObject(tmpdc, tmpbm);
+        rc = BitBlt(tmpdc, 0, 0, w, h, src->dc, sx,
+                    client_h - sy - h, SRCCOPY);
+        SelectObject(tmpdc, oldbm);
+        make_bmi(b, &bi.h, bi.colors);
+        if (rc)
+            rc = GetDIBits(tmpdc, tmpbm, 0, (UINT)b->height, b->bits,
+                           (BITMAPINFO *)&bi, DIB_RGB_COLORS) != 0;
+        DeleteObject(tmpbm);
+        DeleteDC(tmpdc);
+        return rc ? 1 : 0;
+    }
+
+    /* Memory bitmap -> native PS. */
+    if (src->bitmap && dst->dc) {
+        b = src->bitmap;
+        if (w <= 0) w = (int)b->width;
+        if (h <= 0) h = (int)b->height;
+        client_h = h;
+        if (dst->hwnd && GetClientRect(dst->hwnd, &cr))
+            client_h = cr.bottom - cr.top;
+        make_bmi(b, &bi.h, bi.colors);
+        SetStretchBltMode(dst->dc, COLORONCOLOR);
+        rc = StretchDIBits(dst->dc, dx, client_h - dy - h, w, h,
+                           sx, sy, w, h, b->bits, (BITMAPINFO *)&bi,
+                           DIB_RGB_COLORS, SRCCOPY);
+        return rc == GDI_ERROR ? 0 : 1;
+    }
+    return 0;
+}
+
+
+/* 356 */
+O2LONG __cdecl GpiBox(O2HPS hps, O2LONG control, O2POINTL *corner,
+                      O2LONG hround, O2LONG vround)
+{
+    struct CompatPS *p;
+    O2LONG x1, x2, y1, y2;
+    (void)hround; (void)vround;
+    p = ps_from(hps);
+    if (!p || !corner)
+        return 0;
+    x1 = p->current_x;
+    y1 = p->current_y;
+    x2 = corner->x;
+    y2 = corner->y;
+
+    if (p->bitmap) {
+        struct CompatBitmap *b = p->bitmap;
+        O2LONG left = x1 < x2 ? x1 : x2;
+        O2LONG right = x1 > x2 ? x1 : x2;
+        O2LONG bottom = y1 < y2 ? y1 : y2;
+        O2LONG top = y1 > y2 ? y1 : y2;
+        O2LONG x, y;
+        if (left < 0) left = 0;
+        if (bottom < 0) bottom = 0;
+        if (right >= b->width) right = b->width - 1;
+        if (top >= b->height) top = b->height - 1;
+        if (control == 1L || control == 3L) {
+            for (y = bottom; y <= top; ++y)
+                for (x = left; x <= right; ++x)
+                    b->bits[y * b->stride + x] = (O2BYTE)(p->color & 0xff);
+        }
+        p->current_x = corner->x;
+        p->current_y = corner->y;
+        return 1;
+    }
+
+    if (p->dc) {
+        RECT client;
+        RECT r;
+        LONG h;
+        HBRUSH br;
+        HPEN pen;
+        HGDIOBJ oldPen;
+        HGDIOBJ oldBrush;
+        memset(&client, 0, sizeof(client));
+        if (p->hwnd)
+            GetClientRect(p->hwnd, &client);
+        else
+            GetClipBox(p->dc, &client);
+        h = client.bottom - client.top;
+        r.left = (x1 < x2 ? x1 : x2);
+        r.right = (x1 > x2 ? x1 : x2) + 1;
+        r.top = h - (y1 > y2 ? y1 : y2) - 1;
+        r.bottom = h - (y1 < y2 ? y1 : y2);
+        br = CreateSolidBrush(gpi_native_color(p->color));
+        if (!br)
+            return 0;
+        if (control == 1L) {
+            FillRect(p->dc, &r, br);
+        } else {
+            pen = CreatePen(PS_SOLID, 1, gpi_native_color(p->color));
+            if (!pen) { DeleteObject(br); return 0; }
+            oldPen = SelectObject(p->dc, pen);
+            oldBrush = SelectObject(p->dc, control == 3L ? br : GetStockObject(NULL_BRUSH));
+            Rectangle(p->dc, r.left, r.top, r.right, r.bottom);
+            SelectObject(p->dc, oldBrush);
+            SelectObject(p->dc, oldPen);
+            DeleteObject(pen);
+        }
+        DeleteObject(br);
+        p->current_x = corner->x;
+        p->current_y = corner->y;
+        return 1;
+    }
+    return 0;
+}
+
+/* 369 */
+O2HPS __cdecl GpiCreatePS(O2HAB hab, O2HDC hdc, O2SIZEL *size, O2ULONG options)
+{
+    struct CompatPS *p;
+    (void)hab; (void)size; (void)options;
+    p = (struct CompatPS *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*p));
+    if (!p)
+        return 0;
+    p->magic = PMCOMPAT_PS_MAGIC;
+    p->dc = (HDC)(DWORD)hdc;
+    p->color = -1; /* OS/2 GPI default foreground is CLR_BLACK */
+    p->line_type = 0;
+    p->saved_dc = p->dc ? SaveDC(p->dc) : 0;
+    return (O2HPS)(DWORD)p;
+}
+
+/* 453 */
+O2LONG __cdecl GpiQueryFontMetrics(O2HPS hps, O2LONG metricsLength,
+                                   O2FONTMETRICS *metrics)
+{
+    struct CompatPS *p;
+    TEXTMETRICA tm;
+    O2FONTMETRICS fm;
+    O2LONG copy;
+    p = ps_from(hps);
+    if (!p || !p->dc || !metrics || metricsLength <= 0)
+        return 0;
+    memset(&tm, 0, sizeof(tm));
+    if (!GetTextMetricsA(p->dc, &tm))
+        return 0;
+    if (gpi_trace_enabled()) {
+        fprintf(stderr, "PMGPI: GpiQueryFontMetrics hps=%08lX len=%ld height=%ld ave=%ld max=%ld extlead=%ld\n",
+                (unsigned long)hps, (long)metricsLength,
+                (long)tm.tmHeight, (long)tm.tmAveCharWidth,
+                (long)tm.tmMaxCharWidth, (long)tm.tmExternalLeading);
+        fflush(stderr);
+    }
+    memset(&fm, 0, sizeof(fm));
+    fm.lEmHeight = (O2LONG)tm.tmHeight;
+    fm.lXHeight = (O2LONG)(tm.tmAscent / 2);
+    fm.lMaxAscender = (O2LONG)tm.tmAscent;
+    fm.lMaxDescender = (O2LONG)tm.tmDescent;
+    fm.lLowerCaseAscent = (O2LONG)tm.tmAscent;
+    fm.lLowerCaseDescent = (O2LONG)tm.tmDescent;
+    fm.lInternalLeading = (O2LONG)tm.tmInternalLeading;
+    fm.lExternalLeading = (O2LONG)tm.tmExternalLeading;
+    fm.lAveCharWidth = (O2LONG)tm.tmAveCharWidth;
+    fm.lMaxCharInc = (O2LONG)tm.tmMaxCharWidth;
+    fm.lEmInc = (O2LONG)tm.tmAveCharWidth;
+    fm.lMaxBaselineExt = (O2LONG)tm.tmHeight;
+    fm.sFirstChar = (short)(unsigned char)tm.tmFirstChar;
+    fm.sLastChar = (short)(unsigned char)tm.tmLastChar;
+    fm.sDefaultChar = (short)(unsigned char)tm.tmDefaultChar;
+    fm.sBreakChar = (short)(unsigned char)tm.tmBreakChar;
+    fm.usWeightClass = (O2USHORT)tm.tmWeight;
+    fm.fsSelection = (O2USHORT)((tm.tmItalic ? 0x0001U : 0U) |
+                                (tm.tmUnderlined ? 0x0002U : 0U) |
+                                (tm.tmStruckOut ? 0x0010U : 0U) |
+                                (tm.tmWeight >= FW_BOLD ? 0x0020U : 0U));
+    if (gpi_trace_enabled()) {
+        fprintf(stderr,
+                "PMGPI: FONTMETRICS off96(ext)=%ld off100(ave)=%ld "
+                "off104(max)=%ld off112(base)=%ld size=%lu\n",
+                (long)fm.lExternalLeading, (long)fm.lAveCharWidth,
+                (long)fm.lMaxCharInc, (long)fm.lMaxBaselineExt,
+                (unsigned long)sizeof(fm));
+        fflush(stderr);
+    }
+    copy = metricsLength;
+    if (copy > (O2LONG)sizeof(fm))
+        copy = (O2LONG)sizeof(fm);
+    memcpy(metrics, &fm, (size_t)copy);
+    return 1;
+}
+
+/* 505 */
+O2LONG __cdecl GpiSetBackMix(O2HPS hps, O2LONG mix)
+{
+    (void)hps; (void)mix;
+    return 1;
+}
+
+/* 506 */
+O2HBITMAP __cdecl GpiSetBitmap(O2HPS hps, O2HBITMAP hbm)
+{
+    struct CompatPS *p;
+    struct CompatBitmap *old;
+    p = ps_from(hps);
+    if (!p)
+        return 0;
+    old = p->bitmap;
+    p->bitmap = bm_from(hbm);
+    return (O2HBITMAP)(DWORD)old;
+}
+
+/* 517 */
+O2LONG __cdecl GpiSetColor(O2HPS hps, O2LONG color)
+{
+    struct CompatPS *p;
+    O2LONG old;
+    p = ps_from(hps);
+    if (!p)
+        return -1;
+    old = p->color;
+    p->color = color;
+    return old;
+}
+
+
+/* 519 */
+O2LONG __cdecl GpiSetCurrentPosition(O2HPS hps, O2POINTL *pt)
+{
+    struct CompatPS *p;
+    p = ps_from(hps);
+    if (!p || !pt)
+        return 0;
+    p->current_x = pt->x;
+    p->current_y = pt->y;
+    return 1;
+}
+
+/* 544 */
+O2LONG __cdecl GpiSetPel(O2HPS hps, O2POINTL *pt)
+{
+    struct CompatPS *p;
+    struct CompatBitmap *b;
+    O2LONG x;
+    O2LONG y;
+    if (!pt)
+        return 0;
+    p = ps_from(hps);
+    if (!p || !p->bitmap)
+        return 0;
+    b = p->bitmap;
+    x = pt->x;
+    y = pt->y;
+    if (x < 0 || y < 0 || x >= b->width || y >= b->height)
+        return 0;
+    b->bits[y * b->stride + x] = (O2BYTE)(p->color & 0xff);
+    return 1;
+}
+
+/* 592 */
+O2LONG __cdecl GpiCreateLogColorTable(O2HPS hps, O2ULONG options,
+                                      O2LONG format, O2LONG start,
+                                      O2LONG count, O2LONG *colors)
+{
+    struct CompatPS *p;
+    struct CompatBitmap *b;
+    O2LONG i;
+    DWORD v;
+    int idx;
+    (void)options; (void)format;
+    p = ps_from(hps);
+    if (!p || !p->bitmap || !colors)
+        return 0;
+    b = p->bitmap;
+    for (i = 0; i < count; ++i) {
+        idx = (int)(start + i);
+        if (idx < 0 || idx >= 256)
+            continue;
+        v = (DWORD)colors[i];
+        b->palette[idx].rgbRed = (BYTE)((v >> 16) & 0xff);
+        b->palette[idx].rgbGreen = (BYTE)((v >> 8) & 0xff);
+        b->palette[idx].rgbBlue = (BYTE)(v & 0xff);
+        b->palette[idx].rgbReserved = 0;
+    }
+    return 1;
+}
+
+/* 598 */
+O2HBITMAP __cdecl GpiCreateBitmap(O2HPS hps, O2BITMAPINFOHEADER2 *hdr,
+                                  O2ULONG options, O2BYTE *initialBits,
+                                  void *info)
+{
+    struct CompatBitmap *b;
+    const O2BYTE *raw;
+    O2LONG width, height, stride, bytes;
+    O2USHORT planes, bitcount;
+    O2ULONG cbfix;
+    int i;
+    (void)hps; (void)options; (void)info;
+    if (!hdr)
+        return 0;
+    raw = (const O2BYTE *)hdr;
+    cbfix = *(const O2ULONG *)raw;
+    if (cbfix == 12UL) {
+        width = (O2LONG)*(const O2USHORT *)(raw + 4);
+        height = (O2LONG)*(const O2USHORT *)(raw + 6);
+        planes = *(const O2USHORT *)(raw + 8);
+        bitcount = *(const O2USHORT *)(raw + 10);
+    } else {
+        width = (O2LONG)hdr->cx;
+        height = (O2LONG)hdr->cy;
+        planes = hdr->cPlanes;
+        bitcount = hdr->cBitCount;
+    }
+    if (width <= 0 || height <= 0 || planes != 1 ||
+        (bitcount != 8 && bitcount != 24 && bitcount != 32))
+        return 0;
+    b = (struct CompatBitmap *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*b));
+    if (!b)
+        return 0;
+    b->magic = BM_MAGIC;
+    b->width = width;
+    b->height = height;
+    b->bitcount = bitcount;
+    stride = (O2LONG)((((O2ULONG)width * bitcount + 31UL) / 32UL) * 4UL);
+    b->stride = stride;
+    bytes = stride * height;
+    b->bits = (O2BYTE *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (DWORD)bytes);
+    if (!b->bits) {
+        HeapFree(GetProcessHeap(), 0, b);
+        return 0;
+    }
+    for (i = 0; i < 256; ++i) {
+        b->palette[i].rgbRed = (BYTE)i;
+        b->palette[i].rgbGreen = (BYTE)i;
+        b->palette[i].rgbBlue = (BYTE)i;
+        b->palette[i].rgbReserved = 0;
+    }
+    if (initialBits)
+        memcpy(b->bits, initialBits, (size_t)bytes);
+    return (O2HBITMAP)(DWORD)b;
+}
+
+/* 599 */
+O2LONG __cdecl GpiQueryBitmapBits(O2HPS hps, O2LONG start,
+                                  O2LONG count, O2BYTE *buffer, void *info)
+{
+    struct CompatPS *p;
+    struct CompatBitmap *b;
+    O2LONG n;
+    (void)info;
+    p = ps_from(hps);
+    if (!p || !p->bitmap || !buffer)
+        return 0;
+    b = p->bitmap;
+    if (start < 0 || start >= b->height)
+        return 0;
+    n = count;
+    if (n > b->height - start)
+        n = b->height - start;
+    if (n < 0)
+        return 0;
+    memcpy(buffer, b->bits + start * b->stride, (size_t)(n * b->stride));
+    return n;
+}
+
+/* 601 */
+O2LONG __cdecl GpiQueryBitmapInfoHeader(O2HBITMAP hbm, O2BITMAPINFOHEADER2 *hdr)
+{
+    struct CompatBitmap *b;
+    b = bm_from(hbm);
+    if (!b || !hdr)
+        return 0;
+    memset(hdr, 0, sizeof(*hdr));
+    hdr->cbFix = sizeof(*hdr);
+    hdr->cx = (O2ULONG)b->width;
+    hdr->cy = (O2ULONG)b->height;
+    hdr->cPlanes = 1;
+    hdr->cBitCount = b->bitcount;
+    hdr->ulCompression = 0;
+    hdr->cbImage = (O2ULONG)(b->stride * b->height);
+    hdr->cclrUsed = 256;
+    hdr->cclrImportant = 256;
+    return 1;
+}
+
+/* 602 */
+O2LONG __cdecl GpiSetBitmapBits(O2HPS hps, O2LONG start,
+                                O2LONG count, O2BYTE *buffer, void *info)
+{
+    struct CompatPS *p;
+    struct CompatBitmap *b;
+    O2LONG n;
+    (void)info;
+    p = ps_from(hps);
+    if (!p || !p->bitmap || !buffer)
+        return 0;
+    b = p->bitmap;
+    if (start < 0 || start >= b->height)
+        return 0;
+    n = count;
+    if (n > b->height - start)
+        n = b->height - start;
+    if (n < 0)
+        return 0;
+    memcpy(b->bits + start * b->stride, buffer, (size_t)(n * b->stride));
+    return n;
+}
+
+/* 588 */
+O2ULONG __cdecl GpiSetAttrs(O2HPS hps, O2LONG primType,
+                            O2ULONG attrMask, O2ULONG defMask,
+                            const void *attrs)
+{
+    struct CompatPS *p;
+    const O2LONG *color;
+    (void)defMask;
+    p=ps_from(hps);
+    if (!p || !attrs) return 0;
+    /* OPENDLG/HELLO uses PRIM_CHAR + CBB_COLOR.  CHARBUNDLE begins with
+       lColor, so implement that historical contract without depending on a
+       host copy of the full 1990 structure layout. */
+    if (primType == 2L && (attrMask & 0x0001UL) != 0UL) {
+        color=(const O2LONG *)attrs;
+        p->color=*color;
+    }
+    return 1;
+}
+
+/* 610 */
+O2HDC __cdecl DevOpenDC(O2HAB hab, O2LONG type, const char *token,
+                        O2LONG count, void *openData, O2HDC compatible)
+{
+    HDC dc;
+    (void)hab; (void)type; (void)token; (void)count;
+    (void)openData; (void)compatible;
+    dc = CreateCompatibleDC(NULL);
+    return (O2HDC)(DWORD)dc;
+}
+
+
+/* 359 */
+O2LONG __cdecl GpiCharStringAt(O2HPS hps, O2POINTL *pt, O2LONG count,
+                               const char *text)
+{
+    struct CompatPS *p;
+    TEXTMETRICA tm;
+    RECT cr;
+    int y;
+    p = ps_from(hps);
+    if (gpi_trace_enabled()) {
+        fprintf(stderr, "PMGPI: GpiCharStringAt hps=%08lX pt=(%ld,%ld) count=%ld text=%08lX\n",
+                (unsigned long)hps,
+                pt ? (long)pt->x : -9999L, pt ? (long)pt->y : -9999L,
+                (long)count, (unsigned long)(DWORD)text);
+        fflush(stderr);
+    }
+    if (!p || !p->dc || !pt || !text || count < 0) {
+        if (gpi_trace_enabled()) {
+            fprintf(stderr, "PMGPI: GpiCharStringAt rejected ps=%p dc=%p\n",
+                    (void *)p, p ? (void *)p->dc : NULL);
+            fflush(stderr);
+        }
+        return 0;
+    }
+    memset(&tm, 0, sizeof(tm));
+    GetTextMetricsA(p->dc, &tm);
+    memset(&cr, 0, sizeof(cr));
+    if (p->hwnd) GetClientRect(p->hwnd, &cr);
+    else cr.bottom = p->bitmap ? p->bitmap->height : 0;
+    y = cr.bottom - (int)pt->y - (int)tm.tmHeight;
+    SetTextColor(p->dc, gpi_native_color(p->color));
+    SetBkMode(p->dc, TRANSPARENT);
+    if (!TextOutA(p->dc, (int)pt->x, y, text, (int)count)) {
+        if (gpi_trace_enabled()) {
+            fprintf(stderr, "PMGPI: GpiCharStringAt TextOutA FAIL err=%lu native=(%ld,%d) color=%ld\n",
+                    (unsigned long)GetLastError(), (long)pt->x, y, (long)p->color);
+            fflush(stderr);
+        }
+        return 0;
+    }
+    if (gpi_trace_enabled()) {
+        fprintf(stderr, "PMGPI: GpiCharStringAt OK native=(%ld,%d) color=%ld\n",
+                (long)pt->x, y, (long)p->color);
+        fflush(stderr);
+    }
+    p->current_x = pt->x;
+    p->current_y = pt->y;
+    return count;
+}
+
+/* 370 */
+O2ULONG __cdecl GpiCreateRegion(O2HPS hps, O2LONG count, O2RECTL *rects)
+{
+    struct CompatPS *p;
+    HRGN out, one;
+    O2LONG i;
+    RECT r, cr;
+    LONG h;
+    p = ps_from(hps);
+    if (!p || !rects || count <= 0)
+        return 0;
+    memset(&cr, 0, sizeof(cr));
+    if (p->hwnd) GetClientRect(p->hwnd, &cr);
+    else cr.bottom = p->bitmap ? p->bitmap->height : 0;
+    h = cr.bottom - cr.top;
+    out = CreateRectRgn(0,0,0,0);
+    if (!out) return 0;
+    for (i=0; i<count; ++i) {
+        r.left=rects[i].xLeft; r.right=rects[i].xRight;
+        r.top=h-rects[i].yTop; r.bottom=h-rects[i].yBottom;
+        one=CreateRectRgn(r.left,r.top,r.right,r.bottom);
+        if (one) { CombineRgn(out,out,one,RGN_OR); DeleteObject(one); }
+    }
+    return (O2ULONG)(DWORD)out;
+}
+
+/* 379 */
+O2LONG __cdecl GpiDestroyPS(O2HPS hps)
+{
+    struct CompatPS *p;
+    p = ps_from(hps);
+    if (!p) return 0;
+    if (p->dc && p->saved_dc)
+        RestoreDC(p->dc, p->saved_dc);
+    p->magic = 0;
+    HeapFree(GetProcessHeap(),0,p);
+    return 1;
+}
+
+static int gpi_pen_style(O2LONG lt)
+{
+    switch (lt) {
+    case 1: return PS_DOT;
+    case 2: return PS_DASH;
+    case 3: return PS_DASHDOT;
+    case 4: return PS_DASHDOTDOT;
+    case 5: return PS_DASH;
+    case 6: return PS_DASHDOTDOT;
+    case 8: return PS_NULL;
+    default: return PS_SOLID;
+    }
+}
+
+/* 398 */
+O2LONG __cdecl GpiLine(O2HPS hps, O2POINTL *end)
+{
+    struct CompatPS *p;
+    RECT cr;
+    int h;
+    HPEN pen;
+    HGDIOBJ old;
+    p=ps_from(hps);
+    if (!p || !p->dc || !end) return 0;
+    memset(&cr,0,sizeof(cr));
+    if (p->hwnd) GetClientRect(p->hwnd,&cr);
+    h=cr.bottom-cr.top;
+    pen=CreatePen(gpi_pen_style(p->line_type),1,gpi_native_color(p->color));
+    if (!pen) return 0;
+    old=SelectObject(p->dc,pen);
+    MoveToEx(p->dc,(int)p->current_x,h-(int)p->current_y,NULL);
+    LineTo(p->dc,(int)end->x,h-(int)end->y);
+    SelectObject(p->dc,old); DeleteObject(pen);
+    p->current_x=end->x; p->current_y=end->y;
+    return 1;
+}
+
+/* 404 */
+O2LONG __cdecl GpiMove(O2HPS hps, O2POINTL *pt)
+{
+    return GpiSetCurrentPosition(hps, pt);
+}
+
+/* 489 */
+O2LONG __cdecl GpiQueryTextBox(O2HPS hps, O2LONG count, const char *text,
+                               O2LONG boxCount, O2POINTL *pts)
+{
+    struct CompatPS *p;
+    SIZE z;
+    TEXTMETRICA tm;
+    if (!text || !pts || boxCount < 5 || count < 0) return 0;
+    p=ps_from(hps); if (!p || !p->dc) return 0;
+    memset(&z,0,sizeof(z)); memset(&tm,0,sizeof(tm));
+    if (!GetTextExtentPoint32A(p->dc,text,(int)count,&z)) return 0;
+    GetTextMetricsA(p->dc,&tm);
+    pts[0].x=0; pts[0].y=tm.tmHeight;
+    pts[1].x=0; pts[1].y=0;
+    pts[2].x=z.cx; pts[2].y=tm.tmHeight;
+    pts[3].x=z.cx; pts[3].y=0;
+    pts[4].x=z.cx; pts[4].y=0;
+    return 1;
+}
+
+/* 492 */
+O2LONG __cdecl GpiQueryWidthTable(O2HPS hps, O2LONG first, O2LONG count,
+                                  O2LONG *widths)
+{
+    struct CompatPS *p;
+    int i;
+    int w;
+    if (!widths || count < 0) return 0;
+    p=ps_from(hps); if (!p || !p->dc) return 0;
+    for (i=0; i<(int)count; ++i) {
+        w=0;
+        if (!GetCharWidth32A(p->dc,(UINT)(first+i),(UINT)(first+i),&w)) {
+            SIZE z; char ch=(char)(first+i); memset(&z,0,sizeof(z));
+            GetTextExtentPoint32A(p->dc,&ch,1,&z); w=z.cx;
+        }
+        widths[i]=(O2LONG)w;
+    }
+    return 1;
+}
+
+/* 516 */
+O2LONG __cdecl GpiSetClipRegion(O2HPS hps, O2ULONG hrgn, O2ULONG *oldrgn)
+{
+    struct CompatPS *p;
+    int rc;
+    p=ps_from(hps); if (!p || !p->dc) return 0;
+    if (oldrgn) *oldrgn=0;
+    rc=SelectClipRgn(p->dc,(HRGN)(DWORD)hrgn);
+    return rc==ERROR ? 0 : (O2LONG)rc;
+}
+
+/* 530 */
+O2LONG __cdecl GpiSetLineType(O2HPS hps, O2LONG type)
+{
+    struct CompatPS *p;
+    O2LONG old;
+    p=ps_from(hps); if (!p) return -1;
+    old=p->line_type; p->line_type=type; return old;
+}
+
+/* 604 */
+O2LONG __cdecl DevCloseDC(O2HDC hdc)
+{
+    return DeleteDC((HDC)(DWORD)hdc) ? 1 : 0;
+}
+
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
+{
+    (void)instance; (void)reason; (void)reserved;
+    return TRUE;
+}

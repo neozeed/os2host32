@@ -1,0 +1,51 @@
+M31G R4 - NEKO PMWIN.778 WinLoadMenu
+====================================
+
+Baseline
+--------
+M31G R3 is the parent.  M31F FINAL R7 remains the frozen known-good PM/GPI
+baseline and the complete M31F regression set must remain green.
+
+Observed R3 boundary
+--------------------
+The untouched OS/2 2.0 GA NEKO.EXE resolves PMSHAPI.129 and the PMWIN imports
+through PMWIN.840, then stops at:
+
+    os2host32: PMWIN ordinal 778 is not exported
+
+Historical OS/2 ordinal/API material identifies PMWIN.778 as:
+
+    HWND WinLoadMenu(HWND hwndParent, HMODULE hmod, ULONG idMenu)
+
+Changes
+-------
+* Export WinLoadMenu @778 NONAME from PMWIN.dll.
+* Reuse the existing generic PM resource registry and RT_MENU template parser
+  already used by WinCreateStdWindow.
+* Preserve the existing recursive submenu parsing, mnemonic conversion,
+  attributes, and native HMENU representation.
+* Return the native menu compatibility handle on success.
+* Return NULLHANDLE when the requested module/resource is not registered or
+  the menu template cannot be parsed.
+* Trace success/failure under OS2_PM_TRACE.
+* Do not attach the returned menu to a Win32 frame speculatively; OS/2 callers
+  may load action-bar or popup menus, and later API behavior should decide how
+  the handle is used.
+* Add tools/check_m31g_r4_pmwin.py and make m31g-neko-r4-check.
+* Add examples/m31g-neko/m31g-neko-r4-test.cmd.
+
+Regression
+----------
+R4 remains additive and generic.  The frozen M31F compatibility behavior is
+unchanged.  NEKO carries no RT_MENU resource in its executable, so this change
+does not fabricate one or special-case the application.
+
+Expected Win32 result
+---------------------
+Rebuild PMWIN.dll (or `make compat`) and run NEKO again.  The previous
+PMWIN.778 loader error should disappear and import resolution should advance
+to the next genuinely unsupported ordinal/API.  Capture that actual boundary
+before implementing R5.
+
+No application-name-specific behavior was added.  No WHP/V2 work was added.
+EMX remains frozen.

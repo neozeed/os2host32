@@ -1,0 +1,7 @@
+MILESTONE 30 IS FROZEN.
+
+Use this tree as the V1 baseline for M31 Presentation Manager SDK examples.
+Do not resume M30K low-address or general EMX work unless deliberately opening
+a separate research branch.
+
+See MILESTONE30-FINAL.md and START-HERE-M31-PM.md.

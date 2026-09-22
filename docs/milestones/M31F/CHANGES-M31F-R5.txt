@@ -1,0 +1,12 @@
+M31F R5 - JIGSAW deep GPI trace pass
+
+- Starts from manually regression-green M31F R4.
+- No intended guest-visible PM/GPI behavior change.
+- Adds detailed PMGPI tracing around the JIGSAW CalcTransform/piece-mask path:
+  GpiCreatePS, GpiSetBitmap, GpiSetBitmapBits palette samples, all GpiBitBlt
+  branches, GpiBeginPath/GpiEndPath, GpiPolySpline, GpiSetClipPath,
+  GpiConvert and resulting default-view matrices.
+- Adds thread IDs and native GDI error values to identify cross-thread/DC/path
+  failures precisely.
+- Adds m31f-jigsaw-r5-test.cmd plus a compact trace summarizer.
+- Keeps the original YOSEMITE.BMP and JIGSAW sources untouched.

@@ -1,0 +1,20 @@
+M29M - OS/2 standard-handle redirection and pipeline hardening
+
+- Extends the reconstructed CMD parser with explicit standard descriptors
+  0/1/2 on redirections.
+- Adds stderr redirection: 2>, 2>>.
+- Adds descriptor duplication: 2>&1 and 1>&2 (and the corresponding stdin
+  duplication boundary for descriptor 0).
+- Applies redirections strictly left-to-right, preserving the classic
+  difference between:
+      command >both.txt 2>&1
+  and:
+      command 2>&1 >stdout.txt
+- Redirect state now saves/restores stdin, stdout, and stderr independently.
+- Pipeline command rendering preserves descriptor redirections when nested
+  CMD32OS2 workers are launched through DosExecPgm(EXEC_ASYNCRESULT).
+- Keeps the existing real DosCreatePipe/DosDupHandle/DosWaitChild pipeline
+  implementation; no tempfile pipeline shortcut is introduced.
+- Adds C/386 fixtures m29m-stderr.exe and m29m-count.exe.
+- Adds examples\m29m-redir-pipe-test.cmd.
+- SESMGR/STARTDATA and the seven C/386 VIO/KBD migration bridges are unchanged.

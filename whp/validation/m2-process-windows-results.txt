@@ -1,0 +1,12 @@
+User-reported Windows validation, 2026-09-21:
+- MSVC built R2 with C4701/C4703 for guest_err in v2_process_boot.h.
+- run-process.cmd: execchild arguments/environment PASS; process1 PASS (sync, arguments/environment, async wait, reap, stdout).
+- CMD32 -c hi.exe printed hi!.
+- CMD32 -c "execchild.exe 37" printed execchild running inside WHP.
+- Interactive CMD32 changed directory to C:\os2\demos\phoon, ran phoon.exe, displayed its moon and returned to the prompt.
+- The transcript does not show a separate interactive echo %ERRORLEVEL% check.
+
+Warning fix: initialize guest_err to NULL and use that saved handle's presence to guard the final SetStdHandle call. This makes the initialization dependency explicit and avoids re-reading the shared packet's closed_mask to infer handle validity.
+No local MSVC compiler is available. The user subsequently confirmed the warning-fixed build was clean. Guest test binaries need no rebuild for this header-only host fix.
+
+Final checkpoint confirmation: clean build; CMD32 -c execchild and hi succeeded; interactive CD to demos\phoon followed by phoon.exe displayed the moon and returned to the prompt. Milestone2 frozen at user request.

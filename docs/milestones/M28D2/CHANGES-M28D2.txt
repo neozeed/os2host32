@@ -1,0 +1,7 @@
+Milestone 28D2
+
+- Replaces the native standard-handle boolean ownership model with exact HANDLE tracking in DOSCALLS.
+- CmdO2StdSave/Restore now treats the OS/2 HFILE view as authoritative and reconstructs the temporary Win32 CRT fd from it.
+- Prevents the native bootstrap from closing a CRT-owned standard handle or leaving a hidden pipe writer alive.
+- Keeps M28D DosExecPgm async/DosWaitChild pipeline migration unchanged.
+- Adds optional CMD32_TRACE_PIPE=1 diagnostics for pipeline worker commands/PIDs/results.

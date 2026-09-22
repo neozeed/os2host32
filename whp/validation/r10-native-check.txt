@@ -1,0 +1,2 @@
+pm-check PASS: guest callbacks, QMSG ABI, native queue wake, guest sleep, paint, cleanup
+sync-check PASS: callback continuations + R8 scheduler/queue/mutex/recycling + R7 info

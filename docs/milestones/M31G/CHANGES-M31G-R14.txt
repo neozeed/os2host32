@@ -1,0 +1,22 @@
+M31G R14
+========
+
+NEKO post-import runtime behavior:
+- Replace advisory PMWP.203 zero stub with GA-proven DOSCALLS.318
+  DosLoadModule bridge (arg3 module name, arg2 PHMODULE).
+- Permit guest resource-only DLLs to publish RT_* resources through the
+  process-level PMWIN personality even when they do not import PMWIN directly.
+- Implement real WinSubclassWindow bridging for native public Win32 controls,
+  preserving the old collapsed behavior for already-managed/private PM windows.
+- Add guest-callable public-control old-PFNWP handling for WC_STATIC
+  SM_SETHANDLE/SM_QUERYHANDLE.
+- Native control timers now enter pm_wndproc and can translate to OS/2 WM_TIMER.
+
+e.exe side boundary:
+- DOSCALLS.218 DosSetFileInfo, FIL_STANDARD timestamp/attribute handling on the
+  existing OS/2 HFILE table.
+
+Regression:
+- Add tools/check_m31g_r14_runtime.py and make m31g-neko-r14-check.
+- Make the historical R5 PMWP checker monotonic-safe for the stronger R14
+  semantics.

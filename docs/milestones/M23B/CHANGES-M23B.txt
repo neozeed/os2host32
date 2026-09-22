@@ -1,0 +1,11 @@
+Milestone 23b - conditional-status clarification and quiet LX child launches
+
+* Added os2host32 --run-quiet.  It executes the same flat-32 LX path as --run
+  but suppresses normal loader/map/fixup/import/startup diagnostics.
+* DOSCALLS.283 now uses --run-quiet for nested DosExecPgm launches by default.
+  Set OS2HOST32_VERBOSE=1 to restore verbose nested LX diagnostics.
+* Loader errors and guest exception diagnostics remain visible in quiet mode.
+* Confirmed the original hi.exe regression returns a non-zero status: its main
+  returns the printf-like routine's value rather than explicitly returning 0.
+  This explains why `hi && ...` correctly suppresses the right-hand command.
+* Added status0.c and status7.c as explicit && / || regression guests.

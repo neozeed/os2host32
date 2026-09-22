@@ -1,0 +1,17 @@
+M29N
+====
+
+* CMD now owns current-directory + private-PATH command discovery.
+* Extensionless names probe .COM, .EXE, .CMD, then .BAT per the OS/2-style
+  command-search model (.BAT retained as reconstructed-batch compatibility).
+* Explicit paths do not fall through to PATH; explicit extensions are exact.
+* Quoted PATH entries and quoted executable paths containing spaces are handled.
+* Resolved .CMD/.BAT files enter the reconstructed batch processor.
+* Resolved .COM files stop at the intentional not-yet-implemented DOS-session
+  boundary rather than being sent to the LE/LX loader.
+* DosExecPgm PgmName now uses the resolved executable while argv[0] in the OS/2
+  argument block remains the command token the user typed.
+* Added CMD32_TRACE_RESOLVE diagnostics.
+* Added m29n-args.exe and a command-resolution regression covering PATH,
+  extension probing, quoted paths, spaces, empty arguments, .EXE-vs-.CMD
+  precedence, batch fallback, and current-directory-before-PATH ordering.

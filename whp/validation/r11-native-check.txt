@@ -1,0 +1,3 @@
+pm-check PASS: guest callbacks, QMSG ABI, native queue wake, guest sleep, paint, cleanup
+gpi-check PASS: 1/4/8/24/32 bpp, headers, palette/row roundtrip, pixels, blits, bounds, handles, cleanup
+sync-check PASS: callback continuations + R8 scheduler/queue/mutex/recycling + R7 info

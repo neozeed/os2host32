@@ -1,0 +1,140 @@
+LX header       : 0x00000080
+File size       : 81982 bytes
+Module flags    : 0x40008006
+Page size/shift : 4096 / 9
+Module pages    : 18
+Entry           : object 2 + 0x0000139C
+Stack           : object 0 + 0x00000000
+Data pages      : file+0x00002E00
+Fixup tables    : page=0x000002C8 record=0x00000314
+Objects (4):
+    1: base=00010000 size=00000093 flags=00001005 pages=1 @1 [16-bit]
+    2: base=00020000 size=00010EB0 flags=00002005 pages=17 @2 [32-bit]
+    3: base=00040000 size=000047D8 flags=00003003 pages=0 @19 [32-bit]
+    4: base=00050000 size=00002008 flags=00002023 pages=0 @19 [32-bit]
+Import modules (6):
+    1: DOSCALLS
+    2: NLS
+    3: QUECALLS
+    4: SESMGR
+    5: KBDCALLS
+    6: VIOCALLS
+Fixup scan      : 837 internal records / 2068 sites, 391 external sites
+Source fixups   :
+  SEL16     3 records / 6 sites
+  PTR16:16  10 records / 10 sites
+  PTR16:32  2 records / 2 sites
+  OFF32     832 records / 2060 sites
+  REL32     208 records / 381 sites
+Alias fixups    : 13 records / 16 sites
+Ordinal imports (108):
+  DOSCALLS.14 (2 sites)
+  DOSCALLS.357 (1 site)
+  DOSCALLS.229 (7 sites)
+  DOSCALLS.230 (4 sites)
+  DOSCALLS.320 (3 sites)
+  NLS.7 (1 site)
+  DOSCALLS.273 (8 sites)
+  DOSCALLS.209 (1 site)
+  DOSCALLS.282 (11 sites)
+  DOSCALLS.227 (2 sites)
+  DOSCALLS.296 (2 sites)
+  DOSCALLS.306 (1 site)
+  DOSCALLS.312 (2 sites)
+  DOSCALLS.325 (6 sites)
+  DOSCALLS.326 (9 sites)
+  DOSCALLS.327 (8 sites)
+  DOSCALLS.328 (12 sites)
+  DOSCALLS.329 (11 sites)
+  DOSCALLS.335 (48 sites)
+  DOSCALLS.344 (1 site)
+  DOSCALLS.280 (1 site)
+  DOSCALLS.345 (2 sites)
+  DOSCALLS.346 (1 site)
+  DOSCALLS.354 (6 sites)
+  DOSCALLS.299 (5 sites)
+  DOSCALLS.302 (1 site)
+  DOSCALLS.304 (13 sites)
+  DOSCALLS.305 (1 site)
+  DOSCALLS.311 (5 sites)
+  QUECALLS.9 (1 site)
+  QUECALLS.11 (1 site)
+  DOSCALLS.334 (3 sites)
+  QUECALLS.16 (1 site)
+  DOSCALLS.283 (2 sites)
+  SESMGR.37 (1 site)
+  DOSCALLS.234 (5 sites)
+  DOSCALLS.111 (4 sites)
+  DOSCALLS.263 (3 sites)
+  DOSCALLS.340 (3 sites)
+  DOSCALLS.236 (2 sites)
+  DOSCALLS.300 (2 sites)
+  DOSCALLS.244 (2 sites)
+  DOSCALLS.251 (1 site)
+  DOSCALLS.256 (2 sites)
+  DOSCALLS.281 (5 sites)
+  DOSCALLS.418 (3 sites)
+  DOSCALLS.235 (2 sites)
+  DOSCALLS.379 (1 site)
+  DOSCALLS.380 (2 sites)
+  DOSCALLS.381 (2 sites)
+  DOSCALLS.275 (2 sites)
+  DOSCALLS.276 (5 sites)
+  DOSCALLS.221 (1 site)
+  DOSCALLS.350 (3 sites)
+  DOSCALLS.223 (2 sites)
+  DOSCALLS.290 (3 sites)
+  DOSCALLS.292 (1 site)
+  DOSCALLS.378 (1 site)
+  DOSCALLS.382 (1 site)
+  DOSCALLS.257 (14 sites)
+  DOSCALLS.260 (2 sites)
+  DOSCALLS.224 (5 sites)
+  DOSCALLS.245 (1 site)
+  DOSCALLS.250 (2 sites)
+  DOSCALLS.259 (1 site)
+  DOSCALLS.264 (1 site)
+  DOSCALLS.265 (1 site)
+  DOSCALLS.270 (1 site)
+  DOSCALLS.271 (1 site)
+  DOSCALLS.272 (3 sites)
+  DOSCALLS.274 (1 site)
+  DOSCALLS.277 (1 site)
+  DOSCALLS.279 (4 sites)
+  DOSCALLS.218 (1 site)
+  DOSCALLS.219 (2 sites)
+  DOSCALLS.220 (1 site)
+  DOSCALLS.226 (1 site)
+  DOSCALLS.241 (1 site)
+  DOSCALLS.243 (1 site)
+  DOSCALLS.254 (1 site)
+  DOSCALLS.255 (1 site)
+  SESMGR.38 (2 sites)
+  DOSCALLS.317 (7 sites)
+  DOSCALLS.323 (1 site)
+  DOSCALLS.324 (5 sites)
+  DOSCALLS.301 (1 site)
+  DOSCALLS.321 (36 sites)
+  DOSCALLS.322 (8 sites)
+  DOSCALLS.284 (18 sites)
+  DOSCALLS.318 (4 sites)
+  NLS.6 (1 site)
+  DOSCALLS.331 (2 sites)
+  DOSCALLS.332 (1 site)
+  DOSCALLS.333 (1 site)
+  DOSCALLS.337 (1 site)
+  DOSCALLS.339 (2 sites)
+  DOSCALLS.348 (1 site)
+  DOSCALLS.286 (1 site)
+  DOSCALLS.15 (1 site)
+  KBDCALLS.4 (1 site)
+  KBDCALLS.9 (1 site)
+  KBDCALLS.10 (1 site)
+  KBDCALLS.11 (1 site)
+  KBDCALLS.13 (1 site)
+  VIOCALLS.21 (1 site)
+  KBDCALLS.22 (1 site)
+  DOSCALLS.425 (1 site)
+  DOSCALLS.426 (1 site)
+Execution model : contains 16-bit LE/LX objects/selectors
+Direct host path: needs additional execution machinery

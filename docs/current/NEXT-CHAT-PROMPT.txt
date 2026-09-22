@@ -1,0 +1,24 @@
+We are continuing the os2host32 project. Please first read NEXT-CHAT-HANDOFF.md,
+MILESTONE31F-FINAL.md and the START-HERE files in the attached source tree.
+
+Project: V1/native Win32 compatibility layer for Microsoft OS/2 2.0 Beta 2 /
+6.78-era flat 32-bit LE applications, especially Presentation Manager. Do NOT
+introduce WHP/emulation/V2 work into this branch; EMX is frozen too.
+
+Current frozen known-good baseline: M31F FINAL = R7.
+Manual regression suite all green together: WMCHAR, HANOI, BIO, HELLO with the
+real historical guest OPENDLG.DLL, Sarien PM, and JIGSAW using the original
+untouched YOSEMITE.BMP. JIGSAW now loads, renders, drags pieces without trails,
+and repaints after maximize/restore.
+
+Critical M31F fixes to preserve: proper GpiQueryBitmapBits RGB/RGB2 palette
+round-trip (Sarien fix); Win32 child-control notifications translated to OS/2
+WM_CONTROL while pushbuttons/menu commands remain WM_COMMAND (JIGSAW Open
+dialog fix); device PS retains its HWND so OS/2 bottom-left to Win32 top-left
+blits use the real client height, with the common DIB-section/HDC StretchBlt
+path (JIGSAW drag/trail/resize fix). No app-name-specific hacks.
+
+PMEXEC is genuine 16-bit segmented LE and remains deferred to V2/WHP.
+
+Please treat this tree as frozen and help choose/attack the next flat 32-bit PM
+SDK example one at a time, preserving every working program as a regression.

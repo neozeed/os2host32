@@ -1,0 +1,13 @@
+M29P1 - native stdio/prompt ordering after redirection
+
+* Flush stdout/stderr at the end of each parsed command after redirections have
+  already been restored.  This fixes the native bootstrap shell appearing to
+  return to its prompt in the middle of m29p-filesystem-test.cmd while later
+  printf/puts output remained buffered until EXIT.
+* Keep redirected command output correct: execute_node() restores redirections
+  only after restore_redirections() has flushed the CRT streams while the
+  redirected descriptor is still active.  The new command-boundary flush then
+  applies only to the current/restored destination.
+* Update the shell banner to M29P1 so the filesystem milestone is visible when
+  testing the native and hosted builds.
+* No filesystem semantics or guest-loader/module-manager behavior changed.

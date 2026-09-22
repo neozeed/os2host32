@@ -1,0 +1,24 @@
+M31A R9 - WMCHAR first-key relocation proof
+
+R8 reached the first WM_CHAR and crashed at guest EIP 01010179 after
+WinFillRect and the first WinDrawText returned.  In the original WMCHAR.EXE
+that instruction is:
+
+    FF 34 85 EC 02 02 00    push dword ptr [eax*4+000202EC]
+
+The disp32 at source offset 017C has an explicit LE internal OFF32 fixup:
+physical fixup page 2, target object 2 + 000002EC.  With the current relocation
+(object 2 -> 01020000), the runtime operand must be 010202EC.
+
+R9 does not guess at the fix.  It adds two proofs:
+
+* os2host32 prints the old/new value when applying that exact internal OFF32
+  record when OS2_PM_TRACE or OS2_TRACE_FIXUPS is enabled;
+* the PMWIN exception trace now includes EAX and the access-violation fault
+  address, so a failure at 01010179 identifies the effective address that the
+  indexed load actually tried to read.
+
+The host-independent WMCHAR fixup regression also locks the exact indexed
+operand and requires 000202EC -> 010202EC relocation arithmetic.
+
+Sarien behavior and PM semantics are unchanged from R8.

@@ -1,0 +1,4 @@
+# Patch artifacts contain unified-diff marker lines whose payload may itself
+# describe historical whitespace.  Do not treat that archived payload as
+# whitespace damage in the repository containing the patch.
+*.patch -whitespace

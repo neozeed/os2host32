@@ -1,0 +1,20 @@
+M29H - complete real C/386 VIO console backend through native far16 bridges
+
+- Keeps M29G2 as the baseline, including C/386 startup globals for environment
+  and program path initialization.
+- Implements CmdO2VioGetCurPos with VIOCALLS.9 VioGetCurPos.
+- Implements CmdO2VioSetCurPos with VIOCALLS.15 VioSetCurPos.
+- Implements CmdO2VioClear using VIOCALLS.21 VioGetMode, VIOCALLS.7
+  VioScrollUp, and VioSetCurPos.
+- Adds descriptor-driven native bridge descriptions for all four new VIO APIs.
+- VioScrollUp is the widest bridge so far: seven Pascal arguments and an
+  16-byte historical frame.
+- cmdos2_os2_console_test now exercises cursor query, cursor set, clear, TTY
+  output, keyboard flush and keyboard input entirely through cmdos2.h.
+
+Expected scan when LINK386 retains the observed migration layout:
+  C/386 far16 : recognized 7 migration thunks
+
+The 16-bit thunk object has historically used one 14-byte fragment per call;
+if that remains true it should be 7 * 14 = 98 bytes = 0x62.  Treat that as a
+useful diagnostic, not a loader requirement.

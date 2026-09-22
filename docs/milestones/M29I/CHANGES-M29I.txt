@@ -1,0 +1,10 @@
+Milestone 29I
+-------------
+* Preserve M29H's proven seven-thunk VIO/KBD loader baseline unchanged.
+* Fix C386 C4049/C4024 diagnostics at DosFindFirst parameter 4 and
+  DosFindNext parameter 2 by explicitly crossing the SDK result-buffer ABI as
+  PVOID while retaining the private 32-bit FILEFINDBUF3 wire layout.
+* Add cmdos2_os2_find_test.c/.def, a deterministic two-file regression that
+  exercises both DOSCALLS.264 DosFindFirst and DOSCALLS.265 DosFindNext and
+  validates decoded names and file sizes.
+* Extend build-os2-backend.cmd to build/link the M29I find regression.

@@ -1,0 +1,16 @@
+CMD32 PMAUTO R2
+================
+
+Fixes the direct C/386 OS/2 CMD32 loader regression discovered on the real i3 test host.
+
+* PMAUTO R1 exported only DOSCALLS.163 DosQAppType.
+* Microsoft OS/2 2.x C/386 OS2386.LIB resolves the 32-bit application-type query as
+  DOSCALLS.323 DosQueryAppType.
+* DOSCALLS now keeps ordinal 163 for compatibility and also exports ordinal 323,
+  backed by the same LE/LX application-type classifier.
+* The PMAUTO regression now requires both ordinals.
+
+Expected direct-shell load path:
+  os2host32 --run cmd32os2_os2.exe
+
+No CMD32 command semantics changed from PMAUTO R1.
