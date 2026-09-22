@@ -23,6 +23,12 @@ They are reference material only and are not part of the OS2HOST32 build.
 | `os2/os2smpl.txt` | OS/2 Sample Code |
 | `os2/os2kno.txt` | MS KnowledgeBase - OS/2 |
 | `os2/files.txt` | Original archive index |
+| `intel/80386.txt | Intel 386 Programmer's Reference |
+| `intel/80387.txt | Intel 387 Programmer's Reference |
+| `intel/80286.txt | Intel 286 Programmer's Reference |
+| `intel/80287.txt | Intel 287 Programmer's Reference | 
+| `intel/ps2vga.txt | Programmer's Guide to PC & PS/2 Video Systems |
+| `intel/hwsamp.txt | Sample Code |
 
 ## Project rule
 

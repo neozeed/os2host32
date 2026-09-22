@@ -1,0 +1,6 @@
+80386		Intel 386 Programmer's Reference
+80387		Intel 387 Programmer's Reference
+80286		Intel 286 Programmer's Reference
+80287		Intel 287 Programmer's Reference
+ps2vga		Programmer's Guide to PC & PS/2 Video Systems
+hwsamp		Sample Code
