@@ -41,6 +41,8 @@ EXPORTS
     DosExecPgm         @283 NONAME
     DosDevIOCtl        @284 NONAME
     DosBeep            @286 NONAME
+    DosSetProcessCp    @289 NONAME
+    DosQueryCp         @291 NONAME
     DosExitList        @296 NONAME
     DosAllocMem        @299 NONAME
     DosFreeMem         @304 NONAME
@@ -70,6 +72,9 @@ EXPORTS
     DosSubFreeMem      @346 NONAME
     DosSubUnsetMem     @347 NONAME
     DosQuerySysInfo    @348 NONAME
+    DosQueryCtryInfo   @395 NONAME
+    DosQueryDBCSEnv    @396 NONAME
+    DosMapCase         @397 NONAME
     DosSetExceptionHandler @354 NONAME
     DosUnsetExceptionHandler @355 NONAME
     DosSetSignalExceptionFocus @378 NONAME
@@ -77,3 +82,6 @@ EXPORTS
     DosAcknowledgeSignalException @418 NONAME
     DosFlatToSel       @425 NONAME
     DosSelToFlat       @426 NONAME
+    O2NlsQueryCtryInfo
+    O2NlsQueryDBCSEnv
+    O2NlsMapCase

@@ -11,6 +11,7 @@
 #include <stddef.h>
 
 #include "os2_win32_services.h"
+#include "os2_nls.h"
 
 os2_api_ret_t os2_win32_query_local_datetime(
     void *opaque,
@@ -53,4 +54,23 @@ uint64_t os2_win32_monotonic_milliseconds(void *opaque)
 {
     (void)opaque;
     return (uint64_t)GetTickCount64();
+}
+
+void os2_win32_initialize_nls(struct Os2NlsState *state)
+{
+    DWORD country;
+    UINT codepage;
+
+    if (state == NULL)
+        return;
+
+    country = 0;
+    if (GetLocaleInfoA(LOCALE_USER_DEFAULT,
+                       LOCALE_ICOUNTRY | LOCALE_RETURN_NUMBER,
+                       (LPSTR)&country, (int)sizeof(country)) != 0)
+        (void)os2_nls_set_country(state, (uint32_t)country);
+
+    codepage = GetOEMCP();
+    if (codepage != 0u)
+        (void)os2_nls_set_process_cp(state, (uint32_t)codepage);
 }

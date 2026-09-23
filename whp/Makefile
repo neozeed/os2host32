@@ -15,12 +15,17 @@ SRC = \
 	src/whp_os2_v2_hi.c \
 	../common/doscalls/os2_doscalls_core.c \
 	../common/api/os2_api_catalog.c \
+	../common/nls/os2_nls.c \
+	../common/nls/os2_nls_api.c \
 	../common/win32/os2_win32_services.c
 HEADERS = \
 	../common/include/os2_personality.h \
 	../common/include/os2_doscalls_core.h \
 	../common/include/os2_api_catalog.h \
+	../common/include/os2_nls.h \
+	../common/include/os2_nls_api.h \
 	../common/include/os2_win32_services.h \
+	../common/nls/os2_nls_tables.inc \
 	../common/api/os2_api_catalog.inc \
 	src/v2_beep.h \
 	src/v2_callback.h \
@@ -46,4 +51,4 @@ $(TARGET): $(SRC) $(HEADERS)
 	$(CC) $(CFLAGS) $(CPPFLAGS) /Fe:$@ $(SRC) /link $(LDLIBS)
 
 clean:
-	-del /Q $(TARGET) whp_os2_v2_hi.obj os2_doscalls_core.obj os2_api_catalog.obj os2_win32_services.obj 2>NUL
+	-del /Q $(TARGET) whp_os2_v2_hi.obj os2_doscalls_core.obj os2_api_catalog.obj os2_nls.obj os2_nls_api.obj os2_win32_services.obj 2>NUL

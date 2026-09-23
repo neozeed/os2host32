@@ -80,11 +80,21 @@ def main() -> int:
         304: "DosFreeMem",
         305: "DosSetMem",
         348: "DosQuerySysInfo",
+        289: "DosSetProcessCp",
+        291: "DosQueryCp",
+        395: "DosQueryCtryInfo",
+        396: "DosQueryDBCSEnv",
+        397: "DosMapCase",
     }
     for ordinal, name in required_shared.items():
         entry = catalog.get(("DOSCALLS", ordinal))
         if entry is None or entry[0] != name or entry[2] != "OS2_API_ROUTE_SHARED":
             errors.append(f"DOSCALLS.{ordinal} must identify {name} as shared")
+
+    for ordinal, name in {5: "DosQueryCtryInfo", 6: "DosQueryDBCSEnv", 7: "DosMapCase"}.items():
+        entry = catalog.get(("NLS", ordinal))
+        if entry is None or entry[0] != name or entry[2] != "OS2_API_ROUTE_SHARED":
+            errors.append(f"NLS.{ordinal} must identify {name} as shared")
 
     if errors:
         print("API catalogue check failed:")

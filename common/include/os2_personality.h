@@ -69,13 +69,18 @@ struct Os2PersonalityOps {
     uint64_t (*monotonic_milliseconds)(void *opaque);
 };
 
+struct Os2NlsState;
+
 struct Os2PersonalityContext {
     void *opaque;
     const struct Os2PersonalityOps *ops;
+    struct Os2NlsState *nls;
 };
 
 void os2_personality_context_init(struct Os2PersonalityContext *context,
                                   void *opaque,
                                   const struct Os2PersonalityOps *ops);
+void os2_personality_context_set_nls(struct Os2PersonalityContext *context,
+                                     struct Os2NlsState *nls);
 
 #endif

@@ -17,8 +17,9 @@ COMMON_CPPFLAGS = -Icommon/include
 API_CATALOG_SRC = common/api/os2_api_catalog.c
 DOSCALLS_CORE_SRC = common/doscalls/os2_doscalls_core.c
 WIN32_COMMON_SRC = common/win32/os2_win32_services.c
+NLS_COMMON_SRC = common/nls/os2_nls.c common/nls/os2_nls_api.c
 
-.PHONY: all loader whp transformer shell dlls compat verify common-check catalog-check wiring-check clean
+.PHONY: all loader whp transformer shell dlls compat diagnostics verify common-check nls-check nls-table-check catalog-check wiring-check clean
 
 all: loader transformer shell dlls
 
@@ -54,12 +55,13 @@ cmd32os2.exe: shell/cmd32os2.c shell/cmdparse.c shell/cmdparse.h \
 		shell/cmdos2_win32.c shell/cmdos2_session_win32.c shell/cmdos2_env.c
 
 DOSCALLS.dll: dlls/doscalls/doscalls.c dlls/doscalls/doscalls.def \
-              $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) \
-              common/include/os2_personality.h \
+              $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) $(NLS_COMMON_SRC) \
+              common/include/os2_personality.h common/include/os2_nls.h \
+              common/include/os2_nls_api.h common/nls/os2_nls_tables.inc \
               common/include/os2_doscalls_core.h \
               common/include/os2_win32_services.h
 	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -shared -o $@ \
-		dlls/doscalls/doscalls.c $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) \
+		dlls/doscalls/doscalls.c $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) $(NLS_COMMON_SRC) \
 		dlls/doscalls/doscalls.def \
 		-lwinmm -Wl,--out-implib,libdoscalls.a
 
@@ -79,9 +81,16 @@ SESMGR.dll: dlls/sesmgr/sesmgr.c dlls/sesmgr/sesmgr.def
 	$(MINGW) $(C89FLAGS) -shared -o $@ dlls/sesmgr/sesmgr.c dlls/sesmgr/sesmgr.def \
 		-Wl,--out-implib,libsesmgr.a
 
-NLS.dll: dlls/nls/nls.c dlls/nls/nls.def
+NLS.dll: dlls/nls/nls.c dlls/nls/nls.def DOSCALLS.dll
 	$(MINGW) $(C89FLAGS) -shared -o $@ dlls/nls/nls.c dlls/nls/nls.def \
-		-Wl,--out-implib,libnls.a
+		libdoscalls.a -Wl,--out-implib,libnls.a
+
+# Human-readable personality NLS smoke test. This is a diagnostic, not a
+# production runtime prerequisite.
+diagnostics: nlsinfo.exe
+
+nlsinfo.exe: tools/nlsinfo.c NLS.dll DOSCALLS.dll
+	$(MINGW) $(C89FLAGS) -o $@ tools/nlsinfo.c libnls.a libdoscalls.a
 
 PMWIN.dll: dlls/pmwin/pmwin.c dlls/pmwin/pmwin.def dlls/pm-common/pmcompat.h
 	$(MINGW) $(C89FLAGS) -Idlls/pm-common -shared -o $@ \
@@ -106,7 +115,7 @@ HELPMGR.dll: dlls/helpmgr/helpmgr.c dlls/helpmgr/helpmgr.def
 		-Wl,--out-implib,libhelpmgr.a
 
 
-verify: common-check catalog-check wiring-check
+verify: common-check nls-table-check nls-check catalog-check wiring-check
 
 common-check: tests/common/personality-core-check.c $(DOSCALLS_CORE_SRC) \
               $(API_CATALOG_SRC) common/include/os2_personality.h \
@@ -118,6 +127,18 @@ common-check: tests/common/personality-core-check.c $(DOSCALLS_CORE_SRC) \
 	./personality-core-check
 	rm -f personality-core-check
 
+nls-table-check: tools/gen_nls_tables.py common/nls/os2_nls_tables.inc
+	python3 tools/gen_nls_tables.py --check
+
+nls-check: tests/nls/nls-core-check.c $(NLS_COMMON_SRC) $(DOSCALLS_CORE_SRC) \
+           common/include/os2_nls.h common/include/os2_nls_api.h \
+           common/include/os2_personality.h common/nls/os2_nls_tables.inc
+	$(HOSTCC) -std=c89 -O2 -Wall -Wextra -pedantic $(COMMON_CPPFLAGS) \
+		-o nls-core-check tests/nls/nls-core-check.c \
+		$(NLS_COMMON_SRC) $(DOSCALLS_CORE_SRC)
+	./nls-core-check
+	rm -f nls-core-check
+
 catalog-check:
 	python3 tools/check_api_catalog.py
 
@@ -125,7 +146,7 @@ wiring-check:
 	python3 tools/check_shared_personality.py
 
 clean:
-	rm -f os2host32.exe le2pe386.exe cmd32os2.exe personality-core-check \
+	rm -f os2host32.exe le2pe386.exe cmd32os2.exe nlsinfo.exe personality-core-check nls-core-check \
 	      DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll NLS.dll \
 	      PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll \
 	      libdoscalls.a libkbdcalls.a libviocalls.a libquecalls.a libsesmgr.a \

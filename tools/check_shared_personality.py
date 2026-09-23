@@ -54,6 +54,9 @@ def main() -> int:
     core_header = read("common/include/os2_doscalls_core.h")
     core_source = read("common/doscalls/os2_doscalls_core.c")
     native = read("dlls/doscalls/doscalls.c")
+    nls_veneer = read("dlls/nls/nls.c")
+    nls_core = read("common/nls/os2_nls.c")
+    nls_api = read("common/nls/os2_nls_api.c")
     whp = read("whp/src/whp_os2_v2_hi.c")
     whp_fileio = read("whp/src/v2_fileio.h")
     root_make = read("Makefile")
@@ -117,6 +120,38 @@ def main() -> int:
     if "os2_api_lookup" not in whp:
         errors.append("WHP import diagnostics are not using the canonical ordinal catalogue")
 
+    nls_required = (
+        "os2_nls_api_DosSetProcessCp",
+        "os2_nls_api_DosQueryCp",
+        "os2_nls_api_DosQueryCtryInfo",
+        "os2_nls_api_DosQueryDBCSEnv",
+        "os2_nls_api_DosMapCase",
+    )
+    for name in nls_required:
+        if name not in nls_api:
+            errors.append(f"missing shared NLS ABI implementation: {name}")
+    if "GetLocaleInfo" in nls_veneer or "GetOEMCP" in nls_veneer:
+        errors.append("NLS.DLL veneer still reaches Win32 locale/codepage APIs directly")
+    for helper in ("O2NlsQueryCtryInfo", "O2NlsQueryDBCSEnv", "O2NlsMapCase"):
+        if helper not in nls_veneer or helper not in native:
+            errors.append(f"native NLS veneer is not routed through DOSCALLS helper {helper}")
+    for fragment in (
+        'else if (_stricmp(mod, "NLS") == 0)',
+        "HC_NLS",
+        "dispatch_nls",
+        "os2_personality_context_set_nls(&personality, &rt->nls_state)",
+    ):
+        if fragment not in whp:
+            errors.append(f"WHP NLS wiring is missing: {fragment}")
+    for fragment in ("NLS_COMMON_SRC", "libdoscalls.a -Wl,--out-implib,libnls.a"):
+        if fragment not in root_make:
+            errors.append(f"root Makefile NLS wiring is missing: {fragment}")
+    for fragment in ("../common/nls/os2_nls.c", "../common/nls/os2_nls_api.c"):
+        if fragment not in whp_make:
+            errors.append(f"WHP Makefile NLS wiring is missing: {fragment}")
+    if "os2_cp437_upper" not in nls_core or "os2_cp850_upper" not in nls_core:
+        errors.append("NLS core is not consuming both built-in SBCS case tables")
+
     if errors:
         print("Shared personality wiring check failed:")
         for error in errors:
@@ -124,8 +159,8 @@ def main() -> int:
         return 1
 
     print(
-        "PASS: native DOSCALLS and WHP share "
-        f"{len(SHARED_DOSCALLS)} catalogued DOSCALLS implementations"
+        "PASS: native DOSCALLS/WHP core plus process-owned NLS wiring; "
+        f"{len(SHARED_DOSCALLS)} original shared DOSCALLS implementations preserved"
     )
     return 0
 

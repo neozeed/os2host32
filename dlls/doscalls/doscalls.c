@@ -30,6 +30,8 @@
 
 #include "os2_doscalls_core.h"
 #include "os2_win32_services.h"
+#include "os2_nls.h"
+#include "os2_nls_api.h"
 
 #ifndef __cdecl
 #define __cdecl
@@ -855,9 +857,11 @@ static const struct Os2PersonalityOps o2_personality_ops = {
     os2_win32_monotonic_milliseconds
 };
 
+static struct Os2NlsState o2_nls_state;
 static struct Os2PersonalityContext o2_personality_context = {
     NULL,
-    &o2_personality_ops
+    &o2_personality_ops,
+    &o2_nls_state
 };
 
 static os2_addr32_t o2_pointer_address(const void *pointer)
@@ -4577,12 +4581,72 @@ O2APIRET __cdecl DosQuerySysInfo(O2ULONG first, O2ULONG last,
         o2_pointer_address(buffer), (uint32_t)cb);
 }
 
+/* Process-owned NLS state. DOSCALLS.289/291 and NLS.5/6/7 all reach this
+ * same context, so a codepage switch is immediately visible across modules. */
+O2APIRET __cdecl DosSetProcessCp(O2ULONG codepage)
+{
+    return (O2APIRET)os2_nls_api_DosSetProcessCp(
+        &o2_personality_context, (uint32_t)codepage);
+}
+
+O2APIRET __cdecl DosQueryCp(O2ULONG cb, O2ULONG *codepages, O2ULONG *actual)
+{
+    return (O2APIRET)os2_nls_api_DosQueryCp(
+        &o2_personality_context, (uint32_t)cb, o2_pointer_address(codepages),
+        o2_pointer_address(actual));
+}
+
+/* Named helpers are private personality plumbing imported by NLS.DLL. */
+O2APIRET __cdecl O2NlsQueryCtryInfo(O2ULONG cb, const void *countrycode,
+                                     void *countryinfo, O2ULONG *actual)
+{
+    return (O2APIRET)os2_nls_api_DosQueryCtryInfo(
+        &o2_personality_context, (uint32_t)cb, o2_pointer_address(countrycode),
+        o2_pointer_address(countryinfo), o2_pointer_address(actual));
+}
+
+O2APIRET __cdecl O2NlsQueryDBCSEnv(O2ULONG cb, const void *countrycode,
+                                    void *buffer)
+{
+    return (O2APIRET)os2_nls_api_DosQueryDBCSEnv(
+        &o2_personality_context, (uint32_t)cb, o2_pointer_address(countrycode),
+        o2_pointer_address(buffer));
+}
+
+O2APIRET __cdecl O2NlsMapCase(O2ULONG cb, const void *countrycode, void *buffer)
+{
+    return (O2APIRET)os2_nls_api_DosMapCase(
+        &o2_personality_context, (uint32_t)cb, o2_pointer_address(countrycode),
+        o2_pointer_address(buffer));
+}
+
+/* OS/2 also publishes these NLS functions through DOSCALLS.395-.397. */
+O2APIRET __cdecl DosQueryCtryInfo(O2ULONG cb, const void *countrycode,
+                                   void *countryinfo, O2ULONG *actual)
+{
+    return O2NlsQueryCtryInfo(cb, countrycode, countryinfo, actual);
+}
+
+O2APIRET __cdecl DosQueryDBCSEnv(O2ULONG cb, const void *countrycode,
+                                  void *buffer)
+{
+    return O2NlsQueryDBCSEnv(cb, countrycode, buffer);
+}
+
+O2APIRET __cdecl DosMapCase(O2ULONG cb, const void *countrycode, void *buffer)
+{
+    return O2NlsMapCase(cb, countrycode, buffer);
+}
+
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
     O2ULONG i;
     (void)instance;
 
     if (reason == DLL_PROCESS_ATTACH) {
+        os2_nls_state_init(&o2_nls_state);
+        os2_win32_initialize_nls(&o2_nls_state);
+        os2_personality_context_set_nls(&o2_personality_context, &o2_nls_state);
         o2_exception_head =
             (struct O2ExceptionRegistrationRecord *)(ULONG_PTR)0xffffffffUL;
         for (i = 0; i < O2_MAX_HANDLES; ++i)

@@ -52,6 +52,8 @@
 #include "os2_api_catalog.h"
 #include "os2_doscalls_core.h"
 #include "os2_win32_services.h"
+#include "os2_nls.h"
+#include "os2_nls_api.h"
 
 #pragma comment(lib, "WinHvPlatform.lib")
 
@@ -100,6 +102,7 @@
 #define SRC_PTR32 6u
 #define HC_CONSOLE 0x07000000u
 #define HC_SESMGR 0x08000000u
+#define HC_NLS     0x09000000u
 #define SRC_OFF32           0x07
 #define SRC_REL32           0x08
 #define SRC_LIST            0x20
@@ -340,6 +343,9 @@ struct Runtime {
 
     int process_exited;
     uint32_t process_rc;
+
+    /* Persistent process-owned OS/2 NLS state shared by DOSCALLS and NLS. */
+    struct Os2NlsState nls_state;
 };
 
 static uint16_t rd16(const uint8_t *p)
@@ -1411,6 +1417,8 @@ static void resolve_imports(struct Runtime *rt, struct LeImage *x,
             addr = hostcall_stub(rt, HC_WHPTEST, x->imports[i].ordinal);
         } else if (_stricmp(mod, "QUECALLS") == 0) {
             addr = hostcall_stub(rt, HC_QUECALLS, x->imports[i].ordinal);
+        } else if (_stricmp(mod, "NLS") == 0) {
+            addr = hostcall_stub(rt, HC_NLS, x->imports[i].ordinal);
         } else {
             g = load_guest_module(rt, mod);
             addr = guest_export_by_ordinal(g, x->imports[i].ordinal);
@@ -2276,12 +2284,38 @@ static const char *dos_name(uint32_t ordinal)
     return name != NULL ? name : "?";
 }
 
+static uint32_t dispatch_nls(struct Runtime *rt, uint32_t ordinal, uint32_t esp)
+{
+    struct Os2PersonalityContext personality;
+    uint32_t a1, a2, a3, a4;
+
+    os2_personality_context_init(&personality, rt, &whp_personality_ops);
+    os2_personality_context_set_nls(&personality, &rt->nls_state);
+    a1 = guest_u32(rt, esp + 4u);
+    a2 = guest_u32(rt, esp + 8u);
+    a3 = guest_u32(rt, esp + 12u);
+    a4 = guest_u32(rt, esp + 16u);
+
+    switch (ordinal) {
+    case 5:
+        return os2_nls_api_DosQueryCtryInfo(&personality, a1, a2, a3, a4);
+    case 6:
+        return os2_nls_api_DosQueryDBCSEnv(&personality, a1, a2, a3);
+    case 7:
+        return os2_nls_api_DosMapCase(&personality, a1, a2, a3);
+    default:
+        fprintf(stderr, "v2: unsupported NLS.%u\n", ordinal);
+        return OS2_ERROR_INVALID_FUNCTION;
+    }
+}
+
 static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t esp)
 {
     uint32_t a1, a2, a3, a4, a5;
     struct Os2PersonalityContext personality;
 
     os2_personality_context_init(&personality, rt, &whp_personality_ops);
+    os2_personality_context_set_nls(&personality, &rt->nls_state);
     a1 = guest_u32(rt, esp + 4u);
     a2 = guest_u32(rt, esp + 8u);
     a3 = guest_u32(rt, esp + 12u);
@@ -2306,6 +2340,22 @@ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t
         fprintf(stderr, "v2: DOSCALLS.%u -> rc=%u\n", ordinal, file_rc);
         return file_rc;
     }
+    case 289: /* DosSetProcessCp(cp) */
+        fprintf(stderr, "v2: DOSCALLS.289 DosSetProcessCp(%u) [shared NLS]\n", a1);
+        return os2_nls_api_DosSetProcessCp(&personality, a1);
+
+    case 291: /* DosQueryCp(cb, arCP, pcbActual) */
+        fprintf(stderr, "v2: DOSCALLS.291 DosQueryCp(%u,%08X,%08X) [shared NLS]\n",
+                a1, a2, a3);
+        return os2_nls_api_DosQueryCp(&personality, a1, a2, a3);
+
+    case 395: /* DosQueryCtryInfo alias */
+        return os2_nls_api_DosQueryCtryInfo(&personality, a1, a2, a3, a4);
+    case 396: /* DosQueryDBCSEnv alias */
+        return os2_nls_api_DosQueryDBCSEnv(&personality, a1, a2, a3);
+    case 397: /* DosMapCase alias */
+        return os2_nls_api_DosMapCase(&personality, a1, a2, a3);
+
     case 230: /* DosGetDateTime(PDATETIME) */
         fprintf(stderr, "v2: DOSCALLS.230 DosGetDateTime(%08X) [shared]\n", a1);
         return os2_core_DosGetDateTime(&personality, a1);
@@ -2703,6 +2753,8 @@ static int run_guest(struct Runtime *rt, uint32_t entry, uint32_t initial_esp)
                 rc = dispatch_doscalls(rt, ordinal, (uint32_t)rsp);
             } else if (module == HC_QUECALLS) {
                 rc = dispatch_queue(rt, ordinal, (uint32_t)rsp);
+            } else if (module == HC_NLS) {
+                rc = dispatch_nls(rt, ordinal, (uint32_t)rsp);
             } else if (module == HC_RUNTIME && ordinal == HC_RUNTIME_THREAD_RETURN) {
                 struct GuestThread *cur = current_guest_thread(rt);
                 if (!cur) {
@@ -2793,6 +2845,8 @@ int main(int argc, char **argv)
 
     memset(&rt, 0, sizeof(rt));
     memset(&x, 0, sizeof(x));
+    os2_nls_state_init(&rt.nls_state);
+    os2_win32_initialize_nls(&rt.nls_state);
     rt.alloc_next = GUEST_ALLOC_BASE;
     rt.module_next = GUEST_MODULE_BASE;
     rt.stub_next = GUEST_STUB_BASE;

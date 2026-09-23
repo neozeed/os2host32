@@ -17,6 +17,14 @@ void os2_personality_context_init(struct Os2PersonalityContext *context,
         return;
     context->opaque = opaque;
     context->ops = ops;
+    context->nls = NULL;
+}
+
+void os2_personality_context_set_nls(struct Os2PersonalityContext *context,
+                                     struct Os2NlsState *nls)
+{
+    if (context != NULL)
+        context->nls = nls;
 }
 
 static int context_has_memory(const struct Os2PersonalityContext *context)
