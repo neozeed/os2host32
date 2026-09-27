@@ -1,0 +1,105 @@
+ReactOS OS2SS LE4IO interactive I/O static verification
+=====================================================
+
+ReactOS HEAD exact: PASS (091855fc4f9de8052c8cf4a55830580aab5558da)
+ReactOS tree clean: PASS
+
+===== OS2SS.EXE =====
+PE32 i386: PASS (machine=0x014c magic=0x010b)
+subsystem 2: PASS (2)
+NTDLL-only imports: PASS (ntdll.dll)
+forbidden NtReadVirtualMemory absent: PASS
+forbidden NtWriteVirtualMemory absent: PASS
+forbidden NtSetContextThread absent: PASS
+forbidden NtGetContextThread absent: PASS
+forbidden NtSetLdtEntries absent: PASS
+SHA256: 5ba2d41142df16e770aa744b518376361f2c908bcf8b5433d080500f2157aa1c
+
+===== OS2LE4CLAUNCH.EXE =====
+PE32 i386: PASS (machine=0x014c magic=0x010b)
+subsystem 3: PASS (3)
+launcher imports only NTDLL+KERNEL32: PASS (ntdll.dll,kernel32.dll)
+launcher KERNEL32 surface only ReadConsoleA+WriteConsoleA: PASS (ReadConsoleA,WriteConsoleA)
+forbidden NtReadVirtualMemory absent: PASS
+forbidden NtWriteVirtualMemory absent: PASS
+forbidden NtSetContextThread absent: PASS
+forbidden NtGetContextThread absent: PASS
+forbidden NtSetLdtEntries absent: PASS
+SHA256: 3a1082fe7b151b9dd5ddee016cc771f5ba067ee833a740f33391a0c260d37c0f
+
+===== OS2BOOT.EXE =====
+PE32 i386: PASS (machine=0x014c magic=0x010b)
+subsystem 5: PASS (5)
+NTDLL-only imports: PASS (ntdll.dll)
+OS2BOOT ImageBase 0x00400000: PASS (0x00400000)
+forbidden NtReadVirtualMemory absent: PASS
+forbidden NtWriteVirtualMemory absent: PASS
+forbidden NtSetContextThread absent: PASS
+forbidden NtGetContextThread absent: PASS
+forbidden NtSetLdtEntries absent: PASS
+SHA256: e21326b82dff7e4b6d0b4ac248f8621d7d040f8531087118ae01c7cdde277492
+
+===== protocol / API surface =====
+protocol version remains 1: PASS
+OS2 API message remains 0x38: PASS
+DosGetDateTime protocol API exists: PASS
+DosRead protocol API exists: PASS
+DosGetDateTime uses native system/local time: PASS
+stdin DosRead uses shared view + console bridge: PASS
+console bridge has read operation: PASS
+console input acknowledged with bytes: PASS
+
+===== temporary native file backend =====
+DosQueryPathInfo gateway present: PASS
+DosClose gateway present: PASS
+DosDelete gateway present: PASS
+DosSetFileSize gateway present: PASS
+DosOpen gateway present: PASS
+file reads use local NtReadFile for h>=3: PASS
+file writes use local NtWriteFile for h>=3: PASS
+file seek uses NtSetInformationFile: PASS
+open uses native NtCreateFile: PASS
+path info uses NtQueryFullAttributesFile: PASS
+delete uses NtDeleteFile: PASS
+fixed local HFILE table only: PASS
+
+===== generalized compatible LE execution guard =====
+SHA remains diagnostic only: PASS
+generic plan guard exists: PASS
+only OFF32 internal fixups accepted: PASS
+only REL32 ordinal externals accepted: PASS
+supported ordinal set includes phoon/infocom: PASS
+veneer count follows parsed imports: PASS
+execution guard follows dynamic plan counts: PASS
+native FS preservation unchanged: PASS
+
+===== persistent subsystem / console QoL preserved =====
+OS2SS directory readiness probe preserved: PASS
+persistent subsystem skip path preserved: PASS
+launcher accepts target image argument: PASS
+main-thread console bridge preserved: PASS
+streaming console output preserved: PASS
+no VIO implementation: PASS
+no ANSI parser: PASS
+
+===== fixture host-oracle evidence =====
+hi.exe oracle evidence present: PASS
+hi.exe construction oracle PASS: PASS
+hi2.exe oracle evidence present: PASS
+hi2.exe construction oracle PASS: PASS
+phoon.exe oracle evidence present: PASS
+phoon.exe construction oracle PASS: PASS
+infocom.exe oracle evidence present: PASS
+infocom.exe construction oracle PASS: PASS
+
+===== deterministic rebuild =====
+deterministic OS2SS.EXE: PASS
+deterministic OS2LE4CLAUNCH.EXE: PASS
+deterministic OS2BOOT.EXE: PASS
+ReactOS source remains clean: PASS
+
+runtime_tested = false
+interactive_input_observed = null
+phoon_runtime_observed = null
+infocom_runtime_observed = null
+
