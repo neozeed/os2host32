@@ -14,8 +14,11 @@ boundary; do not pass a WHP guest pointer as a Win64 host pointer.
 - `common/include/` contains stable shared contracts.
 - `common/api/` contains the canonical module/ordinal/name catalogue.
 - `common/doscalls/` contains shared DOSCALLS semantics.
-- `common/win32/` contains Win32 services which are genuinely identical for both
-  execution backends.
+- `common/queue/` contains backend-neutral QUECALLS queue semantics/state.
+- `common/kbd/` contains backend-neutral KBDCALLS semantics/state.
+- `common/vio/` contains backend-neutral VIO semantics/state.
+- `common/sesmgr/` contains backend-neutral Session Manager policy/registry/lifecycle semantics.
+- `common/win32/` contains native Win32 backend mechanics and Win32 services.
 
 An API belongs here only after native and WHP both call the same common
 implementation.  Loader scheduling, process control, callbacks, and other

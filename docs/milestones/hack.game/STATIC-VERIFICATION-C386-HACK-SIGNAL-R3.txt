@@ -1,0 +1,24 @@
+C386 HACK SIGNAL R3 STATIC VERIFICATION
+
+Root-cause evidence:
+  DOSCALLS.14 direct REL32 source: object1+0x2508A
+  DOSCALLS.89 direct REL32 source: object1+0x250A9
+  signal.asm uses DWORD argument slots, left-to-right pushes, callee cleanup.
+
+Implementation guards:
+  recognized mixed Microsoft C/386 image required
+  32-bit source object required
+  CALL rel32 opcode (E8) required
+  DOSCALLS module required
+  ordinal restricted to 14 or 89
+
+Adapters:
+  DOSCALLS.14 -> reorder five DWORDs to cdecl, call host, RET 20
+  DOSCALLS.89 -> reorder three DWORDs to cdecl, call host, RET 12
+
+Underlying DOSCALLS exports remain cdecl.
+No asynchronous signal delivery or 16-bit execution added.
+
+GCC full make verify: PASS
+Clang full make verify: PASS
+Runtime: PENDING

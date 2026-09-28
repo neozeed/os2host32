@@ -1,0 +1,385 @@
+!define BLANK ""
+c:\watcom\hack\alloc.obj : c:\watcom\hack\alloc.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 alloc.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\apply.obj : c:\watcom\hack\apply.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 apply.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\bones.obj : c:\watcom\hack\bones.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 bones.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\cmd.obj : c:\watcom\hack\cmd.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 cmd.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\decl.obj : c:\watcom\hack\decl.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 decl.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od &
+-d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\do.obj : c:\watcom\hack\do.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 do.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -d&
+3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\do_name.obj : c:\watcom\hack\do_name.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 do_name.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -&
+od -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\do_wear.obj : c:\watcom\hack\do_wear.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 do_wear.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -&
+od -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\dog.obj : c:\watcom\hack\dog.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 dog.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\eat.obj : c:\watcom\hack\eat.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 eat.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\end.obj : c:\watcom\hack\end.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 end.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\engrave.obj : c:\watcom\hack\engrave.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 engrave.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -&
+od -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\fight.obj : c:\watcom\hack\fight.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 fight.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\hack.obj : c:\watcom\hack\hack.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 hack.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od &
+-d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\invent.obj : c:\watcom\hack\invent.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 invent.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\lev.obj : c:\watcom\hack\lev.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 lev.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\main.obj : c:\watcom\hack\main.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 main.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od &
+-d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\makemon.obj : c:\watcom\hack\makemon.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 makemon.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -&
+od -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\mhitu.obj : c:\watcom\hack\mhitu.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 mhitu.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\mklev.obj : c:\watcom\hack\mklev.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 mklev.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\mkmaze.obj : c:\watcom\hack\mkmaze.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 mkmaze.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\mkobj.obj : c:\watcom\hack\mkobj.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 mkobj.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\mkshop.obj : c:\watcom\hack\mkshop.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 mkshop.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\mon.obj : c:\watcom\hack\mon.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 mon.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\monst.obj : c:\watcom\hack\monst.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 monst.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\msdos.obj : c:\watcom\hack\msdos.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 msdos.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\o_init.obj : c:\watcom\hack\o_init.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 o_init.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\objnam.obj : c:\watcom\hack\objnam.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 objnam.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\options.obj : c:\watcom\hack\options.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 options.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -&
+od -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\pager.obj : c:\watcom\hack\pager.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 pager.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\pcioctl.obj : c:\watcom\hack\pcioctl.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 pcioctl.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -&
+od -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\pctty.obj : c:\watcom\hack\pctty.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 pctty.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\potion.obj : c:\watcom\hack\potion.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 potion.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\pri.obj : c:\watcom\hack\pri.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 pri.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\read.obj : c:\watcom\hack\read.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 read.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od &
+-d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\rip.obj : c:\watcom\hack\rip.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 rip.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\rnd.obj : c:\watcom\hack\rnd.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 rnd.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\rumors.obj : c:\watcom\hack\rumors.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 rumors.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\save.obj : c:\watcom\hack\save.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 save.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od &
+-d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\search.obj : c:\watcom\hack\search.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 search.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\shk.obj : c:\watcom\hack\shk.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 shk.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\shknam.obj : c:\watcom\hack\shknam.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 shknam.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\steal.obj : c:\watcom\hack\steal.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 steal.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\termpc.obj : c:\watcom\hack\termpc.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 termpc.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\timeout.obj : c:\watcom\hack\timeout.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 timeout.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -&
+od -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\topl.obj : c:\watcom\hack\topl.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 topl.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od &
+-d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\track.obj : c:\watcom\hack\track.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 track.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\trap.obj : c:\watcom\hack\trap.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 trap.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od &
+-d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\u_init.obj : c:\watcom\hack\u_init.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 u_init.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\unix.obj : c:\watcom\hack\unix.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 unix.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od &
+-d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\vault.obj : c:\watcom\hack\vault.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 vault.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\version.obj : c:\watcom\hack\version.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 version.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -&
+od -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\wield.obj : c:\watcom\hack\wield.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 wield.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od&
+ -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\wizard.obj : c:\watcom\hack\wizard.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 wizard.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -o&
+d -d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\worm.obj : c:\watcom\hack\worm.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 worm.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od &
+-d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\worn.obj : c:\watcom\hack\worn.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 worn.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od &
+-d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\zap.obj : c:\watcom\hack\zap.c .AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ *wcc386 zap.c -i=c:\watcom\h;c:\watcom\h\nt -w0 -e25 -dMSDOS -zp1 -zq -od -&
+d3 -db -en -fpi -r -zm -zc -mf -3r -bt=nt -ri -ei
+
+c:\watcom\hack\hack.exe : c:\watcom\hack\alloc.obj c:\watcom\hack\apply.obj &
+c:\watcom\hack\bones.obj c:\watcom\hack\cmd.obj c:\watcom\hack\decl.obj c:\w&
+atcom\hack\do.obj c:\watcom\hack\do_name.obj c:\watcom\hack\do_wear.obj c:\w&
+atcom\hack\dog.obj c:\watcom\hack\eat.obj c:\watcom\hack\end.obj c:\watcom\h&
+ack\engrave.obj c:\watcom\hack\fight.obj c:\watcom\hack\hack.obj c:\watcom\h&
+ack\invent.obj c:\watcom\hack\lev.obj c:\watcom\hack\main.obj c:\watcom\hack&
+\makemon.obj c:\watcom\hack\mhitu.obj c:\watcom\hack\mklev.obj c:\watcom\hac&
+k\mkmaze.obj c:\watcom\hack\mkobj.obj c:\watcom\hack\mkshop.obj c:\watcom\ha&
+ck\mon.obj c:\watcom\hack\monst.obj c:\watcom\hack\msdos.obj c:\watcom\hack\&
+o_init.obj c:\watcom\hack\objnam.obj c:\watcom\hack\options.obj c:\watcom\ha&
+ck\pager.obj c:\watcom\hack\pcioctl.obj c:\watcom\hack\pctty.obj c:\watcom\h&
+ack\potion.obj c:\watcom\hack\pri.obj c:\watcom\hack\read.obj c:\watcom\hack&
+\rip.obj c:\watcom\hack\rnd.obj c:\watcom\hack\rumors.obj c:\watcom\hack\sav&
+e.obj c:\watcom\hack\search.obj c:\watcom\hack\shk.obj c:\watcom\hack\shknam&
+.obj c:\watcom\hack\steal.obj c:\watcom\hack\termpc.obj c:\watcom\hack\timeo&
+ut.obj c:\watcom\hack\topl.obj c:\watcom\hack\track.obj c:\watcom\hack\trap.&
+obj c:\watcom\hack\u_init.obj c:\watcom\hack\unix.obj c:\watcom\hack\vault.o&
+bj c:\watcom\hack\version.obj c:\watcom\hack\wield.obj c:\watcom\hack\wizard&
+.obj c:\watcom\hack\worm.obj c:\watcom\hack\worn.obj c:\watcom\hack\zap.obj &
+.AUTODEPEND
+ @c:
+ cd c:\watcom\hack
+ wbrg @hack.cbr
+ @%write hack.lk1 NAME hack
+ @%append hack.lk1 FIL alloc.obj,apply.obj,bones.obj,cmd.obj,decl.obj,do.obj&
+,do_name.obj,do_wear.obj,dog.obj,eat.obj,end.obj,engrave.obj,fight.obj,hack.&
+obj,invent.obj,lev.obj,main.obj,makemon.obj,mhitu.obj,mklev.obj,mkmaze.obj,m&
+kobj.obj,mkshop.obj,mon.obj,monst.obj,msdos.obj,o_init.obj,objnam.obj,option&
+s.obj,pager.obj,pcioctl.obj,pctty.obj,potion.obj,pri.obj,read.obj,rip.obj,rn&
+d.obj,rumors.obj,save.obj,search.obj,shk.obj,shknam.obj,steal.obj,termpc.obj&
+,timeout.obj,topl.obj,track.obj,trap.obj,u_init.obj,unix.obj,vault.obj,versi&
+on.obj,wield.obj,wizard.obj,worm.obj,worn.obj,zap.obj
+ @%append hack.lk1 
+!ifneq BLANK ""
+ *wlib -q -n -b hack.imp 
+ @%append hack.lk1 LIBR hack.imp
+!endif
+ *wlink SYS nt op st=8192 op maxe=25 op d @hack.lk1
+!ifneq BLANK ""
+ wrc -q -ad -s0  hack.exe
+!endif
+

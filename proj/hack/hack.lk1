@@ -1,0 +1,3 @@
+NAME hack
+FIL alloc.obj,apply.obj,bones.obj,cmd.obj,decl.obj,do.obj,do_name.obj,do_wear.obj,dog.obj,eat.obj,end.obj,engrave.obj,fight.obj,hack.obj,invent.obj,lev.obj,main.obj,makemon.obj,mhitu.obj,mklev.obj,mkmaze.obj,mkobj.obj,mkshop.obj,mon.obj,monst.obj,msdos.obj,o_init.obj,objnam.obj,options.obj,pager.obj,pcioctl.obj,pctty.obj,potion.obj,pri.obj,read.obj,rip.obj,rnd.obj,rumors.obj,save.obj,search.obj,shk.obj,shknam.obj,steal.obj,termpc.obj,timeout.obj,topl.obj,track.obj,trap.obj,u_init.obj,unix.obj,vault.obj,version.obj,wield.obj,wizard.obj,worm.obj,worn.obj,zap.obj
+

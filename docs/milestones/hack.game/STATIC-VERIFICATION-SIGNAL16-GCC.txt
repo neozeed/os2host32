@@ -1,0 +1,142 @@
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o personality-core-check tests/common/personality-core-check.c \
+	common/doscalls/os2_doscalls_core.c common/api/os2_api_catalog.c
+./personality-core-check
+PASS: shared DOSCALLS personality core and ordinal catalogue
+rm -f personality-core-check
+python3 tools/gen_nls_tables.py --check
+PASS: built-in CP437/CP850 case tables are reproducible
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o nls-core-check tests/nls/nls-core-check.c \
+	common/nls/os2_nls.c common/nls/os2_nls_api.c common/doscalls/os2_doscalls_core.c
+./nls-core-check
+PASS: OS/2 NLS core, process state, extended case maps and guest ABI
+rm -f nls-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic \
+	-Itests/nls/win32-stub -Icommon/include \
+	-o nls-win32-shim-check tests/nls/nls-win32-shim-check.c \
+	tests/nls/win32-stub/win32_nls_stub.c \
+	common/nls/os2_nls.c common/win32/os2_nls_win32.c
+./nls-win32-shim-check
+nls-win32-shim-check: PASS
+rm -f nls-win32-shim-check
+python3 tools/check_nls_r2.py
+nls-static-check: PASS
+python3 tools/check_api_catalog.py
+PASS: 283 catalogue entries cover 281 ordinal DLL exports
+python3 tools/check_shared_personality.py
+PASS: native DOSCALLS/WHP core plus process-owned NLS wiring; 8 original shared DOSCALLS implementations preserved
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o doscalls-core-check tests/doscalls/doscalls-core-check.c \
+	common/doscalls/os2_doscalls.c common/nls/os2_nls.c
+./doscalls-core-check
+doscalls-core-check: PASS
+rm -f doscalls-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o doscalls-veneer-check tests/doscalls/doscalls-veneer-check.c \
+	dlls/doscalls/doscalls.c common/doscalls/os2_doscalls.c common/nls/os2_nls.c
+./doscalls-veneer-check
+doscalls-veneer-check: PASS
+rm -f doscalls-veneer-check
+python3 tools/check_doscalls_r2.py
+DOSCALLS-R2 static architecture check: PASS (87 frozen exports)
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o vio-core-check tests/vio/vio-core-check.c common/vio/os2_vio.c \
+	common/win32/os2_vio_win32_attr.c
+./vio-core-check
+vio-core-check: PASS
+rm -f vio-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic \
+	-Itests/vio/win32-stub -Icommon/include \
+	-o vio-win32-shim-check tests/vio/vio-win32-shim-check.c \
+	tests/vio/win32-stub/win32_vio_stub.c dlls/viocalls/viocalls.c \
+	common/vio/os2_vio.c common/win32/os2_vio_win32.c common/win32/os2_vio_win32_attr.c
+./vio-win32-shim-check
+vio-win32-shim-check: PASS
+rm -f vio-win32-shim-check
+python3 tools/check_vio_life_surface.py
+check_vio_life_surface: PASS
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o queue-core-check tests/queue/queue-core-check.c common/queue/os2_queue.c
+./queue-core-check
+queue-core-check: PASS
+rm -f queue-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o queue-veneer-check tests/queue/queue-veneer-check.c \
+	dlls/quecalls/quecalls.c common/queue/os2_queue.c
+./queue-veneer-check
+queue-veneer-check: PASS
+rm -f queue-veneer-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic \
+	-Itests/queue/win32-stub -Icommon/include \
+	-o queue-win32-shim-check tests/queue/queue-win32-shim-check.c \
+	tests/queue/win32-stub/win32_queue_stub.c \
+	common/queue/os2_queue.c common/win32/os2_queue_win32.c
+./queue-win32-shim-check
+queue-win32-shim-check: PASS
+rm -f queue-win32-shim-check
+python3 tools/check_queue_r2.py
+QUEUE-R2 static architecture check: PASS (4 frozen exports)
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o kbd-core-check tests/kbd/kbd-core-check.c common/kbd/os2_kbd.c
+./kbd-core-check
+kbd-core-check: PASS
+rm -f kbd-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o kbd-veneer-check tests/kbd/kbd-veneer-check.c \
+	dlls/kbdcalls/kbdcalls.c common/kbd/os2_kbd.c
+./kbd-veneer-check
+kbd-veneer-check: PASS
+rm -f kbd-veneer-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic \
+	-Itests/kbd/win32-stub -Icommon/include \
+	-o kbd-win32-shim-check tests/kbd/kbd-win32-shim-check.c \
+	tests/kbd/win32-stub/win32_kbd_stub.c \
+	common/kbd/os2_kbd.c common/win32/os2_kbd_win32.c
+./kbd-win32-shim-check
+kbd-win32-shim-check: PASS
+rm -f kbd-win32-shim-check
+python3 tools/check_kbd_r2.py
+KBD-R2 static architecture check: PASS (6 frozen exports)
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o sesmgr-core-check tests/sesmgr/sesmgr-core-check.c common/sesmgr/os2_sesmgr.c
+./sesmgr-core-check
+SESMGR common core: PASS
+rm -f sesmgr-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic -DOS2_SESMGR_NO_DLLMAIN \
+	-Icommon/include -o sesmgr-veneer-check \
+	tests/sesmgr/sesmgr-veneer-check.c dlls/sesmgr/sesmgr.c common/sesmgr/os2_sesmgr.c
+./sesmgr-veneer-check
+sesmgr-veneer-check: PASS
+rm -f sesmgr-veneer-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic \
+	-Itests/sesmgr/win32-stub -Icommon/include \
+	-o sesmgr-win32-shim-check tests/sesmgr/sesmgr-win32-shim-check.c \
+	tests/sesmgr/win32-stub/win32_sesmgr_stub.c \
+	common/sesmgr/os2_sesmgr.c common/win32/os2_sesmgr_win32.c
+./sesmgr-win32-shim-check
+sesmgr-win32-shim-check: PASS
+rm -f sesmgr-win32-shim-check
+python3 tools/check_sesmgr_r2.py
+SESMGR R2 static architecture: PASS
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o mou-core-check tests/mou/mou-core-check.c common/mou/os2_mou.c
+./mou-core-check
+mou-core-check: PASS
+rm -f mou-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o mou-veneer-check tests/mou/mou-veneer-check.c \
+	dlls/moucalls/moucalls.c common/mou/os2_mou.c
+./mou-veneer-check
+mou-veneer-check: PASS
+rm -f mou-veneer-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic \
+	-Itests/mou/win32-stub -Icommon/include \
+	-o mou-win32-shim-check tests/mou/mou-win32-shim-check.c \
+	tests/mou/win32-stub/win32_mou_stub.c \
+	common/mou/os2_mou.c common/win32/os2_mou_win32.c
+./mou-win32-shim-check
+mou-win32-shim-check: PASS
+rm -f mou-win32-shim-check
+python3 tools/check_mou_r2.py
+mou-static-check: PASS

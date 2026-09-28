@@ -1,0 +1,68 @@
+{
+  "milestone": "QUECALLS_R2",
+  "date": "2026-09-27",
+  "status": "QUEUE_R2_COMMON_STATE_WIN32_BACKEND_STATIC_VERIFIED_RUNTIME_PENDING",
+  "baseline": {
+    "package": "os2host32-DOSCALLS-R2B.zip",
+    "sha256": "bcd9fe7e85910e1bebbd431a13fd84b394f82e30bc8bce703d42bfb068a5150f",
+    "runtime_status": "DOSCALLS/VIO R2B live-proven by user before QUECALLS split"
+  },
+  "exports": [
+    {"module":"QUECALLS","ordinal":9,"name":"DosReadQueue"},
+    {"module":"QUECALLS","ordinal":14,"name":"DosWriteQueue"},
+    {"module":"QUECALLS","ordinal":15,"name":"DosOpenQueue"},
+    {"module":"QUECALLS","ordinal":16,"name":"DosCreateQueue"}
+  ],
+  "quecalls_def_sha256": "edccc8b6d80c1076dfdf637230f3575d3ed8a98791ad5617933001ebfafcbd75",
+  "architecture": {
+    "veneer": "dlls/quecalls/quecalls.c",
+    "common": "common/queue/os2_queue.c",
+    "common_header": "common/include/os2_queue.h",
+    "backend_contract": "common/include/os2_queue_backend.h",
+    "win32_backend": "common/win32/os2_queue_win32.c",
+    "payload_rule": "opaque 32-bit OS/2 address/value; never dereferenced/copied in common layer",
+    "scheduler_primitive": "os2_queue_try_read"
+  },
+  "common_semantics": [
+    "case-insensitive named queues",
+    "owner pid",
+    "queue handles",
+    "FIFO",
+    "LIFO",
+    "priority ordering",
+    "equal-priority FIFO stability",
+    "priority 0..15 validation",
+    "owner-only reads",
+    "NOWAIT empty",
+    "QUE_CONVERT_ADDRESS accepted",
+    "opaque data value preservation"
+  ],
+  "win32_backend": [
+    "CRITICAL_SECTION lock",
+    "GetCurrentProcessId",
+    "manual-reset event availability notification",
+    "WaitForSingleObject blocking"
+  ],
+  "tests": {
+    "gcc14_strict_c89_queue_core": "PASS",
+    "gcc14_strict_c89_queue_veneer": "PASS",
+    "gcc14_strict_c89_win32_shim": "PASS",
+    "clang17_strict_c89_queue_core": "PASS",
+    "clang17_strict_c89_queue_veneer": "PASS",
+    "clang17_strict_c89_win32_shim": "PASS",
+    "queue_static_architecture": "PASS",
+    "full_make_verify": "PASS",
+    "mingw_build": "NOT_RUN_TOOLCHAIN_UNAVAILABLE",
+    "native_runtime": "PENDING_USER_TEST"
+  },
+  "out_of_scope": [
+    "DosCloseQueue",
+    "DosPeekQueue",
+    "DosPurgeQueue",
+    "DosQueryQueue",
+    "native interprocess queues",
+    "WHP backend migration",
+    "ReactOS OS2SS backend",
+    "16-bit queue execution"
+  ]
+}

@@ -1,7 +1,14 @@
 LIBRARY VIOCALLS
 EXPORTS
-    VioScrollUp      @7 NONAME
-    VioGetCurPos     @9 NONAME
-    VioSetCurPos     @15 NONAME
-    VioWrtTTY        @19 NONAME
-    VioGetMode       @21 NONAME
+    VioScrollUp       @7 NONAME
+    VioGetCurPos      @9 NONAME
+    VioWrtCharStr     @13 NONAME
+    VioSetCurPos      @15 NONAME
+    VioWrtTTY         @19 NONAME
+    VioGetMode        @21 NONAME
+    VioReadCellStr    @24 NONAME
+    VioWrtNAttr       @26 NONAME
+    VioGetCurType     @27 NONAME
+    VioSetCurType     @32 NONAME
+    VioWrtCharStrAtt  @48 NONAME
+    VioWrtNCell       @52 NONAME

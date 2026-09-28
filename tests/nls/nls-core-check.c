@@ -4,6 +4,7 @@
 
 #include "os2_nls.h"
 #include "os2_nls_api.h"
+#include "os2_nls_backend.h"
 #include "os2_personality.h"
 
 #define MEM_BASE 0x1000u
@@ -14,6 +15,30 @@ struct MockMemory {
 };
 
 static int failures = 0;
+
+struct MockNlsBackend {
+    uint32_t country;
+    uint32_t codepage;
+    int available;
+    unsigned int queries;
+};
+
+static int mock_initial_profile(void *opaque, uint32_t *country,
+                                uint32_t *codepage)
+{
+    struct MockNlsBackend *backend;
+    backend = (struct MockNlsBackend *)opaque;
+    ++backend->queries;
+    if (!backend->available)
+        return 0;
+    *country = backend->country;
+    *codepage = backend->codepage;
+    return 1;
+}
+
+static const struct Os2NlsBackendOps mock_nls_backend_ops = {
+    mock_initial_profile
+};
 
 static void check_int(const char *what, uint32_t got, uint32_t expected)
 {
@@ -93,6 +118,35 @@ static const struct Os2PersonalityOps mock_ops = {
     mock_map_read,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
 };
+
+static void test_session_state(void)
+{
+    struct MockNlsBackend backend;
+    struct Os2NlsState first;
+    struct Os2NlsState second;
+
+    memset(&backend, 0, sizeof(backend));
+    backend.country = 44u;
+    backend.codepage = 850u;
+    backend.available = 1;
+    os2_nls_session_init(&first, &backend, &mock_nls_backend_ops);
+    check_int("backend bootstrap query count", backend.queries, 1u);
+    check_int("backend bootstrap country", first.country, 44u);
+    check_int("backend bootstrap codepage", first.current_codepage, 850u);
+
+    backend.country = 999u;
+    backend.codepage = 932u;
+    os2_nls_session_init(&second, &backend, &mock_nls_backend_ops);
+    check_int("unsupported backend country falls back", second.country, 1u);
+    check_int("unsupported backend codepage falls back",
+              second.current_codepage, 437u);
+
+    (void)os2_nls_set_process_cp(&first, 437u);
+    check_int("first session changes independently", first.current_codepage,
+              437u);
+    check_int("second session remains independent", second.current_codepage,
+              437u);
+}
 
 static void test_core(void)
 {
@@ -270,6 +324,7 @@ static void test_guest_api(void)
 
 int main(void)
 {
+    test_session_state();
     test_core();
     test_guest_api();
     if (failures != 0) {

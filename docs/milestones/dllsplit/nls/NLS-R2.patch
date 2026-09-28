@@ -1,0 +1,1878 @@
+diff --git a/Makefile b/Makefile
+index 2b2de06..ecad6b4 100644
+--- a/Makefile
++++ b/Makefile
+@@ -19,7 +19,10 @@ DOSCALLS_CORE_SRC = common/doscalls/os2_doscalls_core.c
+ DOSCALLS_SESSION_SRC = common/doscalls/os2_doscalls.c
+ DOSCALLS_WIN32_SRC = common/win32/os2_doscalls_win32.c
+ WIN32_COMMON_SRC = common/win32/os2_win32_services.c
+-NLS_COMMON_SRC = common/nls/os2_nls.c common/nls/os2_nls_api.c
++NLS_CORE_SRC = common/nls/os2_nls.c
++NLS_API_SRC = common/nls/os2_nls_api.c
++NLS_COMMON_SRC = $(NLS_CORE_SRC) $(NLS_API_SRC)
++NLS_WIN32_SRC = common/win32/os2_nls_win32.c
+ VIO_COMMON_SRC = common/vio/os2_vio.c
+ VIO_WIN32_SRC = common/win32/os2_vio_win32.c common/win32/os2_vio_win32_attr.c
+ QUEUE_COMMON_SRC = common/queue/os2_queue.c
+@@ -29,7 +32,7 @@ KBD_WIN32_SRC = common/win32/os2_kbd_win32.c
+ SESMGR_COMMON_SRC = common/sesmgr/os2_sesmgr.c
+ SESMGR_WIN32_SRC = common/win32/os2_sesmgr_win32.c
+ 
+-.PHONY: all loader whp transformer shell dlls compat diagnostics verify common-check nls-check nls-table-check catalog-check wiring-check doscalls-check doscalls-veneer-check doscalls-static-check vio-check vio-win32-shim-check vio-static-check queue-check queue-veneer-check queue-win32-shim-check queue-static-check kbd-check kbd-veneer-check kbd-win32-shim-check kbd-static-check sesmgr-check sesmgr-veneer-check sesmgr-win32-shim-check sesmgr-static-check clean
++.PHONY: all loader whp transformer shell dlls compat diagnostics verify common-check nls-check nls-win32-shim-check nls-static-check nls-table-check catalog-check wiring-check doscalls-check doscalls-veneer-check doscalls-static-check vio-check vio-win32-shim-check vio-static-check queue-check queue-veneer-check queue-win32-shim-check queue-static-check kbd-check kbd-veneer-check kbd-win32-shim-check kbd-static-check sesmgr-check sesmgr-veneer-check sesmgr-win32-shim-check sesmgr-static-check clean
+ 
+ all: loader transformer shell dlls
+ 
+@@ -66,15 +69,16 @@ cmd32os2.exe: shell/cmd32os2.c shell/cmdparse.c shell/cmdparse.h \
+ 
+ DOSCALLS.dll: dlls/doscalls/doscalls.c dlls/doscalls/doscalls.def \
+               $(DOSCALLS_SESSION_SRC) $(DOSCALLS_WIN32_SRC) \
+-              $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) $(NLS_COMMON_SRC) \
++              $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) $(NLS_CORE_SRC) $(NLS_WIN32_SRC) \
+               common/include/os2_personality.h common/include/os2_nls.h \
+-              common/include/os2_nls_api.h common/nls/os2_nls_tables.inc \
++              common/include/os2_nls_backend.h common/include/os2_nls_win32.h \
++              common/nls/os2_nls_tables.inc \
+               common/include/os2_doscalls.h common/include/os2_doscalls_backend.h \
+               common/include/os2_doscalls_win32.h common/include/os2_doscalls_core.h \
+               common/include/os2_win32_services.h
+ 	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -shared -o $@ \
+ 		dlls/doscalls/doscalls.c $(DOSCALLS_SESSION_SRC) $(DOSCALLS_WIN32_SRC) \
+-		$(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) $(NLS_COMMON_SRC) \
++		$(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) $(NLS_CORE_SRC) $(NLS_WIN32_SRC) \
+ 		dlls/doscalls/doscalls.def \
+ 		-lwinmm -Wl,--out-implib,libdoscalls.a
+ 
+@@ -143,7 +147,7 @@ HELPMGR.dll: dlls/helpmgr/helpmgr.c dlls/helpmgr/helpmgr.def
+ 		-Wl,--out-implib,libhelpmgr.a
+ 
+ 
+-verify: common-check nls-table-check nls-check catalog-check wiring-check doscalls-check doscalls-veneer-check doscalls-static-check vio-check vio-win32-shim-check vio-static-check queue-check queue-veneer-check queue-win32-shim-check queue-static-check kbd-check kbd-veneer-check kbd-win32-shim-check kbd-static-check sesmgr-check sesmgr-veneer-check sesmgr-win32-shim-check sesmgr-static-check
++verify: common-check nls-table-check nls-check nls-win32-shim-check nls-static-check catalog-check wiring-check doscalls-check doscalls-veneer-check doscalls-static-check vio-check vio-win32-shim-check vio-static-check queue-check queue-veneer-check queue-win32-shim-check queue-static-check kbd-check kbd-veneer-check kbd-win32-shim-check kbd-static-check sesmgr-check sesmgr-veneer-check sesmgr-win32-shim-check sesmgr-static-check
+ 
+ common-check: tests/common/personality-core-check.c $(DOSCALLS_CORE_SRC) \
+               $(API_CATALOG_SRC) common/include/os2_personality.h \
+@@ -160,13 +164,30 @@ nls-table-check: tools/gen_nls_tables.py common/nls/os2_nls_tables.inc
+ 
+ nls-check: tests/nls/nls-core-check.c $(NLS_COMMON_SRC) $(DOSCALLS_CORE_SRC) \
+            common/include/os2_nls.h common/include/os2_nls_api.h \
+-           common/include/os2_personality.h common/nls/os2_nls_tables.inc
++           common/include/os2_nls_backend.h common/include/os2_personality.h common/nls/os2_nls_tables.inc
+ 	$(HOSTCC) -std=c89 -O2 -Wall -Wextra -pedantic $(COMMON_CPPFLAGS) \
+ 		-o nls-core-check tests/nls/nls-core-check.c \
+ 		$(NLS_COMMON_SRC) $(DOSCALLS_CORE_SRC)
+ 	./nls-core-check
+ 	rm -f nls-core-check
+ 
++nls-win32-shim-check: tests/nls/nls-win32-shim-check.c \
++                      tests/nls/win32-stub/win32_nls_stub.c \
++                      tests/nls/win32-stub/windows.h \
++                      $(NLS_CORE_SRC) $(NLS_WIN32_SRC) \
++                      common/include/os2_nls.h common/include/os2_nls_backend.h \
++                      common/include/os2_nls_win32.h
++	$(HOSTCC) -std=c89 -O2 -Wall -Wextra -pedantic \
++		-Itests/nls/win32-stub $(COMMON_CPPFLAGS) \
++		-o nls-win32-shim-check tests/nls/nls-win32-shim-check.c \
++		tests/nls/win32-stub/win32_nls_stub.c \
++		$(NLS_CORE_SRC) $(NLS_WIN32_SRC)
++	./nls-win32-shim-check
++	rm -f nls-win32-shim-check
++
++nls-static-check:
++	python3 tools/check_nls_r2.py
++
+ catalog-check:
+ 	python3 tools/check_api_catalog.py
+ 
+@@ -174,20 +195,22 @@ wiring-check:
+ 	python3 tools/check_shared_personality.py
+ 
+ 
+-doscalls-check: tests/doscalls/doscalls-core-check.c $(DOSCALLS_SESSION_SRC) \
+-               common/include/os2_doscalls.h common/include/os2_doscalls_backend.h
++doscalls-check: tests/doscalls/doscalls-core-check.c $(DOSCALLS_SESSION_SRC) $(NLS_CORE_SRC) \
++               common/include/os2_doscalls.h common/include/os2_doscalls_backend.h \
++               common/include/os2_nls.h common/include/os2_nls_backend.h
+ 	$(HOSTCC) -std=c89 -O2 -Wall -Wextra -pedantic $(COMMON_CPPFLAGS) \
+-		-o doscalls-core-check tests/doscalls/doscalls-core-check.c $(DOSCALLS_SESSION_SRC)
++		-o doscalls-core-check tests/doscalls/doscalls-core-check.c \
++		$(DOSCALLS_SESSION_SRC) $(NLS_CORE_SRC)
+ 	./doscalls-core-check
+ 	rm -f doscalls-core-check
+ 
+ doscalls-veneer-check: tests/doscalls/doscalls-veneer-check.c \
+-                         dlls/doscalls/doscalls.c $(DOSCALLS_SESSION_SRC) \
++                         dlls/doscalls/doscalls.c $(DOSCALLS_SESSION_SRC) $(NLS_CORE_SRC) \
+                          common/include/os2_doscalls.h common/include/os2_doscalls_backend.h \
+                          common/include/os2_doscalls_win32.h
+ 	$(HOSTCC) -std=c89 -O2 -Wall -Wextra -pedantic $(COMMON_CPPFLAGS) \
+ 		-o doscalls-veneer-check tests/doscalls/doscalls-veneer-check.c \
+-		dlls/doscalls/doscalls.c $(DOSCALLS_SESSION_SRC)
++		dlls/doscalls/doscalls.c $(DOSCALLS_SESSION_SRC) $(NLS_CORE_SRC)
+ 	./doscalls-veneer-check
+ 	rm -f doscalls-veneer-check
+ 
+@@ -322,7 +345,7 @@ sesmgr-static-check:
+ 	python3 tools/check_sesmgr_r2.py
+ 
+ clean:
+-	rm -f os2host32.exe le2pe386.exe cmd32os2.exe nlsinfo.exe personality-core-check nls-core-check doscalls-core-check doscalls-veneer-check vio-core-check vio-win32-shim-check queue-core-check queue-veneer-check queue-win32-shim-check kbd-core-check kbd-veneer-check kbd-win32-shim-check sesmgr-core-check sesmgr-veneer-check sesmgr-win32-shim-check \
++	rm -f os2host32.exe le2pe386.exe cmd32os2.exe nlsinfo.exe personality-core-check nls-core-check nls-win32-shim-check doscalls-core-check doscalls-veneer-check vio-core-check vio-win32-shim-check queue-core-check queue-veneer-check queue-win32-shim-check kbd-core-check kbd-veneer-check kbd-win32-shim-check sesmgr-core-check sesmgr-veneer-check sesmgr-win32-shim-check \
+ 	      DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll NLS.dll \
+ 	      PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll \
+ 	      libdoscalls.a libkbdcalls.a libviocalls.a libquecalls.a libsesmgr.a \
+diff --git a/NLS-BACKEND-DESIGN.md b/NLS-BACKEND-DESIGN.md
+new file mode 100644
+index 0000000..bc211f3
+--- /dev/null
++++ b/NLS-BACKEND-DESIGN.md
+@@ -0,0 +1,149 @@
++# OS2HOST32 NLS R2 backend design
++
++## Goal
++
++Make OS/2 National Language Support process/session state independent of the
++execution backend, while preserving the existing native ABI and the existing
++CP437/CP850 behavior.
++
++NLS R2 is deliberately a **state ownership refactor**, not an NLS API expansion.
++
++## Resulting architecture
++
++```text
++Native OS/2 application
++    -> DOSCALLS.DLL / NLS.DLL veneer
++    -> Os2DosSession.nls
++    -> common/nls/os2_nls.c
++
++WHP guest
++    -> shared personality NLS API
++    -> Runtime.nls_state
++    -> common/nls/os2_nls.c
++
++Future ReactOS OS2SS
++    -> OS2_PROCESS NLS state
++    -> common/nls/os2_nls.c
++```
++
++The common NLS state is authoritative after initialization.
++
++## Common-owned state
++
++`struct Os2NlsState` owns:
++
++- current OS/2 country;
++- current process code page;
++- prepared code-page list;
++- backend binding used only for initialization/bootstrap;
++- selection of the built-in OS/2 country/code-page data used for case mapping
++  and DBCS queries.
++
++The built-in immutable data remains in the common NLS registry/tables:
++
++- country 1 (US);
++- country 44 (UK);
++- CP437;
++- CP850;
++- upper/lower case tables;
++- DBCS lead-byte tables for the implemented code pages.
++
++No process-visible NLS state remains in `os2_doscalls_win32.c`.
++
++## Backend contract
++
++NLS R2 intentionally has only one backend operation:
++
++```c
++int (*query_initial_profile)(void *opaque,
++                             uint32_t *country,
++                             uint32_t *codepage);
++```
++
++This is a bootstrap hint, not an authoritative locale service.
++
++The common layer validates the suggested country and code page against its own
++implemented OS/2 registry.  Unsupported host values do not become guest-visible
++state.  With no backend, or with unsupported host defaults, deterministic
++OS/2 defaults remain country 1 / CP437.
++
++Future resource/path lookup or host conversion services should be added only
++when an implemented NLS API actually requires them.  R2 does not add speculative
++callbacks.
++
++## Win32 backend
++
++`common/win32/os2_nls_win32.c` implements the bootstrap operation with:
++
++- `GetLocaleInfoA(... LOCALE_ICOUNTRY | LOCALE_RETURN_NUMBER ...)`;
++- `GetOEMCP()`.
++
++It does **not** implement guest-visible formatting, code-page selection, case
++mapping, DBCS policy, COUNTRYINFO packing, or prepared-codepage state.
++
++Those remain common semantics.
++
++## Native DOSCALLS ownership
++
++`struct Os2DosSession` now embeds:
++
++```c
++struct Os2NlsState nls;
++```
++
++The native DOSCALLS NLS entrypoints no longer traverse the transitional Win32
++dispatch seam:
++
++- `DosSetProcessCp` (DOSCALLS.289)
++- `DosQueryCp` (DOSCALLS.291)
++- `DosQueryCtryInfo` (DOSCALLS.395)
++- `DosQueryDBCSEnv` (DOSCALLS.396)
++- `DosMapCase` (DOSCALLS.397)
++
++They operate directly on `session->nls`.
++
++`NLS.DLL` remains the existing three-export ABI veneer.  Its private imports from
++DOSCALLS still reach the same `Os2DosSession.nls`, so a `DosSetProcessCp` change
++is immediately observed through both DOSCALLS and NLS entrypoints.
++
++## WHP
++
++WHP now calls:
++
++```c
++os2_nls_win32_init_session(&rt.nls_state);
++```
++
++rather than routing NLS bootstrap through generic `os2_win32_services`.
++
++This preserves current Win32-hosted WHP behavior while making the backend
++selection explicit.  A future WHP-specific policy can replace that initializer
++without changing common NLS semantics or guest API code.
++
++## Future OS2SS
++
++A ReactOS OS2SS process record can embed the same state directly, conceptually:
++
++```c
++struct OS2_PROCESS {
++    ...
++    struct Os2NlsState nls;
++};
++```
++
++OS2SS may initialize it with deterministic OS/2 defaults, a subsystem policy,
++or a future OS2SS resource backend.  It does not need Win32 locale globals.
++
++## Explicit non-goals
++
++NLS R2 does not add:
++
++- `DosQueryCollate` / historical `DosGetCollate`;
++- new countries or code pages;
++- COUNTRY.SYS parsing;
++- filesystem/path-based NLS resource loading;
++- Unicode conversion APIs;
++- process-global Win32 locale mutation;
++- new NLS.DLL or DOSCALLS exports.
++
++Those can be separate milestones built on this state/backend boundary.
+diff --git a/NLS-R2-HANDOFF.md b/NLS-R2-HANDOFF.md
+new file mode 100644
+index 0000000..4f7face
+--- /dev/null
++++ b/NLS-R2-HANDOFF.md
+@@ -0,0 +1,208 @@
++# OS2HOST32 — NLS R2 handoff
++## Explicit per-process NLS state with a minimal Win32 bootstrap backend
++
++Date: 2026-09-27
++
++## Baseline
++
++NLS R2 is based on the live-proven KBD/QUEUE/DOSCALLS/VIO/SESMGR split tree,
++with SESMGR R2 live-tested by the user using regular START, PM START, VIO
++sessions, PS/session enumeration and session termination.
++
++The native ABI remains frozen.
++
++### Frozen files
++
++- `dlls/nls/nls.def`
++  - SHA256 `8e1b567043be8767d6c93eee386ad21c57270eaa8421e8639315a874e998aef4`
++- `dlls/doscalls/doscalls.def`
++  - SHA256 `2a1d6d7aa4f9b1369f9d949ebd448ea76746f42bf23a460763c097fee6f2d13b`
++- `loader/os2host32.c`
++  - SHA256 `793ee7de7c6d0bd79b7d8bbdfaab6774cb2ec6af39b88d0cefc3c714430f0c55`
++- `common/nls/os2_nls_tables.inc`
++  - SHA256 `c215e0d84423bd6786a70d2bf7317a5ed8fbe805e79cea05b2916fccd356afbe`
++
++## Objective
++
++Turn the existing shared NLS algorithms into an explicitly owned per-process /
++per-session personality state suitable for native Win32, WHP and future ReactOS
++OS2SS backends.
++
++The important change is ownership:
++
++```text
++before:
++    common NLS algorithms
++        + NLS state physically owned by Win32 DOSCALLS backend
++
++R2:
++    common NLS algorithms + common authoritative Os2NlsState
++        + tiny backend used only to bootstrap host defaults
++```
++
++## Public ABI preserved
++
++`NLS.DLL` remains:
++
++- `DosQueryCtryInfo @5`
++- `DosQueryDBCSEnv @6`
++- `DosMapCase @7`
++
++The existing DOSCALLS NLS exports remain unchanged:
++
++- `DosSetProcessCp @289`
++- `DosQueryCp @291`
++- `DosQueryCtryInfo @395`
++- `DosQueryDBCSEnv @396`
++- `DosMapCase @397`
++
++The private named DOSCALLS helpers imported by NLS.DLL are also retained.
++
++No ordinal or signature changes were made.
++
++## Common state
++
++`struct Os2NlsState` is still the compatibility-visible type name, but R2 makes
++it an explicit session object.  It now contains its backend binding plus the
++OS/2-visible state:
++
++- country;
++- current process code page;
++- prepared code pages.
++
++`os2_nls_session_init()` constructs the state and optionally asks a backend for
++an initial host profile.
++
++`os2_nls_state_init()` remains as the deterministic no-backend initializer for
++existing common callers/tests.
++
++## Win32 backend
++
++New files:
++
++- `common/include/os2_nls_backend.h`
++- `common/include/os2_nls_win32.h`
++- `common/win32/os2_nls_win32.c`
++
++The only R2 backend callback is `query_initial_profile`.
++
++Win32 obtains country/OEM code page using `GetLocaleInfoA` and `GetOEMCP`, but
++common NLS validates the result.  Unsupported host values fall back to the
++implemented OS/2 defaults rather than leaking into guest-visible state.
++
++The old `os2_win32_initialize_nls()` function has been removed from generic
++`os2_win32_services`.
++
++## Native DOSCALLS
++
++`Os2DosSession` now embeds `struct Os2NlsState nls`.
++
++The five NLS DOSCALLS APIs were removed from the transitional Win32 dispatch
++hot path and now terminate directly in common NLS semantics.
++
++This also means the three NLS.DLL calls, via their existing DOSCALLS private
++helpers, observe exactly the same process state as `DosSetProcessCp` and
++`DosQueryCp`.
++
++## WHP
++
++The WHP source and Makefile now bind NLS explicitly through
++`os2_nls_win32_init_session()` and compile the new Win32 NLS backend source.
++
++This is not a new WHP runtime feature.  It preserves the current Win32-hosted
++bootstrap policy while making the replaceable backend boundary explicit.
++
++## Tests added/strengthened
++
++### Common NLS
++
++`tests/nls/nls-core-check.c` now also verifies:
++
++- backend bootstrap is queried exactly once per session initialization;
++- supported host profile hints are accepted;
++- unsupported host country/codepage hints do not leak into OS/2 state;
++- NLS session instances are separately owned.
++
++### Production Win32 NLS backend shim
++
++New:
++
++- `tests/nls/nls-win32-shim-check.c`
++- `tests/nls/win32-stub/windows.h`
++- `tests/nls/win32-stub/win32_nls_stub.c`
++
++This compiles the actual `common/win32/os2_nls_win32.c` against deterministic
++Win32 locale stubs.
++
++### DOSCALLS ownership regression
++
++The DOSCALLS core and actual veneer tests now verify that NLS calls execute in
++common state and do not touch the fake legacy dispatch seam.
++
++### Static architecture test
++
++`tools/check_nls_r2.py` verifies:
++
++- NLS session/backend binding exists;
++- Win32 locale APIs do not appear in common NLS;
++- generic Win32 services no longer own NLS bootstrap;
++- `Os2DosSession` owns NLS state;
++- the five common-owned NLS calls have no Win32 DOS dispatch cases;
++- Win32 has no duplicate static `Os2NlsState`;
++- WHP uses the explicit NLS backend initializer;
++- NLS.DLL DEF remains byte-identical.
++
++`tools/check_doscalls_r2.py` was also strengthened so these five NLS calls may
++not silently reappear in the transitional Win32 dispatch.
++
++## Verification
++
++PASS:
++
++- GCC strict-C89 full `make verify`
++- Clang 17 strict-C89 full `make verify`
++- NLS table reproducibility
++- common NLS behavior/API test
++- production Win32 NLS backend shim
++- NLS R2 static architecture checker
++- DOSCALLS core and actual veneer NLS ownership tests
++- all existing VIO, QUECALLS, KBDCALLS, SESMGR and DOSCALLS regression suites
++- production build dry-run dependency wiring for DOSCALLS and WHP
++
++The environment does not contain `i686-w64-mingw32-gcc`, so a real native
++MinGW DLL build/runtime test remains pending on the user's Windows host.
++The x64 Visual Studio/WHP runtime is likewise not executed here.
++
++## Runtime test recommendation
++
++Build normally on the existing Win32 host:
++
++```text
++make clean
++make all
++make verify
++```
++
++Useful smoke tests:
++
++1. CMD / existing demos to establish no regression.
++2. `nlsinfo.exe` if desired.
++3. Any specimen that calls `DosSetProcessCp(850)` followed by `DosQueryCp` and
++   NLS.DLL `DosMapCase`/country queries, proving both modules share one process
++   NLS state.
++
++## Status
++
++`NLS_R2_COMMON_PROCESS_STATE_WIN32_BOOTSTRAP_STATIC_VERIFIED_RUNTIME_PENDING`
++
++## Next NLS work
++
++Do not broaden NLS merely for completeness.  Good future milestones are driven
++by actual callers, for example:
++
++- `DosQueryCollate` / historical `DosGetCollate`;
++- COUNTRY.SYS/resource loading;
++- additional code pages/countries;
++- an OS2SS-specific NLS bootstrap/resource backend.
++
++Those should extend this common state rather than reintroducing host-owned NLS.
+diff --git a/NLS-R2-RESULTS.json b/NLS-R2-RESULTS.json
+new file mode 100644
+index 0000000..d8d0f58
+--- /dev/null
++++ b/NLS-R2-RESULTS.json
+@@ -0,0 +1,69 @@
++{
++  "milestone": "NLS_R2_COMMON_PROCESS_STATE_WIN32_BOOTSTRAP_STATIC_VERIFIED_RUNTIME_PENDING",
++  "date": "2026-09-27",
++  "baseline": "os2host32-SESMGR-R2 live-proven Win32-hosted tree",
++  "objective": "Make OS/2 NLS state explicitly backend-neutral and process/session-owned while retaining a minimal replaceable host bootstrap service.",
++  "abi": {
++    "nls_exports": {
++      "DosQueryCtryInfo": 5,
++      "DosQueryDBCSEnv": 6,
++      "DosMapCase": 7
++    },
++    "doscalls_nls_exports": {
++      "DosSetProcessCp": 289,
++      "DosQueryCp": 291,
++      "DosQueryCtryInfo": 395,
++      "DosQueryDBCSEnv": 396,
++      "DosMapCase": 397
++    },
++    "nls_def_sha256": "8e1b567043be8767d6c93eee386ad21c57270eaa8421e8639315a874e998aef4",
++    "doscalls_def_sha256": "2a1d6d7aa4f9b1369f9d949ebd448ea76746f42bf23a460763c097fee6f2d13b",
++    "loader_sha256": "793ee7de7c6d0bd79b7d8bbdfaab6774cb2ec6af39b88d0cefc3c714430f0c55"
++  },
++  "architecture": {
++    "common_state_owner": "struct Os2NlsState, embedded as Os2DosSession.nls for native DOSCALLS",
++    "common_semantics": [
++      "country selection",
++      "current process codepage",
++      "prepared codepage ordering",
++      "COUNTRYINFO construction",
++      "DBCS range table selection",
++      "case mapping"
++    ],
++    "backend_contract": [
++      "query_initial_profile"
++    ],
++    "win32_backend": "common/win32/os2_nls_win32.c",
++    "win32_backend_mechanics": [
++      "GetLocaleInfoA initial country hint",
++      "GetOEMCP initial codepage hint"
++    ],
++    "native_nls_dispatch_removed": true,
++    "whp_explicit_backend_binding": true
++  },
++  "preserved_scope": {
++    "countries": [1, 44],
++    "codepages": [437, 850],
++    "nls_dll_exports_added": 0,
++    "doscalls_exports_added": 0,
++    "country_sys_parser_added": false,
++    "collation_api_added": false,
++    "unicode_conversion_added": false
++  },
++  "verification": {
++    "gcc_c89_full_make_verify": "PASS",
++    "clang17_c89_full_make_verify": "PASS",
++    "nls_table_reproducibility": "PASS",
++    "nls_common_session_test": "PASS",
++    "nls_win32_backend_shim": "PASS",
++    "nls_static_architecture": "PASS",
++    "doscalls_common_nls_ownership": "PASS",
++    "doscalls_actual_veneer_nls_path": "PASS",
++    "existing_vio_regressions": "PASS",
++    "existing_queue_regressions": "PASS",
++    "existing_kbd_regressions": "PASS",
++    "existing_sesmgr_regressions": "PASS",
++    "mingw_native_build": "NOT_RUN_TOOLCHAIN_UNAVAILABLE",
++    "whp_msvc_build_runtime": "NOT_RUN_TOOLCHAIN_UNAVAILABLE"
++  }
++}
+diff --git a/README.md b/README.md
+index b577510..66cd59e 100644
+--- a/README.md
++++ b/README.md
+@@ -75,6 +75,14 @@ registry storage/locking, CreateProcess/job/console mechanics, termination and
+ host title updates.  A WHP or OS2SS implementation can therefore replace the
+ backend without inheriting the Win32 named-mapping/process-handle model.
+ 
++NLS R2 makes National Language Support state explicitly process-owned as well.
++`Os2DosSession` embeds the authoritative `Os2NlsState`; DOSCALLS code-page,
++country, DBCS and case-map APIs terminate in common NLS semantics rather than
++the Win32 dispatch seam.  `common/win32/os2_nls_win32.c` supplies only an
++initial host country/OEM-codepage hint, which the common layer validates against
++its implemented OS/2 tables.  WHP uses the same explicit bootstrap seam and a
++future OS2SS process can own the same common state without Win32 locale globals.
++
+ The transformer and WHP import diagnostics also use the canonical catalogue, so
+ ordinal-only imports are reported by API name and implementation route.
+ 
+diff --git a/SHA256SUMS-NLS-R2.txt b/SHA256SUMS-NLS-R2.txt
+new file mode 100644
+index 0000000..c27d865
+--- /dev/null
++++ b/SHA256SUMS-NLS-R2.txt
+@@ -0,0 +1,31 @@
++0563bb097456642e2641fa0765a1745b415c18f94391528f7ff6f659b9802967  Makefile
++b46d527b057ac0306453e1230b1fdad5cb5905921d22a57d861c141fc9e34a66  README.md
++7ffe892cdc32245d40a20a217e1e87264d719a7a5037c414f5fa76a8d7291fb1  NLS-BACKEND-DESIGN.md
++faff5fc3e5a20ba78ae4fb94429e73df2b61b8d6e0d6a0f9c5a66c7997672a0b  NLS-R2-HANDOFF.md
++4b916382d2b63db92e9a08a76aab44b7fcb04728b3ceedaf3611ee15bf5d6614  NLS-R2-RESULTS.json
++86861c9a12cfd323adb88acf920ce956bc9af6fafd316dd5068e63fdbc81b083  STATIC-VERIFICATION-NLS-R2.txt
++26d7b268f77edee0b2c3052df67c07fb4388d36f66033e1716165667702dbeda  common/doscalls/os2_doscalls.c
++e96d4ad2780489f26eae11ecfd347bf3fd0688dcb42253d13d6591b7e1b32ede  common/include/os2_doscalls.h
++af134d2fdd1813f2144b4acb36122a25c8a24edc312bb360f5670d8a569ec5d6  common/include/os2_nls.h
++f650e5b7205dc62bee8f4582df97ac305ed372a8d76136d427e2f1acab3dc3cc  common/include/os2_nls_backend.h
++94545456fe6dbee69747327f4a6e6eaec637b8580033e327a3f47badbafb734d  common/include/os2_nls_win32.h
++bac41744626fa1bd647a84cf5bec5f19f42f9019f5be2d964d45d86c91cfaee9  common/include/os2_win32_services.h
++61c219cd857bd3225b903bb98d83325fdd2ba1823ba4266d4cfac2caf8fd82c8  common/nls/os2_nls.c
++da86e3ade354073d85769eb1388b31297664ab3501ff2c0a1456916a21f33a19  common/win32/os2_doscalls_win32.c
++183d37f6ba5475aef1277e20c4e4c15e479e93b3ca810e8eff5f1056f3d1f34f  common/win32/os2_nls_win32.c
++560b036248ee6e9c184780cdc7183d341b3f5eac871d9ce500afcdd3e0afeb25  common/win32/os2_win32_services.c
++69ec17fe367924734792f8c3de667e1b95f812fa9111914c300e96bd9813b535  docs/current/SHARED-PERSONALITY-ARCHITECTURE.md
++30d9127b998732a2dff301e8077cd014d56c6aff63ebe08c7d88627a1039bdac  tests/doscalls/doscalls-core-check.c
++6fd694715ea6ef60d858e07152d8db482cac155da2b106b620336b274cd8394f  tests/doscalls/doscalls-veneer-check.c
++9cd873ae4d2d83852bd0477faf3be736162148f176a04a7855b95ce727a98a1f  tests/nls/nls-core-check.c
++6fa4149b05c5e83e8a702890a82583ad2bbaf37b022b69976c58c0a9ef44b0e8  tests/nls/nls-win32-shim-check.c
++a50b0d889cc1331726816c8e7bfd6c9b59b66916d0f4e8cb5eed422d7edef8fc  tests/nls/win32-stub/win32_nls_stub.c
++f508122e12775476423820b25fc90fdd2f8e6f11fda2ab1909ef4c1d3d977f1a  tests/nls/win32-stub/windows.h
++8ee0f0b28fa0ec0842f9caaddca5d0c0c922052d41f72fe97cd705df141b1b6b  tools/check_doscalls_r2.py
++9b20fd9825a7e9233d56cd39c1eadb49ba098566ff744606605f16eac4e5412b  tools/check_nls_r2.py
++c8bb49bd6103824627564a908a6771decf0f8c215fa3687b626f0575487b9e7f  whp/Makefile
++de352f58ae5e9970e50f556a9f874bee8bd268b18ae42ec5b6a66167e1370af6  whp/src/whp_os2_v2_hi.c
++8e1b567043be8767d6c93eee386ad21c57270eaa8421e8639315a874e998aef4  dlls/nls/nls.def
++2a1d6d7aa4f9b1369f9d949ebd448ea76746f42bf23a460763c097fee6f2d13b  dlls/doscalls/doscalls.def
++793ee7de7c6d0bd79b7d8bbdfaab6774cb2ec6af39b88d0cefc3c714430f0c55  loader/os2host32.c
++c215e0d84423bd6786a70d2bf7317a5ed8fbe805e79cea05b2916fccd356afbe  common/nls/os2_nls_tables.inc
+diff --git a/STATIC-VERIFICATION-NLS-R2.txt b/STATIC-VERIFICATION-NLS-R2.txt
+new file mode 100644
+index 0000000..28f4f29
+--- /dev/null
++++ b/STATIC-VERIFICATION-NLS-R2.txt
+@@ -0,0 +1,259 @@
++=== GCC make verify ===
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o personality-core-check tests/common/personality-core-check.c \
++	common/doscalls/os2_doscalls_core.c common/api/os2_api_catalog.c
++./personality-core-check
++PASS: shared DOSCALLS personality core and ordinal catalogue
++rm -f personality-core-check
++python3 tools/gen_nls_tables.py --check
++PASS: built-in CP437/CP850 case tables are reproducible
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o nls-core-check tests/nls/nls-core-check.c \
++	common/nls/os2_nls.c common/nls/os2_nls_api.c common/doscalls/os2_doscalls_core.c
++./nls-core-check
++PASS: OS/2 NLS core, process state, extended case maps and guest ABI
++rm -f nls-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/nls/win32-stub -Icommon/include \
++	-o nls-win32-shim-check tests/nls/nls-win32-shim-check.c \
++	tests/nls/win32-stub/win32_nls_stub.c \
++	common/nls/os2_nls.c common/win32/os2_nls_win32.c
++./nls-win32-shim-check
++nls-win32-shim-check: PASS
++rm -f nls-win32-shim-check
++python3 tools/check_nls_r2.py
++nls-static-check: PASS
++python3 tools/check_api_catalog.py
++PASS: 257 catalogue entries cover 255 ordinal DLL exports
++python3 tools/check_shared_personality.py
++PASS: native DOSCALLS/WHP core plus process-owned NLS wiring; 8 original shared DOSCALLS implementations preserved
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o doscalls-core-check tests/doscalls/doscalls-core-check.c \
++	common/doscalls/os2_doscalls.c common/nls/os2_nls.c
++./doscalls-core-check
++doscalls-core-check: PASS
++rm -f doscalls-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o doscalls-veneer-check tests/doscalls/doscalls-veneer-check.c \
++	dlls/doscalls/doscalls.c common/doscalls/os2_doscalls.c common/nls/os2_nls.c
++./doscalls-veneer-check
++doscalls-veneer-check: PASS
++rm -f doscalls-veneer-check
++python3 tools/check_doscalls_r2.py
++DOSCALLS-R2 static architecture check: PASS (86 frozen exports)
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o vio-core-check tests/vio/vio-core-check.c common/vio/os2_vio.c \
++	common/win32/os2_vio_win32_attr.c
++./vio-core-check
++vio-core-check: PASS
++rm -f vio-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/vio/win32-stub -Icommon/include \
++	-o vio-win32-shim-check tests/vio/vio-win32-shim-check.c \
++	tests/vio/win32-stub/win32_vio_stub.c dlls/viocalls/viocalls.c \
++	common/vio/os2_vio.c common/win32/os2_vio_win32.c common/win32/os2_vio_win32_attr.c
++./vio-win32-shim-check
++vio-win32-shim-check: PASS
++rm -f vio-win32-shim-check
++python3 tools/check_vio_life_surface.py
++check_vio_life_surface: PASS
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o queue-core-check tests/queue/queue-core-check.c common/queue/os2_queue.c
++./queue-core-check
++queue-core-check: PASS
++rm -f queue-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o queue-veneer-check tests/queue/queue-veneer-check.c \
++	dlls/quecalls/quecalls.c common/queue/os2_queue.c
++./queue-veneer-check
++queue-veneer-check: PASS
++rm -f queue-veneer-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/queue/win32-stub -Icommon/include \
++	-o queue-win32-shim-check tests/queue/queue-win32-shim-check.c \
++	tests/queue/win32-stub/win32_queue_stub.c \
++	common/queue/os2_queue.c common/win32/os2_queue_win32.c
++./queue-win32-shim-check
++queue-win32-shim-check: PASS
++rm -f queue-win32-shim-check
++python3 tools/check_queue_r2.py
++QUEUE-R2 static architecture check: PASS (4 frozen exports)
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o kbd-core-check tests/kbd/kbd-core-check.c common/kbd/os2_kbd.c
++./kbd-core-check
++kbd-core-check: PASS
++rm -f kbd-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o kbd-veneer-check tests/kbd/kbd-veneer-check.c \
++	dlls/kbdcalls/kbdcalls.c common/kbd/os2_kbd.c
++./kbd-veneer-check
++kbd-veneer-check: PASS
++rm -f kbd-veneer-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/kbd/win32-stub -Icommon/include \
++	-o kbd-win32-shim-check tests/kbd/kbd-win32-shim-check.c \
++	tests/kbd/win32-stub/win32_kbd_stub.c \
++	common/kbd/os2_kbd.c common/win32/os2_kbd_win32.c
++./kbd-win32-shim-check
++kbd-win32-shim-check: PASS
++rm -f kbd-win32-shim-check
++python3 tools/check_kbd_r2.py
++KBD-R2 static architecture check: PASS (6 frozen exports)
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o sesmgr-core-check tests/sesmgr/sesmgr-core-check.c common/sesmgr/os2_sesmgr.c
++./sesmgr-core-check
++SESMGR common core: PASS
++rm -f sesmgr-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic -DOS2_SESMGR_NO_DLLMAIN \
++	-Icommon/include -o sesmgr-veneer-check \
++	tests/sesmgr/sesmgr-veneer-check.c dlls/sesmgr/sesmgr.c common/sesmgr/os2_sesmgr.c
++./sesmgr-veneer-check
++sesmgr-veneer-check: PASS
++rm -f sesmgr-veneer-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/sesmgr/win32-stub -Icommon/include \
++	-o sesmgr-win32-shim-check tests/sesmgr/sesmgr-win32-shim-check.c \
++	tests/sesmgr/win32-stub/win32_sesmgr_stub.c \
++	common/sesmgr/os2_sesmgr.c common/win32/os2_sesmgr_win32.c
++./sesmgr-win32-shim-check
++sesmgr-win32-shim-check: PASS
++rm -f sesmgr-win32-shim-check
++python3 tools/check_sesmgr_r2.py
++SESMGR R2 static architecture: PASS
++
++=== Clang make verify ===
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o personality-core-check tests/common/personality-core-check.c \
++	common/doscalls/os2_doscalls_core.c common/api/os2_api_catalog.c
++./personality-core-check
++PASS: shared DOSCALLS personality core and ordinal catalogue
++rm -f personality-core-check
++python3 tools/gen_nls_tables.py --check
++PASS: built-in CP437/CP850 case tables are reproducible
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o nls-core-check tests/nls/nls-core-check.c \
++	common/nls/os2_nls.c common/nls/os2_nls_api.c common/doscalls/os2_doscalls_core.c
++./nls-core-check
++PASS: OS/2 NLS core, process state, extended case maps and guest ABI
++rm -f nls-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/nls/win32-stub -Icommon/include \
++	-o nls-win32-shim-check tests/nls/nls-win32-shim-check.c \
++	tests/nls/win32-stub/win32_nls_stub.c \
++	common/nls/os2_nls.c common/win32/os2_nls_win32.c
++./nls-win32-shim-check
++nls-win32-shim-check: PASS
++rm -f nls-win32-shim-check
++python3 tools/check_nls_r2.py
++nls-static-check: PASS
++python3 tools/check_api_catalog.py
++PASS: 257 catalogue entries cover 255 ordinal DLL exports
++python3 tools/check_shared_personality.py
++PASS: native DOSCALLS/WHP core plus process-owned NLS wiring; 8 original shared DOSCALLS implementations preserved
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o doscalls-core-check tests/doscalls/doscalls-core-check.c \
++	common/doscalls/os2_doscalls.c common/nls/os2_nls.c
++./doscalls-core-check
++doscalls-core-check: PASS
++rm -f doscalls-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o doscalls-veneer-check tests/doscalls/doscalls-veneer-check.c \
++	dlls/doscalls/doscalls.c common/doscalls/os2_doscalls.c common/nls/os2_nls.c
++./doscalls-veneer-check
++doscalls-veneer-check: PASS
++rm -f doscalls-veneer-check
++python3 tools/check_doscalls_r2.py
++DOSCALLS-R2 static architecture check: PASS (86 frozen exports)
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o vio-core-check tests/vio/vio-core-check.c common/vio/os2_vio.c \
++	common/win32/os2_vio_win32_attr.c
++./vio-core-check
++vio-core-check: PASS
++rm -f vio-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/vio/win32-stub -Icommon/include \
++	-o vio-win32-shim-check tests/vio/vio-win32-shim-check.c \
++	tests/vio/win32-stub/win32_vio_stub.c dlls/viocalls/viocalls.c \
++	common/vio/os2_vio.c common/win32/os2_vio_win32.c common/win32/os2_vio_win32_attr.c
++./vio-win32-shim-check
++vio-win32-shim-check: PASS
++rm -f vio-win32-shim-check
++python3 tools/check_vio_life_surface.py
++check_vio_life_surface: PASS
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o queue-core-check tests/queue/queue-core-check.c common/queue/os2_queue.c
++./queue-core-check
++queue-core-check: PASS
++rm -f queue-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o queue-veneer-check tests/queue/queue-veneer-check.c \
++	dlls/quecalls/quecalls.c common/queue/os2_queue.c
++./queue-veneer-check
++queue-veneer-check: PASS
++rm -f queue-veneer-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/queue/win32-stub -Icommon/include \
++	-o queue-win32-shim-check tests/queue/queue-win32-shim-check.c \
++	tests/queue/win32-stub/win32_queue_stub.c \
++	common/queue/os2_queue.c common/win32/os2_queue_win32.c
++./queue-win32-shim-check
++queue-win32-shim-check: PASS
++rm -f queue-win32-shim-check
++python3 tools/check_queue_r2.py
++QUEUE-R2 static architecture check: PASS (4 frozen exports)
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o kbd-core-check tests/kbd/kbd-core-check.c common/kbd/os2_kbd.c
++./kbd-core-check
++kbd-core-check: PASS
++rm -f kbd-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o kbd-veneer-check tests/kbd/kbd-veneer-check.c \
++	dlls/kbdcalls/kbdcalls.c common/kbd/os2_kbd.c
++./kbd-veneer-check
++kbd-veneer-check: PASS
++rm -f kbd-veneer-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/kbd/win32-stub -Icommon/include \
++	-o kbd-win32-shim-check tests/kbd/kbd-win32-shim-check.c \
++	tests/kbd/win32-stub/win32_kbd_stub.c \
++	common/kbd/os2_kbd.c common/win32/os2_kbd_win32.c
++./kbd-win32-shim-check
++kbd-win32-shim-check: PASS
++rm -f kbd-win32-shim-check
++python3 tools/check_kbd_r2.py
++KBD-R2 static architecture check: PASS (6 frozen exports)
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o sesmgr-core-check tests/sesmgr/sesmgr-core-check.c common/sesmgr/os2_sesmgr.c
++./sesmgr-core-check
++SESMGR common core: PASS
++rm -f sesmgr-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic -DOS2_SESMGR_NO_DLLMAIN \
++	-Icommon/include -o sesmgr-veneer-check \
++	tests/sesmgr/sesmgr-veneer-check.c dlls/sesmgr/sesmgr.c common/sesmgr/os2_sesmgr.c
++./sesmgr-veneer-check
++sesmgr-veneer-check: PASS
++rm -f sesmgr-veneer-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/sesmgr/win32-stub -Icommon/include \
++	-o sesmgr-win32-shim-check tests/sesmgr/sesmgr-win32-shim-check.c \
++	tests/sesmgr/win32-stub/win32_sesmgr_stub.c \
++	common/sesmgr/os2_sesmgr.c common/win32/os2_sesmgr_win32.c
++./sesmgr-win32-shim-check
++sesmgr-win32-shim-check: PASS
++rm -f sesmgr-win32-shim-check
++python3 tools/check_sesmgr_r2.py
++SESMGR R2 static architecture: PASS
++
++=== Production dry-runs ===
++i686-w64-mingw32-gcc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include -shared -o DOSCALLS.dll \
++	dlls/doscalls/doscalls.c common/doscalls/os2_doscalls.c common/win32/os2_doscalls_win32.c \
++	common/doscalls/os2_doscalls_core.c common/win32/os2_win32_services.c common/nls/os2_nls.c common/win32/os2_nls_win32.c \
++	dlls/doscalls/doscalls.def \
++	-lwinmm -Wl,--out-implib,libdoscalls.a
++make -C whp
++make[1]: Entering directory '/mnt/data/nls_r2_work/whp'
++cl /nologo /W4 /O2 /D_CRT_SECURE_NO_WARNINGS /I src /I ../common/include /Fe:whp_os2_v2_hi.exe src/whp_os2_v2_hi.c ../common/doscalls/os2_doscalls_core.c ../common/api/os2_api_catalog.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c ../common/win32/os2_nls_win32.c ../common/win32/os2_win32_services.c /link WinHvPlatform.lib User32.lib Gdi32.lib
++make[1]: Leaving directory '/mnt/data/nls_r2_work/whp'
++
++=== MinGW availability ===
++i686-w64-mingw32-gcc: NOT AVAILABLE IN THIS ENVIRONMENT
+diff --git a/common/doscalls/os2_doscalls.c b/common/doscalls/os2_doscalls.c
+index 3f66f37..d7c0634 100644
+--- a/common/doscalls/os2_doscalls.c
++++ b/common/doscalls/os2_doscalls.c
+@@ -53,6 +53,7 @@ void os2_dos_session_init(struct Os2DosSession *session,
+     session->exception_head =
+         (struct O2ExceptionRegistrationRecord *)(uintptr_t)0xffffffffUL;
+     session->error_flags = 1UL;
++    os2_nls_state_init(&session->nls);
+     session->initialized = 1;
+ }
+ 
+@@ -1459,48 +1460,85 @@ O2APIRET os2_dos_DosQuerySysInfo(struct Os2DosSession *session, O2ULONG first, O
+     return dispatch_call(session, OS2_DOS_CALL_DOSQUERYSYSINFO, &call_args);
+ }
+ 
+-O2APIRET os2_dos_DosSetProcessCp(struct Os2DosSession *session, O2ULONG codepage)
++static void nls_read_countrycode(const void *countrycode,
++                                 O2ULONG *country, O2ULONG *codepage)
+ {
+-    struct Os2DosArgs_DosSetProcessCp call_args;
+-    call_args.codepage = codepage;
+-    return dispatch_call(session, OS2_DOS_CALL_DOSSETPROCESSCP, &call_args);
++    const unsigned char *p;
++    O2ULONG c;
++    O2ULONG cp;
++
++    *country = 0UL;
++    *codepage = 0UL;
++    if (countrycode == NULL)
++        return;
++    p = (const unsigned char *)countrycode;
++    c = (O2ULONG)p[0] | ((O2ULONG)p[1] << 8) |
++        ((O2ULONG)p[2] << 16) | ((O2ULONG)p[3] << 24);
++    cp = (O2ULONG)p[4] | ((O2ULONG)p[5] << 8) |
++         ((O2ULONG)p[6] << 16) | ((O2ULONG)p[7] << 24);
++    *country = c;
++    *codepage = cp;
+ }
+ 
+-O2APIRET os2_dos_DosQueryCp(struct Os2DosSession *session, O2ULONG cb, O2ULONG *codepages, O2ULONG *actual)
++O2APIRET os2_dos_DosSetProcessCp(struct Os2DosSession *session,
++                                  O2ULONG codepage)
+ {
+-    struct Os2DosArgs_DosQueryCp call_args;
+-    call_args.cb = cb;
+-    call_args.codepages = codepages;
+-    call_args.actual = actual;
+-    return dispatch_call(session, OS2_DOS_CALL_DOSQUERYCP, &call_args);
++    if (session == NULL)
++        return O2_ERROR_INVALID_PARAMETER;
++    return (O2APIRET)os2_nls_set_process_cp(&session->nls,
++                                             (uint32_t)codepage);
+ }
+ 
+-O2APIRET os2_dos_DosQueryCtryInfo(struct Os2DosSession *session, O2ULONG cb, const void *countrycode, void *countryinfo, O2ULONG *actual)
++O2APIRET os2_dos_DosQueryCp(struct Os2DosSession *session, O2ULONG cb,
++                            O2ULONG *codepages, O2ULONG *actual)
+ {
+-    struct Os2DosArgs_DosQueryCtryInfo call_args;
+-    call_args.cb = cb;
+-    call_args.countrycode = countrycode;
+-    call_args.countryinfo = countryinfo;
+-    call_args.actual = actual;
+-    return dispatch_call(session, OS2_DOS_CALL_DOSQUERYCTRYINFO, &call_args);
++    if (session == NULL)
++        return O2_ERROR_INVALID_PARAMETER;
++    return (O2APIRET)os2_nls_query_cp(&session->nls, (uint32_t)cb,
++                                       (uint32_t *)codepages,
++                                       (uint32_t *)actual);
+ }
+ 
+-O2APIRET os2_dos_DosQueryDBCSEnv(struct Os2DosSession *session, O2ULONG cb, const void *countrycode, void *buffer)
++O2APIRET os2_dos_DosQueryCtryInfo(struct Os2DosSession *session, O2ULONG cb,
++                                  const void *countrycode, void *countryinfo,
++                                  O2ULONG *actual)
+ {
+-    struct Os2DosArgs_DosQueryDBCSEnv call_args;
+-    call_args.cb = cb;
+-    call_args.countrycode = countrycode;
+-    call_args.buffer = buffer;
+-    return dispatch_call(session, OS2_DOS_CALL_DOSQUERYDBCSENV, &call_args);
++    O2ULONG country;
++    O2ULONG codepage;
++    if (session == NULL || actual == NULL || countryinfo == NULL)
++        return O2_ERROR_INVALID_PARAMETER;
++    nls_read_countrycode(countrycode, &country, &codepage);
++    return (O2APIRET)os2_nls_query_country_info(
++        &session->nls, (uint32_t)country, (uint32_t)codepage,
++        (uint32_t)cb, (unsigned char *)countryinfo, (uint32_t *)actual);
+ }
+ 
+-O2APIRET os2_dos_DosMapCase(struct Os2DosSession *session, O2ULONG cb, const void *countrycode, void *buffer)
++O2APIRET os2_dos_DosQueryDBCSEnv(struct Os2DosSession *session, O2ULONG cb,
++                                 const void *countrycode, void *buffer)
+ {
+-    struct Os2DosArgs_DosMapCase call_args;
+-    call_args.cb = cb;
+-    call_args.countrycode = countrycode;
+-    call_args.buffer = buffer;
+-    return dispatch_call(session, OS2_DOS_CALL_DOSMAPCASE, &call_args);
++    O2ULONG country;
++    O2ULONG codepage;
++    if (session == NULL || buffer == NULL || cb == 0UL)
++        return O2_ERROR_INVALID_PARAMETER;
++    nls_read_countrycode(countrycode, &country, &codepage);
++    return (O2APIRET)os2_nls_query_dbcs_env(
++        &session->nls, (uint32_t)country, (uint32_t)codepage,
++        (uint32_t)cb, (unsigned char *)buffer);
++}
++
++O2APIRET os2_dos_DosMapCase(struct Os2DosSession *session, O2ULONG cb,
++                            const void *countrycode, void *buffer)
++{
++    O2ULONG country;
++    O2ULONG codepage;
++    if (session == NULL || (cb != 0UL && buffer == NULL))
++        return O2_ERROR_INVALID_PARAMETER;
++    nls_read_countrycode(countrycode, &country, &codepage);
++    return (O2APIRET)os2_nls_map_case(&session->nls,
++                                      (uint32_t)country,
++                                      (uint32_t)codepage,
++                                      (unsigned char *)buffer,
++                                      (uint32_t)cb);
+ }
+ 
+ O2APIRET os2_dos_DosSetPriority(struct Os2DosSession *session, O2ULONG scope, O2ULONG prtyClass, O2LONG delta, O2ULONG porTid)
+diff --git a/common/include/os2_doscalls.h b/common/include/os2_doscalls.h
+index c790b13..89f2b3c 100644
+--- a/common/include/os2_doscalls.h
++++ b/common/include/os2_doscalls.h
+@@ -17,6 +17,7 @@
+ #include <stdint.h>
+ 
+ #include "os2_personality.h"
++#include "os2_nls.h"
+ 
+ #ifndef __cdecl
+ #define __cdecl
+@@ -125,6 +126,11 @@ struct Os2DosSession {
+     struct O2ExceptionRegistrationRecord *exception_head;
+     O2ULONG signal_exception_focus_count;
+     O2ULONG error_flags;
++
++    /* Per-process OS/2 National Language Support state.  This is personality
++     * state, not backend state; Win32/WHP/OS2SS may only provide bootstrap
++     * or resource services underneath it. */
++    struct Os2NlsState nls;
+ };
+ 
+ void os2_dos_session_init(struct Os2DosSession *session,
+diff --git a/common/include/os2_nls.h b/common/include/os2_nls.h
+index 5f20593..963f52b 100644
+--- a/common/include/os2_nls.h
++++ b/common/include/os2_nls.h
+@@ -39,13 +39,22 @@ struct Os2NlsCountryProfile {
+     unsigned char list_separator[2];
+ };
+ 
++struct Os2NlsBackendOps;
++
+ struct Os2NlsState {
++    void *backend_opaque;
++    const struct Os2NlsBackendOps *backend;
++
++    /* Authoritative OS/2-visible per-process/session state. */
+     uint32_t country;
+     uint32_t current_codepage;
+     uint32_t prepared_codepages[OS2_NLS_MAX_PREPARED_CP];
+     uint32_t prepared_count;
+ };
+ 
++void os2_nls_session_init(struct Os2NlsState *state,
++                          void *backend_opaque,
++                          const struct Os2NlsBackendOps *backend);
+ void os2_nls_state_init(struct Os2NlsState *state);
+ int os2_nls_set_country(struct Os2NlsState *state, uint32_t country);
+ int os2_nls_has_codepage(uint32_t codepage);
+diff --git a/common/include/os2_nls_backend.h b/common/include/os2_nls_backend.h
+new file mode 100644
+index 0000000..403d347
+--- /dev/null
++++ b/common/include/os2_nls_backend.h
+@@ -0,0 +1,20 @@
++#ifndef OS2_NLS_BACKEND_H
++#define OS2_NLS_BACKEND_H
++
++#include <stdint.h>
++
++/*
++ * Host-service contract for backend-neutral OS/2 NLS state.
++ *
++ * The common layer owns all guest-visible country/codepage/table semantics.
++ * Backends may suggest an initial host profile, but the common layer validates
++ * it against the OS/2 data it actually implements and remains authoritative
++ * after session initialization.
++ */
++struct Os2NlsBackendOps {
++    int (*query_initial_profile)(void *opaque,
++                                 uint32_t *country,
++                                 uint32_t *codepage);
++};
++
++#endif
+diff --git a/common/include/os2_nls_win32.h b/common/include/os2_nls_win32.h
+new file mode 100644
+index 0000000..086c407
+--- /dev/null
++++ b/common/include/os2_nls_win32.h
+@@ -0,0 +1,10 @@
++#ifndef OS2_NLS_WIN32_H
++#define OS2_NLS_WIN32_H
++
++struct Os2NlsState;
++
++/* Initialize one OS/2 NLS session using Win32 locale/OEM values only as
++ * bootstrap hints.  Guest-visible state remains owned by common NLS. */
++void os2_nls_win32_init_session(struct Os2NlsState *state);
++
++#endif
+diff --git a/common/include/os2_win32_services.h b/common/include/os2_win32_services.h
+index b0ac349..8daa5a5 100644
+--- a/common/include/os2_win32_services.h
++++ b/common/include/os2_win32_services.h
+@@ -3,7 +3,6 @@
+ 
+ #include "os2_personality.h"
+ 
+-struct Os2NlsState;
+ 
+ /* Win32 services shared by the native personality DLLs and Win64/WHP. */
+ os2_api_ret_t os2_win32_query_local_datetime(
+@@ -12,8 +11,4 @@ os2_api_ret_t os2_win32_query_local_datetime(
+ 
+ uint64_t os2_win32_monotonic_milliseconds(void *opaque);
+ 
+-/* Select an R1 built-in NLS profile from host defaults when possible.
+- * Guest-visible formatting remains owned by os2_nls, not Win32 structures. */
+-void os2_win32_initialize_nls(struct Os2NlsState *state);
+-
+ #endif
+diff --git a/common/nls/os2_nls.c b/common/nls/os2_nls.c
+index 2b4bf11..ff6298c 100644
+--- a/common/nls/os2_nls.c
++++ b/common/nls/os2_nls.c
+@@ -7,6 +7,7 @@
+  * WHP and a future software-x86 loader.
+  */
+ #include "os2_nls.h"
++#include "os2_nls_backend.h"
+ 
+ #include <stddef.h>
+ #include <string.h>
+@@ -70,16 +71,41 @@ const struct Os2NlsCountryProfile *os2_nls_country(uint32_t country)
+     return NULL;
+ }
+ 
+-void os2_nls_state_init(struct Os2NlsState *state)
++void os2_nls_session_init(struct Os2NlsState *state,
++                          void *backend_opaque,
++                          const struct Os2NlsBackendOps *backend)
+ {
++    uint32_t host_country;
++    uint32_t host_codepage;
++
+     if (state == NULL)
+         return;
+     memset(state, 0, sizeof(*state));
++    state->backend_opaque = backend_opaque;
++    state->backend = backend;
+     state->country = 1u;
+     state->current_codepage = 437u;
+     state->prepared_codepages[0] = 437u;
+     state->prepared_codepages[1] = 850u;
+     state->prepared_count = 2u;
++
++    /* Host values are bootstrap hints only.  Unsupported host locale/codepage
++     * values never escape into guest-visible state. */
++    host_country = 0u;
++    host_codepage = 0u;
++    if (backend != NULL && backend->query_initial_profile != NULL &&
++        backend->query_initial_profile(backend_opaque, &host_country,
++                                       &host_codepage)) {
++        if (host_country != 0u)
++            (void)os2_nls_set_country(state, host_country);
++        if (host_codepage != 0u)
++            (void)os2_nls_set_process_cp(state, host_codepage);
++    }
++}
++
++void os2_nls_state_init(struct Os2NlsState *state)
++{
++    os2_nls_session_init(state, NULL, NULL);
+ }
+ 
+ int os2_nls_set_country(struct Os2NlsState *state, uint32_t country)
+diff --git a/common/win32/os2_doscalls_win32.c b/common/win32/os2_doscalls_win32.c
+index 1d4b3af..79984fe 100644
+--- a/common/win32/os2_doscalls_win32.c
++++ b/common/win32/os2_doscalls_win32.c
+@@ -30,8 +30,7 @@
+ 
+ #include "os2_doscalls_core.h"
+ #include "os2_win32_services.h"
+-#include "os2_nls.h"
+-#include "os2_nls_api.h"
++#include "os2_nls_win32.h"
+ #include "os2_doscalls.h"
+ #include "os2_doscalls_backend.h"
+ #include "os2_doscalls_win32.h"
+@@ -746,11 +745,10 @@ static const struct Os2PersonalityOps o2_personality_ops = {
+     os2_win32_monotonic_milliseconds
+ };
+ 
+-static struct Os2NlsState o2_nls_state;
+ static struct Os2PersonalityContext o2_personality_context = {
+     NULL,
+     &o2_personality_ops,
+-    &o2_nls_state
++    NULL
+ };
+ 
+ static os2_addr32_t o2_pointer_address(const void *pointer)
+@@ -4135,62 +4133,6 @@ O2APIRET __cdecl o2win_DosQuerySysInfo(O2ULONG first, O2ULONG last,
+         o2_pointer_address(buffer), (uint32_t)cb);
+ }
+ 
+-/* Process-owned NLS state. DOSCALLS.289/291 and NLS.5/6/7 all reach this
+- * same context, so a codepage switch is immediately visible across modules. */
+-O2APIRET __cdecl o2win_DosSetProcessCp(O2ULONG codepage)
+-{
+-    return (O2APIRET)os2_nls_api_DosSetProcessCp(
+-        &o2_personality_context, (uint32_t)codepage);
+-}
+-
+-O2APIRET __cdecl o2win_DosQueryCp(O2ULONG cb, O2ULONG *codepages, O2ULONG *actual)
+-{
+-    return (O2APIRET)os2_nls_api_DosQueryCp(
+-        &o2_personality_context, (uint32_t)cb, o2_pointer_address(codepages),
+-        o2_pointer_address(actual));
+-}
+-
+-/* Named helpers are private personality plumbing imported by NLS.DLL. */
+-O2APIRET __cdecl o2win_O2NlsQueryCtryInfo(O2ULONG cb, const void *countrycode,
+-                                     void *countryinfo, O2ULONG *actual)
+-{
+-    return (O2APIRET)os2_nls_api_DosQueryCtryInfo(
+-        &o2_personality_context, (uint32_t)cb, o2_pointer_address(countrycode),
+-        o2_pointer_address(countryinfo), o2_pointer_address(actual));
+-}
+-
+-O2APIRET __cdecl o2win_O2NlsQueryDBCSEnv(O2ULONG cb, const void *countrycode,
+-                                    void *buffer)
+-{
+-    return (O2APIRET)os2_nls_api_DosQueryDBCSEnv(
+-        &o2_personality_context, (uint32_t)cb, o2_pointer_address(countrycode),
+-        o2_pointer_address(buffer));
+-}
+-
+-O2APIRET __cdecl o2win_O2NlsMapCase(O2ULONG cb, const void *countrycode, void *buffer)
+-{
+-    return (O2APIRET)os2_nls_api_DosMapCase(
+-        &o2_personality_context, (uint32_t)cb, o2_pointer_address(countrycode),
+-        o2_pointer_address(buffer));
+-}
+-
+-/* OS/2 also publishes these NLS functions through DOSCALLS.395-.397. */
+-O2APIRET __cdecl o2win_DosQueryCtryInfo(O2ULONG cb, const void *countrycode,
+-                                   void *countryinfo, O2ULONG *actual)
+-{
+-    return o2win_O2NlsQueryCtryInfo(cb, countrycode, countryinfo, actual);
+-}
+-
+-O2APIRET __cdecl o2win_DosQueryDBCSEnv(O2ULONG cb, const void *countrycode,
+-                                  void *buffer)
+-{
+-    return o2win_O2NlsQueryDBCSEnv(cb, countrycode, buffer);
+-}
+-
+-O2APIRET __cdecl o2win_DosMapCase(O2ULONG cb, const void *countrycode, void *buffer)
+-{
+-    return o2win_O2NlsMapCase(cb, countrycode, buffer);
+-}
+ 
+ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
+ {
+@@ -4201,9 +4143,6 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
+         o2_r2_state_lock_ready = 1;
+         os2_doscalls_win32_session_init(&o2_r2_session_storage);
+ 
+-        os2_nls_state_init(&o2_nls_state);
+-        os2_win32_initialize_nls(&o2_nls_state);
+-        os2_personality_context_set_nls(&o2_personality_context, &o2_nls_state);
+         InitializeCriticalSection(&beep_lock);
+         beep_lock_ready = 1;
+         beep_event = NULL;
+@@ -4758,31 +4697,6 @@ static O2APIRET r2_dispatch(void *opaque, unsigned int call_id,
+         a = (struct Os2DosArgs_DosQuerySysInfo *)call_args;
+         return (O2APIRET)o2win_DosQuerySysInfo(a->first, a->last, a->buffer, a->cb);
+     }
+-    case OS2_DOS_CALL_DOSSETPROCESSCP: {
+-        struct Os2DosArgs_DosSetProcessCp *a;
+-        a = (struct Os2DosArgs_DosSetProcessCp *)call_args;
+-        return (O2APIRET)o2win_DosSetProcessCp(a->codepage);
+-    }
+-    case OS2_DOS_CALL_DOSQUERYCP: {
+-        struct Os2DosArgs_DosQueryCp *a;
+-        a = (struct Os2DosArgs_DosQueryCp *)call_args;
+-        return (O2APIRET)o2win_DosQueryCp(a->cb, a->codepages, a->actual);
+-    }
+-    case OS2_DOS_CALL_DOSQUERYCTRYINFO: {
+-        struct Os2DosArgs_DosQueryCtryInfo *a;
+-        a = (struct Os2DosArgs_DosQueryCtryInfo *)call_args;
+-        return (O2APIRET)o2win_DosQueryCtryInfo(a->cb, a->countrycode, a->countryinfo, a->actual);
+-    }
+-    case OS2_DOS_CALL_DOSQUERYDBCSENV: {
+-        struct Os2DosArgs_DosQueryDBCSEnv *a;
+-        a = (struct Os2DosArgs_DosQueryDBCSEnv *)call_args;
+-        return (O2APIRET)o2win_DosQueryDBCSEnv(a->cb, a->countrycode, a->buffer);
+-    }
+-    case OS2_DOS_CALL_DOSMAPCASE: {
+-        struct Os2DosArgs_DosMapCase *a;
+-        a = (struct Os2DosArgs_DosMapCase *)call_args;
+-        return (O2APIRET)o2win_DosMapCase(a->cb, a->countrycode, a->buffer);
+-    }
+     case OS2_DOS_CALL_DOSSETPRIORITY: {
+         struct Os2DosArgs_DosSetPriority *a;
+         a = (struct Os2DosArgs_DosSetPriority *)call_args;
+@@ -4815,6 +4729,7 @@ void os2_doscalls_win32_session_init(struct Os2DosSession *session)
+     if (session == NULL)
+         return;
+     os2_dos_session_init(session, NULL, &r2_backend_ops);
++    os2_nls_win32_init_session(&session->nls);
+     o2_r2_session = session;
+ }
+ 
+diff --git a/common/win32/os2_nls_win32.c b/common/win32/os2_nls_win32.c
+new file mode 100644
+index 0000000..47299a9
+--- /dev/null
++++ b/common/win32/os2_nls_win32.c
+@@ -0,0 +1,48 @@
++#define WIN32_LEAN_AND_MEAN
++#include <windows.h>
++
++#include "os2_nls.h"
++#include "os2_nls_backend.h"
++#include "os2_nls_win32.h"
++
++static int win32_query_initial_profile(void *opaque,
++                                       uint32_t *country,
++                                       uint32_t *codepage)
++{
++    DWORD host_country;
++    UINT host_codepage;
++    int have_value;
++
++    (void)opaque;
++    if (country == NULL || codepage == NULL)
++        return 0;
++
++    *country = 0u;
++    *codepage = 0u;
++    have_value = 0;
++
++    host_country = 0;
++    if (GetLocaleInfoA(LOCALE_USER_DEFAULT,
++                       LOCALE_ICOUNTRY | LOCALE_RETURN_NUMBER,
++                       (LPSTR)&host_country, (int)sizeof(host_country)) != 0) {
++        *country = (uint32_t)host_country;
++        have_value = 1;
++    }
++
++    host_codepage = GetOEMCP();
++    if (host_codepage != 0u) {
++        *codepage = (uint32_t)host_codepage;
++        have_value = 1;
++    }
++
++    return have_value;
++}
++
++static const struct Os2NlsBackendOps win32_nls_ops = {
++    win32_query_initial_profile
++};
++
++void os2_nls_win32_init_session(struct Os2NlsState *state)
++{
++    os2_nls_session_init(state, NULL, &win32_nls_ops);
++}
+diff --git a/common/win32/os2_win32_services.c b/common/win32/os2_win32_services.c
+index 9bd6590..0f27a58 100644
+--- a/common/win32/os2_win32_services.c
++++ b/common/win32/os2_win32_services.c
+@@ -11,7 +11,6 @@
+ #include <stddef.h>
+ 
+ #include "os2_win32_services.h"
+-#include "os2_nls.h"
+ 
+ os2_api_ret_t os2_win32_query_local_datetime(
+     void *opaque,
+@@ -55,22 +54,3 @@ uint64_t os2_win32_monotonic_milliseconds(void *opaque)
+     (void)opaque;
+     return (uint64_t)GetTickCount64();
+ }
+-
+-void os2_win32_initialize_nls(struct Os2NlsState *state)
+-{
+-    DWORD country;
+-    UINT codepage;
+-
+-    if (state == NULL)
+-        return;
+-
+-    country = 0;
+-    if (GetLocaleInfoA(LOCALE_USER_DEFAULT,
+-                       LOCALE_ICOUNTRY | LOCALE_RETURN_NUMBER,
+-                       (LPSTR)&country, (int)sizeof(country)) != 0)
+-        (void)os2_nls_set_country(state, (uint32_t)country);
+-
+-    codepage = GetOEMCP();
+-    if (codepage != 0u)
+-        (void)os2_nls_set_process_cp(state, (uint32_t)codepage);
+-}
+diff --git a/docs/current/SHARED-PERSONALITY-ARCHITECTURE.md b/docs/current/SHARED-PERSONALITY-ARCHITECTURE.md
+index db10a95..b79401e 100644
+--- a/docs/current/SHARED-PERSONALITY-ARCHITECTURE.md
++++ b/docs/current/SHARED-PERSONALITY-ARCHITECTURE.md
+@@ -93,6 +93,19 @@ The catalogue is used by:
+ The Win32 time service used by ordinals 230 and 348 is itself shared under
+ `common/win32/`.
+ 
++## NLS process state
++
++National Language Support now follows the same ownership rule.  The common
++`Os2NlsState` is authoritative for OS/2-visible country, process code page,
++prepared code pages, case tables and DBCS table selection.  Native DOSCALLS
++embeds that state in `Os2DosSession`; WHP owns an independent instance in its
++runtime.  The Win32 NLS backend supplies only a bootstrap country/OEM-codepage
++hint and cannot mutate guest-visible state afterward.
++
++The native NLS-facing DOSCALLS APIs therefore no longer traverse the legacy
++Win32 dispatch seam.  NLS.DLL remains an ABI veneer into the same DOS process
++state, preserving cross-module `DosSetProcessCp` behavior.
++
+ ## Deliberately loader-specific operations
+ 
+ The following classes remain loader intrinsics:
+@@ -115,6 +128,9 @@ The root build compiles:
+ 
+ ```text
+ common/doscalls/os2_doscalls_core.c
++common/doscalls/os2_doscalls.c
++common/nls/os2_nls.c
++common/win32/os2_nls_win32.c
+ common/win32/os2_win32_services.c
+     -> DOSCALLS.DLL
+ ```
+diff --git a/tests/doscalls/doscalls-core-check.c b/tests/doscalls/doscalls-core-check.c
+index d820b0e..f5e1351 100644
+--- a/tests/doscalls/doscalls-core-check.c
++++ b/tests/doscalls/doscalls-core-check.c
+@@ -270,6 +270,50 @@ static int test_control_state(struct Os2DosSession *s, struct FakeBackend *b)
+     return 0;
+ }
+ 
++
++static int test_nls(struct Os2DosSession *s, struct FakeBackend *b)
++{
++    O2ULONG cp[4];
++    O2ULONG actual;
++    O2ULONG countrycode[2];
++    unsigned char info[OS2_NLS_COUNTRYINFO_SIZE];
++    unsigned char dbcs[8];
++    unsigned char text[2];
++
++    CHECK(s->nls.country == 1UL);
++    CHECK(s->nls.current_codepage == 437UL);
++    b->dispatch_id = 0U;
++    CHECK(os2_dos_DosSetProcessCp(s, 850UL) == O2_NO_ERROR);
++    CHECK(s->nls.current_codepage == 850UL);
++    CHECK(b->dispatch_id == 0U);
++
++    memset(cp, 0, sizeof(cp));
++    actual = 0UL;
++    CHECK(os2_dos_DosQueryCp(s, 8UL, cp, &actual) == O2_NO_ERROR);
++    CHECK(actual == 8UL && cp[0] == 850UL && cp[1] == 437UL);
++    CHECK(b->dispatch_id == 0U);
++
++    countrycode[0] = 44UL;
++    countrycode[1] = 437UL;
++    memset(info, 0, sizeof(info));
++    actual = 0UL;
++    CHECK(os2_dos_DosQueryCtryInfo(s, sizeof(info), countrycode,
++                                   info, &actual) == O2_NO_ERROR);
++    CHECK(actual == OS2_NLS_COUNTRYINFO_SIZE && info[0] == 44U);
++
++    memset(dbcs, 0xcc, sizeof(dbcs));
++    CHECK(os2_dos_DosQueryDBCSEnv(s, sizeof(dbcs), countrycode,
++                                  dbcs) == O2_NO_ERROR);
++    CHECK(dbcs[0] == 0U && dbcs[7] == 0U);
++
++    text[0] = 'a';
++    text[1] = 0x82U;
++    CHECK(os2_dos_DosMapCase(s, 2UL, countrycode, text) == O2_NO_ERROR);
++    CHECK(text[0] == 'A' && text[1] == 0x90U);
++    CHECK(b->dispatch_id == 0U);
++    return 0;
++}
++
+ static int test_dispatch(struct Os2DosSession *s, struct FakeBackend *b)
+ {
+     O2APIRET rc;
+@@ -291,6 +335,7 @@ int main(void)
+     CHECK(s.initialized != 0);
+     CHECK(test_handles(&s) == 0);
+     CHECK(test_sleep_beep(&s, &b) == 0);
++    CHECK(test_nls(&s, &b) == 0);
+     CHECK(test_events(&s, &b) == 0);
+     CHECK(test_suballoc(&s) == 0);
+     CHECK(test_control_state(&s, &b) == 0);
+diff --git a/tests/doscalls/doscalls-veneer-check.c b/tests/doscalls/doscalls-veneer-check.c
+index 2656864..54901ea 100644
+--- a/tests/doscalls/doscalls-veneer-check.c
++++ b/tests/doscalls/doscalls-veneer-check.c
+@@ -70,8 +70,9 @@ int main(void)
+ 
+     byte = 'a';
+     fake.dispatch_id = 0U;
+-    CHECK(O2NlsMapCase(1UL, NULL, &byte) == 0x7000UL + OS2_DOS_CALL_DOSMAPCASE);
+-    CHECK(fake.dispatch_id == OS2_DOS_CALL_DOSMAPCASE);
++    CHECK(O2NlsMapCase(1UL, NULL, &byte) == O2_NO_ERROR);
++    CHECK(byte == 'A');
++    CHECK(fake.dispatch_id == 0U);
+ 
+     delta = 5;
+     current = 0;
+diff --git a/tests/nls/nls-core-check.c b/tests/nls/nls-core-check.c
+index 21da88c..42d6360 100644
+--- a/tests/nls/nls-core-check.c
++++ b/tests/nls/nls-core-check.c
+@@ -4,6 +4,7 @@
+ 
+ #include "os2_nls.h"
+ #include "os2_nls_api.h"
++#include "os2_nls_backend.h"
+ #include "os2_personality.h"
+ 
+ #define MEM_BASE 0x1000u
+@@ -15,6 +16,30 @@ struct MockMemory {
+ 
+ static int failures = 0;
+ 
++struct MockNlsBackend {
++    uint32_t country;
++    uint32_t codepage;
++    int available;
++    unsigned int queries;
++};
++
++static int mock_initial_profile(void *opaque, uint32_t *country,
++                                uint32_t *codepage)
++{
++    struct MockNlsBackend *backend;
++    backend = (struct MockNlsBackend *)opaque;
++    ++backend->queries;
++    if (!backend->available)
++        return 0;
++    *country = backend->country;
++    *codepage = backend->codepage;
++    return 1;
++}
++
++static const struct Os2NlsBackendOps mock_nls_backend_ops = {
++    mock_initial_profile
++};
++
+ static void check_int(const char *what, uint32_t got, uint32_t expected)
+ {
+     if (got != expected) {
+@@ -94,6 +119,35 @@ static const struct Os2PersonalityOps mock_ops = {
+     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+ };
+ 
++static void test_session_state(void)
++{
++    struct MockNlsBackend backend;
++    struct Os2NlsState first;
++    struct Os2NlsState second;
++
++    memset(&backend, 0, sizeof(backend));
++    backend.country = 44u;
++    backend.codepage = 850u;
++    backend.available = 1;
++    os2_nls_session_init(&first, &backend, &mock_nls_backend_ops);
++    check_int("backend bootstrap query count", backend.queries, 1u);
++    check_int("backend bootstrap country", first.country, 44u);
++    check_int("backend bootstrap codepage", first.current_codepage, 850u);
++
++    backend.country = 999u;
++    backend.codepage = 932u;
++    os2_nls_session_init(&second, &backend, &mock_nls_backend_ops);
++    check_int("unsupported backend country falls back", second.country, 1u);
++    check_int("unsupported backend codepage falls back",
++              second.current_codepage, 437u);
++
++    (void)os2_nls_set_process_cp(&first, 437u);
++    check_int("first session changes independently", first.current_codepage,
++              437u);
++    check_int("second session remains independent", second.current_codepage,
++              437u);
++}
++
+ static void test_core(void)
+ {
+     struct Os2NlsState state;
+@@ -270,6 +324,7 @@ static void test_guest_api(void)
+ 
+ int main(void)
+ {
++    test_session_state();
+     test_core();
+     test_guest_api();
+     if (failures != 0) {
+diff --git a/tests/nls/nls-win32-shim-check.c b/tests/nls/nls-win32-shim-check.c
+new file mode 100644
+index 0000000..14192a7
+--- /dev/null
++++ b/tests/nls/nls-win32-shim-check.c
+@@ -0,0 +1,54 @@
++#include <stdio.h>
++
++#include "windows.h"
++#include "os2_nls.h"
++#include "os2_nls_win32.h"
++
++static int failures;
++
++static void check(int ok, const char *message)
++{
++    if (!ok) {
++        fprintf(stderr, "FAIL: %s\n", message);
++        ++failures;
++    }
++}
++
++int main(void)
++{
++    struct Os2NlsState first;
++    struct Os2NlsState second;
++
++    nls_stub_set_country(44UL, 1);
++    nls_stub_set_oemcp(850U);
++    os2_nls_win32_init_session(&first);
++    check(first.country == 44U, "Win32 country bootstrap accepted");
++    check(first.current_codepage == 850U,
++          "Win32 OEM codepage bootstrap accepted");
++
++    nls_stub_set_country(999UL, 1);
++    nls_stub_set_oemcp(932U);
++    os2_nls_win32_init_session(&second);
++    check(second.country == 1U,
++          "unsupported host country does not leak into OS/2 state");
++    check(second.current_codepage == 437U,
++          "unsupported host codepage does not leak into OS/2 state");
++
++    nls_stub_set_country(44UL, 0);
++    nls_stub_set_oemcp(0U);
++    os2_nls_win32_init_session(&second);
++    check(second.country == 1U && second.current_codepage == 437U,
++          "missing host profile leaves deterministic OS/2 defaults");
++
++    check(os2_nls_set_process_cp(&first, 437U) == 0U &&
++          first.current_codepage == 437U &&
++          second.current_codepage == 437U,
++          "sessions remain independently mutable after bootstrap");
++
++    if (failures != 0) {
++        fprintf(stderr, "nls-win32-shim-check: %d failure(s)\n", failures);
++        return 1;
++    }
++    puts("nls-win32-shim-check: PASS");
++    return 0;
++}
+diff --git a/tests/nls/win32-stub/win32_nls_stub.c b/tests/nls/win32-stub/win32_nls_stub.c
+new file mode 100644
+index 0000000..8f3f7a1
+--- /dev/null
++++ b/tests/nls/win32-stub/win32_nls_stub.c
+@@ -0,0 +1,33 @@
++#include <string.h>
++#include "windows.h"
++
++static DWORD stub_country = 1UL;
++static int stub_country_available = 1;
++static UINT stub_oemcp = 437U;
++
++void nls_stub_set_country(DWORD country, int available)
++{
++    stub_country = country;
++    stub_country_available = available;
++}
++
++void nls_stub_set_oemcp(UINT codepage)
++{
++    stub_oemcp = codepage;
++}
++
++int GetLocaleInfoA(DWORD locale, DWORD type, LPSTR data, int cchData)
++{
++    (void)locale;
++    if (!stub_country_available || data == NULL ||
++        cchData < (int)sizeof(stub_country) ||
++        type != (LOCALE_ICOUNTRY | LOCALE_RETURN_NUMBER))
++        return 0;
++    memcpy(data, &stub_country, sizeof(stub_country));
++    return (int)sizeof(stub_country);
++}
++
++UINT GetOEMCP(void)
++{
++    return stub_oemcp;
++}
+diff --git a/tests/nls/win32-stub/windows.h b/tests/nls/win32-stub/windows.h
+new file mode 100644
+index 0000000..59d2add
+--- /dev/null
++++ b/tests/nls/win32-stub/windows.h
+@@ -0,0 +1,20 @@
++#ifndef NLS_TEST_WINDOWS_H
++#define NLS_TEST_WINDOWS_H
++
++#include <stddef.h>
++
++typedef unsigned long DWORD;
++typedef unsigned int UINT;
++typedef char *LPSTR;
++
++#define LOCALE_USER_DEFAULT 0x0400UL
++#define LOCALE_ICOUNTRY 0x00000005UL
++#define LOCALE_RETURN_NUMBER 0x20000000UL
++
++int GetLocaleInfoA(DWORD locale, DWORD type, LPSTR data, int cchData);
++UINT GetOEMCP(void);
++
++void nls_stub_set_country(DWORD country, int available);
++void nls_stub_set_oemcp(UINT codepage);
++
++#endif
+diff --git a/tools/check_doscalls_r2.py b/tools/check_doscalls_r2.py
+index 0d974bc..f04a799 100755
+--- a/tools/check_doscalls_r2.py
++++ b/tools/check_doscalls_r2.py
+@@ -45,7 +45,8 @@ for name in exports:
+ 
+ for field in ("file_handles", "std_handles", "find_handles", "children",
+               "events", "subpools", "exception_head",
+-              "signal_exception_focus_count", "error_flags", "max_file_handles"):
++              "signal_exception_focus_count", "error_flags", "max_file_handles",
++              "struct Os2NlsState nls"):
+     need(field in common_h, "Os2DosSession is missing common state field %s" % field)
+ for fn in ("os2_dos_alloc_hfile", "os2_dos_alloc_find_handle",
+            "os2_dos_store_child", "os2_dos_DosCreateEventSem",
+@@ -79,7 +80,12 @@ for call_id in ("OS2_DOS_CALL_DOSSUBSETMEM", "OS2_DOS_CALL_DOSSUBALLOCMEM",
+                 "OS2_DOS_CALL_DOSUNSETEXCEPTIONHANDLER",
+                 "OS2_DOS_CALL_DOSSETSIGNALEXCEPTIONFOCUS",
+                 "OS2_DOS_CALL_DOSSETRELMAXFH",
+-                "OS2_DOS_CALL_DOSACKNOWLEDGESIGNALEXCEPTION"):
++                "OS2_DOS_CALL_DOSACKNOWLEDGESIGNALEXCEPTION",
++                "OS2_DOS_CALL_DOSSETPROCESSCP",
++                "OS2_DOS_CALL_DOSQUERYCP",
++                "OS2_DOS_CALL_DOSQUERYCTRYINFO",
++                "OS2_DOS_CALL_DOSQUERYDBCSENV",
++                "OS2_DOS_CALL_DOSMAPCASE"):
+     need(("case " + call_id + ":") not in win32_c,
+          "common-owned DOSCALLS API still has a dead backend dispatch case: %s" % call_id)
+ for helper in ("os2_dos_resolve_hfile", "os2_dos_alloc_hfile",
+diff --git a/tools/check_nls_r2.py b/tools/check_nls_r2.py
+new file mode 100755
+index 0000000..79ebf3c
+--- /dev/null
++++ b/tools/check_nls_r2.py
+@@ -0,0 +1,63 @@
++#!/usr/bin/env python3
++from pathlib import Path
++import hashlib
++import sys
++
++root = Path(__file__).resolve().parents[1]
++errors = []
++
++def text(path):
++    return (root / path).read_text(encoding="utf-8", errors="replace")
++
++def require(cond, message):
++    if not cond:
++        errors.append(message)
++
++nls_h = text("common/include/os2_nls.h")
++backend_h = text("common/include/os2_nls_backend.h")
++nls_c = text("common/nls/os2_nls.c")
++dos_h = text("common/include/os2_doscalls.h")
++dos_c = text("common/doscalls/os2_doscalls.c")
++win_dos = text("common/win32/os2_doscalls_win32.c")
++win_services = text("common/win32/os2_win32_services.c")
++win_nls = text("common/win32/os2_nls_win32.c")
++whp = text("whp/src/whp_os2_v2_hi.c")
++
++require("backend_opaque" in nls_h and "const struct Os2NlsBackendOps *backend" in nls_h,
++        "Os2NlsState must carry explicit backend binding")
++require("os2_nls_session_init" in nls_h and "os2_nls_session_init" in nls_c,
++        "common NLS must expose state/session initialization")
++require("query_initial_profile" in backend_h,
++        "NLS backend must be limited to an explicit bootstrap profile service")
++require("GetLocaleInfoA" in win_nls and "GetOEMCP" in win_nls,
++        "Win32 NLS bootstrap mechanics must live in os2_nls_win32.c")
++require("GetLocaleInfoA" not in nls_c and "GetOEMCP" not in nls_c,
++        "common NLS must not call Win32 locale APIs")
++require("initialize_nls" not in win_services,
++        "generic Win32 services must not own NLS initialization")
++require("struct Os2NlsState nls;" in dos_h,
++        "Os2DosSession must own per-process NLS state")
++for api in ("DosSetProcessCp", "DosQueryCp", "DosQueryCtryInfo",
++            "DosQueryDBCSEnv", "DosMapCase"):
++    require(("os2_dos_" + api) in dos_c,
++            api + " must terminate in common DOS/NLS semantics")
++    require(("OS2_DOS_CALL_" + api.upper()) not in win_dos,
++            api + " must not remain in Win32 DOS dispatch")
++require("static struct Os2NlsState" not in win_dos,
++        "Win32 DOS backend must not own a separate NLS state")
++require("os2_nls_win32_init_session(&session->nls)" in win_dos,
++        "Win32 DOS session must bootstrap its common NLS state explicitly")
++require("os2_nls_win32_init_session(&rt.nls_state)" in whp,
++        "WHP must use the explicit NLS backend bootstrap seam")
++
++# Frozen public NLS ABI.
++def_bytes = (root / "dlls/nls/nls.def").read_bytes()
++require(hashlib.sha256(def_bytes).hexdigest() ==
++        "8e1b567043be8767d6c93eee386ad21c57270eaa8421e8639315a874e998aef4",
++        "nls.def changed; public NLS ordinals must remain frozen")
++
++if errors:
++    for error in errors:
++        print("FAIL:", error)
++    sys.exit(1)
++print("nls-static-check: PASS")
+diff --git a/whp/Makefile b/whp/Makefile
+index 874cf32..a01f756 100644
+--- a/whp/Makefile
++++ b/whp/Makefile
+@@ -17,6 +17,7 @@ SRC = \
+ 	../common/api/os2_api_catalog.c \
+ 	../common/nls/os2_nls.c \
+ 	../common/nls/os2_nls_api.c \
++	../common/win32/os2_nls_win32.c \
+ 	../common/win32/os2_win32_services.c
+ HEADERS = \
+ 	../common/include/os2_personality.h \
+@@ -24,6 +25,8 @@ HEADERS = \
+ 	../common/include/os2_api_catalog.h \
+ 	../common/include/os2_nls.h \
+ 	../common/include/os2_nls_api.h \
++	../common/include/os2_nls_backend.h \
++	../common/include/os2_nls_win32.h \
+ 	../common/include/os2_win32_services.h \
+ 	../common/nls/os2_nls_tables.inc \
+ 	../common/api/os2_api_catalog.inc \
+diff --git a/whp/src/whp_os2_v2_hi.c b/whp/src/whp_os2_v2_hi.c
+index d98d5b9..355d2f0 100644
+--- a/whp/src/whp_os2_v2_hi.c
++++ b/whp/src/whp_os2_v2_hi.c
+@@ -54,6 +54,7 @@
+ #include "os2_win32_services.h"
+ #include "os2_nls.h"
+ #include "os2_nls_api.h"
++#include "os2_nls_win32.h"
+ 
+ #pragma comment(lib, "WinHvPlatform.lib")
+ 
+@@ -2845,8 +2846,7 @@ int main(int argc, char **argv)
+ 
+     memset(&rt, 0, sizeof(rt));
+     memset(&x, 0, sizeof(x));
+-    os2_nls_state_init(&rt.nls_state);
+-    os2_win32_initialize_nls(&rt.nls_state);
++    os2_nls_win32_init_session(&rt.nls_state);
+     rt.alloc_next = GUEST_ALLOC_BASE;
+     rt.module_next = GUEST_MODULE_BASE;
+     rt.stub_next = GUEST_STUB_BASE;

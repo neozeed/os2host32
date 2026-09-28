@@ -1,0 +1,19 @@
+1
+player1
+first user
+player1
+23
+m
+500.0
+5/1/10
+80
+24
+5
+5
+5
+5
+5
+232222
+..\gfiles
+.
+sysoplog.txt

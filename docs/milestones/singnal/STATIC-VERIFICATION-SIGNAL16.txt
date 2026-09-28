@@ -1,0 +1,26 @@
+OS2HOST32 SIGNAL16 R1 static verification
+
+Authoritative historical mapping:
+  SYSSETSIGHANDLER -> DOSCALLS.14 DosSetSigHandler
+  SYSSETVEC        -> DOSCALLS.89 DosSetVec
+
+Microsoft C/386 far16 descriptors:
+  DOSCALLS.14 widths low-to-high: 2,2,4,4,4
+  DOSCALLS.89 widths low-to-high: 4,4,2
+
+Verification:
+  GCC strict-C89 full make verify: PASS
+  Clang strict-C89 full make verify: PASS
+  common signal disposition state: PASS
+  common exception-vector state: PASS
+  actual DOSCALLS veneer routing: PASS
+  API catalogue/export coverage: PASS
+  exact SYS* import alias fixture: PASS
+  all prior subsystem regressions: PASS
+  MinGW native build: PENDING USER
+  Microsoft C/386 hack link/runtime: PENDING USER
+
+Scope limitation:
+  This milestone registers/restores opaque far16 handler tokens. It does not
+  asynchronously execute 16-bit signal/exception handlers or synthesize IRET
+  exception frames.

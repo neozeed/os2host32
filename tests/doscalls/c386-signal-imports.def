@@ -1,0 +1,6 @@
+; Microsoft C/386 LIBC signal.asm historical far16 dependencies.
+; Local SYS* names are what the CRT object references; module ordinals are
+; the documented OS/2 1.x/2.x DOSCALLS entrypoints.
+IMPORTS
+    SYSSETSIGHANDLER=DOSCALLS.14
+    SYSSETVEC=DOSCALLS.89

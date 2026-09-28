@@ -1,0 +1,6 @@
+astro.obj date_p.obj phoon.obj
+phoon /NOE /NOI /NOD:OLDNAMES
+nul.map
+libc.lib +
+os2386.lib
+nul.def;

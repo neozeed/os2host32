@@ -1,0 +1,55 @@
+{
+  "milestone": "SESMGR_R2_COMMON_STATE_WIN32_BACKEND_STATIC_VERIFIED_RUNTIME_PENDING",
+  "baseline": "os2host32-KBDCALLS-R2",
+  "abi": {
+    "sesmgr_def_unchanged": true,
+    "sesmgr_def_sha256": "a61b200f3b1e6ff595d6219b31779129bf9c88dfae3b01ea5400ec78918ee913",
+    "exports": {
+      "5": "DosSmSetTitle",
+      "8": "DosStopSession",
+      "17": "DosStartSession",
+      "1000": "O2HostQuerySessions"
+    },
+    "loader_unchanged": true,
+    "loader_sha256": "793ee7de7c6d0bd79b7d8bbdfaab6774cb2ec6af39b88d0cefc3c714430f0c55"
+  },
+  "common_owns": [
+    "STARTDATA validation/default policy",
+    "session-id allocation",
+    "shared registry format",
+    "stale-record reaping policy",
+    "related-session ownership table",
+    "title/query ownership semantics",
+    "DosStopSession lifecycle semantics"
+  ],
+  "win32_backend_owns": [
+    "critical section and shared registry storage/locking",
+    "PID plus process-creation-time identity",
+    "process liveness",
+    "CreateProcess/STARTUPINFO/console mapping",
+    "Job Objects",
+    "resume/terminate/wait/handle cleanup",
+    "SetConsoleTitle",
+    "Win32 environment block construction"
+  ],
+  "win32_registry_compatibility": {
+    "mapping": "Local\\OS2HOST32_SESMGR_R1",
+    "mutex": "Local\\OS2HOST32_SESMGR_R1_MUTEX",
+    "layout_preserved": true
+  },
+  "verification": {
+    "gcc_strict_c89_make_verify": "PASS",
+    "clang_strict_c89_make_verify": "PASS",
+    "sesmgr_core_check": "PASS",
+    "sesmgr_veneer_check": "PASS",
+    "sesmgr_win32_shim_check_gcc": "PASS",
+    "sesmgr_win32_shim_check_clang": "PASS",
+    "sesmgr_static_architecture": "PASS",
+    "real_mingw_build": "PENDING_USER",
+    "windows_runtime": "PENDING_USER",
+    "fresh_patch_apply_make_verify": "PASS"
+  },
+  "new_apis": false,
+  "whp_backend_implemented": false,
+  "os2ss_backend_implemented": false
+}

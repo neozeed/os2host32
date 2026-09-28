@@ -17,6 +17,7 @@ SRC = \
 	../common/api/os2_api_catalog.c \
 	../common/nls/os2_nls.c \
 	../common/nls/os2_nls_api.c \
+	../common/win32/os2_nls_win32.c \
 	../common/win32/os2_win32_services.c
 HEADERS = \
 	../common/include/os2_personality.h \
@@ -24,6 +25,8 @@ HEADERS = \
 	../common/include/os2_api_catalog.h \
 	../common/include/os2_nls.h \
 	../common/include/os2_nls_api.h \
+	../common/include/os2_nls_backend.h \
+	../common/include/os2_nls_win32.h \
 	../common/include/os2_win32_services.h \
 	../common/nls/os2_nls_tables.inc \
 	../common/api/os2_api_catalog.inc \

@@ -1,0 +1,76 @@
+LIFE for 16-bit OS/2 VIO/KBD
+============================
+
+This is a direct OS/2 character-mode port of the supplied NT-console LIFE.C.
+It deliberately uses the classic 16-bit OS/2 APIs and assumes M_I386 is not
+selected.
+
+Platform substitutions
+----------------------
+
+  Win32 console / _kbhit / _getch     -> KbdCharIn(IO_NOWAIT)
+  SetConsoleCursorPosition            -> VioSetCurPos
+  console screen fill                 -> VioScrollUp with a blank cell
+  cursor hide/show                    -> VioGetCurType / VioSetCurType
+  WriteConsole / printf-for-display   -> VioWrtTTY / VioWrtCharStr
+  Sleep                               -> DosSleep
+
+The VIO and KBD handles are 0, the normal default handles for a fullscreen
+16-bit OS/2 character application.
+
+Important source repair
+-----------------------
+
+The supplied NT port contains:
+
+    while (1==2) { /* ((ch=scr_csts()) || suspend) { */
+
+inside create().  That disables the original editor/pause keyboard loop.
+LIFEOS2.C restores the intended loop.  When initially editing a board, the
+cursor is visible.  During normal generation it is hidden; pressing lowercase s
+pauses and makes it visible again.  Uppercase 'S' cannot be a separate switch case
+because ASCII 'S' (83) is also the BIOS/OS2 scan code used here for Delete; the
+original source had that uppercase case commented out for the same reason.
+
+Extended keys
+-------------
+
+KbdCharIn returns the ASCII byte and scan code together.  When chChar is 0 or
+0xE0, LIFEOS2 returns chScan and marks the key as extended.  This preserves
+the original BIOS-style scan codes used by LIFE:
+
+    Up 72, Down 80, Left 75, Right 77, Ins 82, Del 83
+
+Display
+-------
+
+The original DeSmet program used character codes 1 and 2 directly.  The NT
+port mapped character 2 to the letter X.  OS/2 VIO can write the raw OEM
+character, so this port restores those character codes.  LIFE C also uses
+VioWrtCharStrAtt to cycle cell colours.
+
+Building with a period Microsoft 16-bit OS/2 toolchain
+-------------------------------------------------------
+
+The supplied era reference material uses commands of this form:
+
+    cl /c /F 2000 /I\path\to\os2h LIFEOS2.C
+    link LIFEOS2,LIFE,,OS2,LIFEOS2
+
+Exact compiler switches depend on the Microsoft C/OS/2 SDK version installed.
+The important points are:
+
+  * compile as 16-bit protected-mode OS/2, not M_I386/32-bit
+  * make the supplied OS/2 include directory visible
+  * link against OS2.LIB (or DOSCALLS.LIB where appropriate)
+  * use LIFEOS2.DEF so the executable is NOTWINDOWCOMPAT + PROTMODE
+
+The supplied OS2.H automatically chooses INCL_16 when M_I386 is absent;
+LIFEOS2.C also explicitly selects INCL_16 before including OS2.H.
+
+Files
+-----
+
+  LIFEOS2.C   - ported source
+  LIFEOS2.DEF - 16-bit OS/2 module definition file
+  README.OS2  - this file

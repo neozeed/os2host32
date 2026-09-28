@@ -1,0 +1,25 @@
+{
+  "milestone": "C386_HACK_SIGNAL_R3",
+  "status": "STATIC_VERIFIED_RUNTIME_PENDING",
+  "baseline": "C386-HACK-SWITCH-R2",
+  "observed_failure": {
+    "exception": "C0000005",
+    "eip": "01015065",
+    "access": "write",
+    "address": "00000001"
+  },
+  "specimen_evidence": {
+    "attached_prior_hack_sha256": "8201dd2e40dc4205cd649373d3f4c6f62ff675663f906143059ccc6a65f278bd",
+    "doscalls_14_fixup": "object1+0x2508A REL32",
+    "doscalls_89_fixup": "object1+0x250A9 REL32",
+    "abi": "32-bit Pascal: DWORD slots, left-to-right pushes, callee cleanup"
+  },
+  "adapters": {
+    "DOSCALLS.14": {"argc": 5, "cleanup_bytes": 20},
+    "DOSCALLS.89": {"argc": 3, "cleanup_bytes": 12}
+  },
+  "scope": "loader-local adapters only; DOSCALLS cdecl exports unchanged",
+  "gcc_make_verify": "PASS",
+  "clang_make_verify": "PASS",
+  "runtime": "PENDING"
+}

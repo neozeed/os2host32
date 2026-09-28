@@ -1,0 +1,216 @@
+                     TradeWars 200/QuixPlus
+
+                     Original BASIC version
+                     by CHRIS SHERRICK (PTL)
+                 Pascal conversion by Lord Darkseid
+
+             Modifications by Sorcerer, Supreme Dalek,
+                 The Omega Man, and Preston Stroud
+
+              Most recent modifications (10/20/87) by
+                      Quixotic Software, CA
+
+            "It's the sincerest form of programming..."
+
+
+	This is a multi-player game that is a cross between a war game and a
+space trading game.  Players compete against one another and are even able to
+attack and kill each other.  You have a ship that can roam the universe, from
+space port to space port trading metals, organics and equipment to earn credits
+(money.)  Once you've earned some credits, you can buy fighters or cargo holds.
+With more cargo holds, you can carry more merchandise and earn more credits.
+With fighters, you can attack and destroy other players' ships and steal cargo
+holds from them.  You can also defend a space port (or a series of sectors and
+space ports) which will give you exclusive trading and make even more credits.
+You can also convert your fighters & cargo holds into mines, and terrorize
+other players.  The goal of this game is simple:  to control the universe.
+
+GETTING STARTED
+     All you have to do to play this game is to log on.  The computer will
+automatically recognize you (provided you are worthy enough to be chosen to
+play the game) and set you up in the game if there is enough room for you.  If
+there isn't room for you, don't worry.  Old players are often...deleted, so
+room should open up in several days. You should also leave a message for the
+sysop telling him you want to play because he might be able to delete an old
+player before his time to make room for you.  When you start, the computer will
+give you a ship along with some cargo holds and some fighters and you will be
+on your way to becoming the most powerful person in the universe, provided you
+*DON'T* piss off the Emperor...
+
+ONCE YOU'RE IN...
+     Once you're in, the computer will remember everything you do.  If you exit
+the game in the middle, or even hang up on the game, it will remember what you
+did and and allow you to continue the next time you decide to play.  You are
+allowed so many turns a day, and each time you move from sector to sector or
+dock at a space port, you lose one turn.  Unfortunately, how many turns you've
+used up is remembered.  If someone has left some fighters to protect the
+sector, you have to fight off his fighters before you you are allowed to do
+anything in that sector.  You can also retreat at the cost of one fighter or 5
+Ship Armor points if you don't have any.
+     However, once you're in a sector, you can trade at space ports, take or
+leave fighters within the sector to defend it, and even attack other players'
+ships.  Every time you attack someone's ship, they will know who did it.  This
+also goes for you; if someone kills your fighters, you will know who did it.
+So experiment!  Feel free to wipe someone out...they might even return the
+favor.  Start a war!
+
+THE ROMULANS
+     You're not alone in the universe.  The evil Romulans, a race of warring
+scumbags, wander around seeking whom they can molest.  These evil warriors
+dwell in a run-down portion of the known universe and if you are mighty enough,
+you can conquer them.  The Romulans exist for the sole purpose to annoy
+players, but an outstanding TradeWars player can actually defeat the Romulans
+and receive an Imperial War grant!  But beware, these guys are tough as Earl
+Quinones...
+
+ROGUE MERCENARIES
+     Besides the Romulans, there are bands of fighters that merely hold turf,
+and won't let ANYONE enter the sector.  These are generated when the player
+they were working for got killed.  They can make your day...
+
+ONCE YOU'RE IN A SECTOR
+     Once you're in a sector, there are several things you can do.  The
+following is a list of available commands:
+
+A - ATTACK
+     This command allows your fighters to attack another player's ship
+in the same sector.  When you attack another's ship, the computer will
+ask you the number of fighters you want to use.  Then the computer will
+do the fighting for you.  On every attack, someone will lose a fighter,
+and there is a 50% chance it will be yours.  If you don't lose one, the
+other guy will.  The computer will keep fighting until either you lose
+that many fighters, or you wipe out all the other persons fighters.  Then
+it will give you a total telling you how good (or bad) you did.  It is
+possible to lose 500 fighters in one stroke, so be careful with this one.
+If you kill off all the fighters protecting another player's ship, you
+can attack the ship and salvage 1/4 of its cargo.
+
+C - COMPUTER
+     Each ship has an on-board computer.  The computer has several functions,
+including a commerce report, a sector finder, a ranking routine, and a ship to
+ship communication system.  The port report will give the quantity of any
+unprotected port so you can immediately know where there is some good
+trading.  The computer will ask you for what sector the port is in.  Just
+enter the sector number.  For example, for Sol, enter a '1'.  If there
+isn't a port in that sector, or someone is protecting that port with fighters,
+the computer will respond with "No information available."
+     The sector finder will tell you how to get to any sector you specify.
+If you want to know how to get to another sector, run this program.  It
+will tell you the shortest route to take to get to the sector you want.  This
+will be very useful until you get a map made.
+     The ranking routine ranks all the players playing the game.  Along side
+the player is his or her value in credits.  This includes everything, including
+fighters dropped in sectors.  Note that a person who has been killed has a
+value of zero.
+     The ship-to-ship communicator allows you to send 160 characters(two lines)
+of tactical information to another player, such as "There are 50 Romulans in
+sector 17, please help" or "Let's gang up on King Tusk, he killed me twice..."
+
+D - DISPLAY SECTOR
+     This will give you info about the sector you are in.  It will tell
+you the sector you are in, the name and class of any ports in the sector,
+other players' ships and the the number of fighters protecting them, the
+number of fighters protecting the sector and who they belong to, and what
+sectors the warps lead to.  Note the difference between fighters protecting
+the sector and the fighters accompanying ships.  The fighters protecting
+the sector are the ones you have to fight in order to get into the sector.
+The fighters accompanying the ships are the ones you have to destroy to
+get to the other players' ships (using the 'A' command.)
+
+F - TAKE OR LEAVE FIGHTERS
+     This lets you leave fighters to defend a sector or take the ones
+already there.  If there are fighters protecting a sector, no one can
+enter that sector without defeating them.  The computer will ask you how
+many fighters you want defending the sector.  Note: this is DEFENDING
+THE SECTOR.  If you have some there already, and you enter a number less
+than the number there, you will take the remaining fighters.  If you want
+to leave three fighters in an empty sector, enter '3'.  If you have seven
+fighters in a sector and want to take them all, enter '0'. (None will
+be left defending the sector.)  If you have four fighters in a sector
+and want to take three and leave one, enter '1' and the remaining three
+will go with you.  At one time, you could not leave fighters in sectors 1-7,
+since that is the Federation and they don't like having fighters in their
+home sectors, but the new peace & prosperity treaty guarentees free movement
+for fighters throughout the galaxy, except for sector 1(Sol).
+
+G - GAMBLE
+     We have allowed a human by the name of Mudd to take over the chancellor-
+ship of our gambling council. You may gamble your winnings with him, and hope
+you beat him bad enough to have him killed for losing the Emperor's assets. 
+But be warned: this can take a LOT of cash to pull off...
+
+I - INFO ABOUT YOUR SHIP
+     This command will give you information about your ship.  It will
+tell you the sector you are in, the number of turns left, the number of
+fighters in your fleet, the number of cargo holds on your ship and what
+they contain, and how many credits you have.
+
+L - LAND/CREATE A PLANET
+     Planets are similar to ports, only they produce everything(in differing
+quantities), and give their merchandise away instead of bartering with them.
+If you <L>and in a sector containing no planets you will be able to Create a
+planet. But you will need 10,000 credits to purchase a Genesis Torpedo to do
+so.
+     Sounds nice doesn't it?
+
+One thing you should know about planets is what productivity is.  Productivity
+is how many units that planet produces per 24 hours.  You can increase the
+productivity by investing money into a planet.  Planets start with an initial
+productivity of 1 in ore, organics, and equipment.  They have a maximum
+productivity of 20-30 each. I highly recommend leaving fighters in a sector
+with a planet in it because it doesn't cost a thing to destroy a planet.  All
+you have to do is land at it.  There is one planet allowed per sector.
+
+M - MINE THE SECTOR
+     This allows you to terrorize peaceful, innocent merchants in their own
+home sectors.  Your Engineer will convert 2 cargo holds & 5 K3-A fighters into
+a space mine, with a 1/10 chance of hitting the next ship to enter the sector.
+This can really brighten up someone's day.
+
+P - PORT
+     This command allows you to dock and trade with space ports, providing
+there is one in your sector.  Docking at a space port uses up one turn.  When
+you trade, you trade in units.  One unit is enough to fill one cargo hold
+aboard your ship.  There are three types of merchandise: ore, organics(org.),
+and equipment (eqp.) Each port has a class that determines what it will sell
+and buy.  A class 1 port sells eqp. and buys everything else.  A class 2 port
+sells organics and buys everything else, and a class 3 port sells ore and buys
+everything else.  When you dock, you will haggle over the prices.  They will
+give you an offer, and you will counter offer.  This will continue until either
+they take your offer, or decide to wait for another trading vessel to do
+business.  The prices depend on how much they have or need.  The more they have
+or need, the better the bargain.  Ports produce a limited amount of merchandise
+a day. If you can capture one with fighters, don't trade with it for several
+days and let the prices get better and better.  How much of a bargain varies
+from port to port.  Sol (in sector 1) is a special port.  It sells fighters,
+ship armor,  cargo holds, and turns.  When you buy turns, they are a temporary
+one shot deal; you buy turns, not the number of turns allotted per day. These
+prices of fighters and cargo holds vary depending on what day of the week it
+is; you don't haggle over these prices.
+
+W - WARP
+     This allows you to move from sector to sector.  The Organians have
+established warp lanes from sector to sector that you can travel through.  Each
+move takes up one turn and you have a limited number of turns a day.  If you
+move into a sector with fighters protecting it, you will have to fight them
+before you can enter.  You can attack or retreat.  If you retreat, you will
+return to the sector from which you came from, but you won't use up another
+turn.  It will cost you one fighter to retreat or 5 ship armor points,  and if
+you don't have any fighters or armor left, there is a 50% chance you will make
+it.
+
+Q - QUIT GAME
+     This command allows you to quit the game and return to the BBS.
+You can also control-K out, or hang up, but I would rather have you simply
+Quit.  It makes sure that nothing is going to go wrong.  If you quit and
+you haven't used up all your turns, you can come back later on and continue
+with your remaining turns.
+
+? - HELP!
+     This command will give you a list of the commands you can use.
+
+Z - INSTRUCTIONS
+     This will reprint these instructions.
+
+     This is all there is to the game.  Play it and have fun!
+

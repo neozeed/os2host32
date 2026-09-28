@@ -1,0 +1,21 @@
+{
+  "milestone": "C386_HACK_BRIDGE_R1",
+  "status": "STATIC_VERIFIED_SCAN_PENDING",
+  "baseline": "os2host32-SIGNAL16-R1",
+  "objective": "Extend the existing descriptor-driven Microsoft C/386 native far16 migration bridge for the hack.exe scan without executing 16-bit code.",
+  "new_far16_descriptors": [
+    {"module":"DOSCALLS","ordinal":50,"api":"Dos16Beep","widths":[2,2]},
+    {"module":"KBDCALLS","ordinal":10,"api":"KbdGetStatus","widths":[2,4]},
+    {"module":"KBDCALLS","ordinal":11,"api":"KbdSetStatus","widths":[2,4]},
+    {"module":"VIOCALLS","ordinal":24,"api":"VioReadCellStr","widths":[2,2,2,4,4]},
+    {"module":"VIOCALLS","ordinal":26,"api":"VioWrtNAttr","widths":[2,2,2,2,4]},
+    {"module":"VIOCALLS","ordinal":52,"api":"VioWrtNCell","widths":[2,2,2,2,4]}
+  ],
+  "dos_selt_to_flat_426": "preserved register-ABI helper; not a far16 Pascal descriptor",
+  "new_vio_exports": [24,26,52],
+  "general_16bit_execution": false,
+  "gcc_make_verify": "PASS",
+  "clang_make_verify": "PASS",
+  "exact_hack_binary_available_for_scan": false,
+  "native_mingw_scan": "PENDING_USER_TEST"
+}

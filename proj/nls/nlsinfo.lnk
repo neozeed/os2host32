@@ -1,0 +1,5 @@
+nlsinfo.obj
+nlsinfo.exe
+nlsinfo.map
+LIBC.LIB OS2386.LIB
+nlsinfo.def

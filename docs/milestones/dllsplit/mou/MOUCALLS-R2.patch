@@ -1,0 +1,3049 @@
+diff --git a/MOU-BACKEND-DESIGN.md b/MOU-BACKEND-DESIGN.md
+new file mode 100644
+index 0000000..0c2b289
+--- /dev/null
++++ b/MOU-BACKEND-DESIGN.md
+@@ -0,0 +1,73 @@
++# OS2HOST32 MOUCALLS R2 backend design
++
++## Purpose
++
++MOUCALLS did not exist in the native tree before this milestone.  Rather than
++introduce a Win32-owned mouse DLL and immediately refactor it, R2 starts with
++the same architecture already proven for VIO/KBD/QUEUE/SESMGR/NLS:
++
++    MOUCALLS.dll ABI veneer
++            -> common/mou/os2_mou.c
++            -> Os2MouBackendOps
++            -> common/win32/os2_mou_win32.c
++
++The common layer is the OS/2 personality.  The Win32 layer is only one source
++of host pointing-device observations.
++
++## Common-owned state
++
++`Os2MouSession` owns:
++
++- HMOU allocation/lifetime;
++- current event mask;
++- OS/2 device-status flags;
++- pointer position;
++- queue of translated `MOUEVENTINFO` records;
++- button and mickey counts exposed to the guest;
++- scale factors and acceleration threshold state;
++- logical pointer shape bytes/metadata;
++- draw/remove/exclusion state.
++
++The event queue contains OS/2 structures, not Win32 `INPUT_RECORD` values.
++`os2_mou_try_read()` is the nonblocking semantic primitive intended for WHP or
++OS2SS schedulers.
++
++## Win32 backend
++
++The first backend deliberately does **not** read the Win32 console input
++record stream.  KBDCALLS already consumes that stream and the two DLLs cannot
++share a normal C static queue.  Two independent `ReadConsoleInputA` consumers
++would lose each other's keyboard/mouse events.
++
++Instead the Win32 backend samples:
++
++- `GetCursorPos` for the host pointer;
++- `GetAsyncKeyState` for the first three buttons;
++- console window/font/buffer metrics to translate host pixels to text cells;
++- `SetCursorPos` for best-effort `MouSetPtrPos`.
++
++This polling backend is intentionally a native-host approximation.  It avoids
++keyboard interference and keeps all OS/2 event filtering/queue semantics in
++common code.  A future WHP backend can inject guest mouse events directly and
++an OS2SS backend can source events from its own console/session infrastructure.
++
++## Important approximations
++
++- Win32 does not expose the OS/2 "mickeys per centimetre" quantity; the backend
++  reports a deterministic value of 8.
++- Host polling can collapse multiple physical movements between samples into a
++  single OS/2 event.
++- `MouSetScaleFact` and threshold values are common personality state; this
++  backend does not reprogram Windows mouse acceleration.
++- Pointer shape/draw/exclusion state is maintained logically.  The Win32
++  console backend does not replace the host GUI pointer image.
++- `GetConsoleWindow`/font based cell mapping is intended for the traditional
++  Win32 console host; pseudoconsole/Windows Terminal geometry may be less exact.
++- `MouRegister`/`MouDeRegister` router replacement is explicitly unsupported.
++
++## API surface
++
++The historical ordinal surface from `sdk/os2h/bseord.h` is exported, excluding
++unused ordinal holes 5 and 12.  Normal device/event APIs are implemented in
++common semantics.  `MouRegister` and `MouDeRegister` return the historical
++registration/deregistration error values instead of pretending to work.
+diff --git a/MOU-R2-HANDOFF.md b/MOU-R2-HANDOFF.md
+new file mode 100644
+index 0000000..0129e5a
+--- /dev/null
++++ b/MOU-R2-HANDOFF.md
+@@ -0,0 +1,75 @@
++# OS2HOST32 — MOUCALLS R2 handoff
++
++## Baseline
++
++Built from `os2host32-NLS-R2.zip`, whose NLS state/backend split was live-tested
++successfully by the user before this milestone.
++
++## Result
++
++MOUCALLS is introduced directly in backend-neutral form.  There was no existing
++`dlls/moucalls` implementation in the baseline to preserve/refactor.
++
++### Architecture
++
++- `dlls/moucalls/moucalls.c`: thin public ABI veneer.
++- `common/mou/os2_mou.c`: OS/2 mouse session/state/event semantics.
++- `common/include/os2_mou*.h`: portable state and backend contract.
++- `common/win32/os2_mou_win32.c`: Win32 pointer/button sampling backend.
++
++### Historical ordinals
++
++The ordinal map is taken from the supplied historical `sdk/os2h/bseord.h`:
++
++1 GetPtrShape, 2 SetPtrShape, 3 GetNumMickeys, 4 GetThreshold,
++6 GetScaleFact, 7 FlushQue, 8 GetNumButtons, 9 Close, 10 SetThreshold,
++11 SetScaleFact, 13 GetNumQueEl, 14 DeRegister, 15 GetEventMask,
++16 SetEventMask, 17 Open, 18 RemovePtr, 19 GetPtrPos, 20 ReadEventQue,
++21 SetPtrPos, 22 GetDevStatus, 23 Synch, 24 Register, 25 SetDevStatus,
++26 DrawPtr, 27 InitReal.
++
++All are represented in the canonical API catalogue and the C/386 far16
++bridge-descriptor table.  `MOUCALLS` is recognized as a native personality DLL.
++
++### Common semantics
++
++Implemented common state includes HMOU lifetime, event mask/filtering,
++translated event queue, absolute and relative/mickey reporting, device status,
++logical pointer position/shape, scale factor, threshold and draw/exclusion
++state.  `os2_mou_try_read()` provides the future nonblocking WHP/OS2SS seam.
++
++### Win32 backend choice
++
++The backend intentionally avoids `ReadConsoleInputA`/`PeekConsoleInputA` so it
++cannot consume KBDCALLS keyboard records.  It samples the GUI pointer/buttons
++and translates the pointer into console-cell coordinates.  See
++`MOU-BACKEND-DESIGN.md` for limitations.
++
++### Verification
++
++On the build host:
++
++- strict-C89 GCC common mouse test: PASS;
++- actual MOUCALLS veneer test: PASS;
++- deterministic Win32 backend shim test: PASS;
++- MOU static architecture/ordinal check: PASS;
++- complete existing `make verify` under GCC: PASS;
++- complete existing `make verify` under Clang 17: PASS.
++
++Real `i686-w64-mingw32-gcc` compilation and native Windows runtime remain for
++the user environment.
++
++### Suggested live test
++
++    make clean
++    make MOUCALLS.dll
++    make all
++    make verify
++
++Then build/run `tests/mou/c386-mou-probe.c` with the normal Microsoft C/386
++mixed-mode toolchain.  It exercises MouOpen, button/mickey queries, pointer
++position, event mask, DrawPtr, NOWAIT event reading and MouClose.
++
++## Status
++
++`MOU_R2_COMMON_STATE_WIN32_BACKEND_STATIC_VERIFIED_RUNTIME_PENDING`
+diff --git a/MOU-R2-RESULTS.json b/MOU-R2-RESULTS.json
+new file mode 100644
+index 0000000..bb76c83
+--- /dev/null
++++ b/MOU-R2-RESULTS.json
+@@ -0,0 +1,22 @@
++{
++  "milestone": "MOUCALLS R2",
++  "status": "MOU_R2_COMMON_STATE_WIN32_BACKEND_STATIC_VERIFIED_RUNTIME_PENDING",
++  "baseline": "os2host32-NLS-R2",
++  "architecture": {
++    "veneer": "dlls/moucalls/moucalls.c",
++    "common": "common/mou/os2_mou.c",
++    "win32_backend": "common/win32/os2_mou_win32.c",
++    "nonblocking_primitive": "os2_mou_try_read"
++  },
++  "exports": 25,
++  "unsupported_semantics": ["MouRegister", "MouDeRegister"],
++  "win32_input_strategy": "GetCursorPos/GetAsyncKeyState polling; does not consume console INPUT_RECORD keyboard stream",
++  "verification": {
++    "gcc_c89": "PASS",
++    "clang17_c89": "PASS",
++    "full_make_verify_gcc": "PASS",
++    "full_make_verify_clang": "PASS",
++    "real_mingw_build": "PENDING",
++    "native_runtime": "PENDING"
++  }
++}
+diff --git a/Makefile b/Makefile
+index ecad6b4..a0cc082 100644
+--- a/Makefile
++++ b/Makefile
+@@ -31,8 +31,10 @@ KBD_COMMON_SRC = common/kbd/os2_kbd.c
+ KBD_WIN32_SRC = common/win32/os2_kbd_win32.c
+ SESMGR_COMMON_SRC = common/sesmgr/os2_sesmgr.c
+ SESMGR_WIN32_SRC = common/win32/os2_sesmgr_win32.c
++MOU_COMMON_SRC = common/mou/os2_mou.c
++MOU_WIN32_SRC = common/win32/os2_mou_win32.c
+ 
+-.PHONY: all loader whp transformer shell dlls compat diagnostics verify common-check nls-check nls-win32-shim-check nls-static-check nls-table-check catalog-check wiring-check doscalls-check doscalls-veneer-check doscalls-static-check vio-check vio-win32-shim-check vio-static-check queue-check queue-veneer-check queue-win32-shim-check queue-static-check kbd-check kbd-veneer-check kbd-win32-shim-check kbd-static-check sesmgr-check sesmgr-veneer-check sesmgr-win32-shim-check sesmgr-static-check clean
++.PHONY: all loader whp transformer shell dlls compat diagnostics verify common-check nls-check nls-win32-shim-check nls-static-check nls-table-check catalog-check wiring-check doscalls-check doscalls-veneer-check doscalls-static-check vio-check vio-win32-shim-check vio-static-check queue-check queue-veneer-check queue-win32-shim-check queue-static-check kbd-check kbd-veneer-check kbd-win32-shim-check kbd-static-check sesmgr-check sesmgr-veneer-check sesmgr-win32-shim-check sesmgr-static-check mou-check mou-veneer-check mou-win32-shim-check mou-static-check clean
+ 
+ all: loader transformer shell dlls
+ 
+@@ -47,7 +49,7 @@ shell: cmd32os2.exe
+ 
+ compat: dlls
+ 
+-dlls: DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll NLS.dll \
++dlls: DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll MOUCALLS.dll NLS.dll \
+       PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll
+ 
+ os2host32.exe: loader/os2host32.c loader/os2host32.def
+@@ -113,6 +115,14 @@ SESMGR.dll: dlls/sesmgr/sesmgr.c dlls/sesmgr/sesmgr.def \
+ 		dlls/sesmgr/sesmgr.c $(SESMGR_COMMON_SRC) $(SESMGR_WIN32_SRC) \
+ 		dlls/sesmgr/sesmgr.def -Wl,--out-implib,libsesmgr.a
+ 
++MOUCALLS.dll: dlls/moucalls/moucalls.c dlls/moucalls/moucalls.def \
++              $(MOU_COMMON_SRC) $(MOU_WIN32_SRC) \
++              common/include/os2_mou.h common/include/os2_mou_backend.h \
++              common/include/os2_mou_win32.h
++	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -shared -o $@ \
++		dlls/moucalls/moucalls.c $(MOU_COMMON_SRC) $(MOU_WIN32_SRC) \
++		dlls/moucalls/moucalls.def -luser32 -Wl,--out-implib,libmoucalls.a
++
+ NLS.dll: dlls/nls/nls.c dlls/nls/nls.def DOSCALLS.dll
+ 	$(MINGW) $(C89FLAGS) -shared -o $@ dlls/nls/nls.c dlls/nls/nls.def \
+ 		libdoscalls.a -Wl,--out-implib,libnls.a
+@@ -147,7 +157,7 @@ HELPMGR.dll: dlls/helpmgr/helpmgr.c dlls/helpmgr/helpmgr.def
+ 		-Wl,--out-implib,libhelpmgr.a
+ 
+ 
+-verify: common-check nls-table-check nls-check nls-win32-shim-check nls-static-check catalog-check wiring-check doscalls-check doscalls-veneer-check doscalls-static-check vio-check vio-win32-shim-check vio-static-check queue-check queue-veneer-check queue-win32-shim-check queue-static-check kbd-check kbd-veneer-check kbd-win32-shim-check kbd-static-check sesmgr-check sesmgr-veneer-check sesmgr-win32-shim-check sesmgr-static-check
++verify: common-check nls-table-check nls-check nls-win32-shim-check nls-static-check catalog-check wiring-check doscalls-check doscalls-veneer-check doscalls-static-check vio-check vio-win32-shim-check vio-static-check queue-check queue-veneer-check queue-win32-shim-check queue-static-check kbd-check kbd-veneer-check kbd-win32-shim-check kbd-static-check sesmgr-check sesmgr-veneer-check sesmgr-win32-shim-check sesmgr-static-check mou-check mou-veneer-check mou-win32-shim-check mou-static-check
+ 
+ common-check: tests/common/personality-core-check.c $(DOSCALLS_CORE_SRC) \
+               $(API_CATALOG_SRC) common/include/os2_personality.h \
+@@ -344,9 +354,42 @@ sesmgr-win32-shim-check: tests/sesmgr/sesmgr-win32-shim-check.c \
+ sesmgr-static-check:
+ 	python3 tools/check_sesmgr_r2.py
+ 
++mou-check: tests/mou/mou-core-check.c $(MOU_COMMON_SRC) \
++           common/include/os2_mou.h common/include/os2_mou_backend.h
++	$(HOSTCC) -std=c89 -O2 -Wall -Wextra -pedantic $(COMMON_CPPFLAGS) \
++		-o mou-core-check tests/mou/mou-core-check.c $(MOU_COMMON_SRC)
++	./mou-core-check
++	rm -f mou-core-check
++
++mou-veneer-check: tests/mou/mou-veneer-check.c dlls/moucalls/moucalls.c \
++                  $(MOU_COMMON_SRC) common/include/os2_mou.h \
++                  common/include/os2_mou_backend.h common/include/os2_mou_win32.h
++	$(HOSTCC) -std=c89 -O2 -Wall -Wextra -pedantic $(COMMON_CPPFLAGS) \
++		-o mou-veneer-check tests/mou/mou-veneer-check.c \
++		dlls/moucalls/moucalls.c $(MOU_COMMON_SRC)
++	./mou-veneer-check
++	rm -f mou-veneer-check
++
++mou-win32-shim-check: tests/mou/mou-win32-shim-check.c \
++                      tests/mou/win32-stub/win32_mou_stub.c \
++                      tests/mou/win32-stub/windows.h \
++                      $(MOU_COMMON_SRC) $(MOU_WIN32_SRC) \
++                      common/include/os2_mou.h common/include/os2_mou_backend.h \
++                      common/include/os2_mou_win32.h
++	$(HOSTCC) -std=c89 -O2 -Wall -Wextra -pedantic \
++		-Itests/mou/win32-stub $(COMMON_CPPFLAGS) \
++		-o mou-win32-shim-check tests/mou/mou-win32-shim-check.c \
++		tests/mou/win32-stub/win32_mou_stub.c \
++		$(MOU_COMMON_SRC) $(MOU_WIN32_SRC)
++	./mou-win32-shim-check
++	rm -f mou-win32-shim-check
++
++mou-static-check:
++	python3 tools/check_mou_r2.py
++
+ clean:
+-	rm -f os2host32.exe le2pe386.exe cmd32os2.exe nlsinfo.exe personality-core-check nls-core-check nls-win32-shim-check doscalls-core-check doscalls-veneer-check vio-core-check vio-win32-shim-check queue-core-check queue-veneer-check queue-win32-shim-check kbd-core-check kbd-veneer-check kbd-win32-shim-check sesmgr-core-check sesmgr-veneer-check sesmgr-win32-shim-check \
+-	      DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll NLS.dll \
++	rm -f os2host32.exe le2pe386.exe cmd32os2.exe nlsinfo.exe personality-core-check nls-core-check nls-win32-shim-check doscalls-core-check doscalls-veneer-check vio-core-check vio-win32-shim-check queue-core-check queue-veneer-check queue-win32-shim-check kbd-core-check kbd-veneer-check kbd-win32-shim-check sesmgr-core-check sesmgr-veneer-check sesmgr-win32-shim-check mou-core-check mou-veneer-check mou-win32-shim-check \
++	      DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll MOUCALLS.dll NLS.dll \
+ 	      PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll \
+-	      libdoscalls.a libkbdcalls.a libviocalls.a libquecalls.a libsesmgr.a \
++	      libdoscalls.a libkbdcalls.a libviocalls.a libquecalls.a libsesmgr.a libmoucalls.a \
+ 	      libnls.a libpmwin.a libpmgpi.a libpmshapi.a libpmwp.a libhelpmgr.a
+diff --git a/README.md b/README.md
+index 66cd59e..7897dd5 100644
+--- a/README.md
++++ b/README.md
+@@ -34,7 +34,7 @@ The canonical API inventory is:
+     common/api/os2_api_catalog.inc
+ 
+ Each entry records the OS/2 module, ordinal, API name, known argument-byte count,
+-and implementation route.  It currently catalogues 247 entries and covers every
++and implementation route.  It currently catalogues 282 entries and covers every
+ ordinal exported by the native compatibility DLL DEF files.
+ 
+ The first shared DOSCALLS set is:
+@@ -83,6 +83,13 @@ initial host country/OEM-codepage hint, which the common layer validates against
+ its implemented OS/2 tables.  WHP uses the same explicit bootstrap seam and a
+ future OS2SS process can own the same common state without Win32 locale globals.
+ 
++`MOUCALLS.DLL` is introduced directly with the same split.  `common/mou/os2_mou.c`
++owns HMOU lifetime, event masks/queueing, pointer/device state, scale/threshold
++and logical pointer shape.  The Win32 backend observes the GUI pointer/buttons
++without consuming the console `INPUT_RECORD` stream, so it cannot steal input
++from KBDCALLS.  Future WHP/OS2SS backends can feed the same common mouse state
++through `os2_mou_try_read`.
++
+ The transformer and WHP import diagnostics also use the canonical catalogue, so
+ ordinal-only imports are reported by API name and implementation route.
+ 
+diff --git a/SHA256SUMS-MOU.txt b/SHA256SUMS-MOU.txt
+new file mode 100644
+index 0000000..be950a0
+--- /dev/null
++++ b/SHA256SUMS-MOU.txt
+@@ -0,0 +1,25 @@
++4ca62a46db8f82dd0e58d24560148f87120b4158b6203aee4320a6e0ce083129  Makefile
++45fb48a9cc5e4529bc97094efffc9a418e751cf9fac0111c6f629c2dc7aebebe  README.md
++9fb4c70dfe7a7f3f8a7ee6045ef0120138071ec6a4b45b1114e65c34589c3828  MOU-BACKEND-DESIGN.md
++a88b87211332065c3cee3df629131f12dc263951464ec0f6d2ea01753b000148  MOU-R2-HANDOFF.md
++1d6ee65ae6900d2d68ee2190cbff79e7ea5c611aace68b3b8ca56879b72f4fd0  MOU-R2-RESULTS.json
++8e1158fab85b5f2adae0577097001765bea20e9d847c8dc58929853ac6d03cd8  STATIC-VERIFICATION-MOU-GCC.txt
++64d4de9808cd17bbf2d11d332153f14852de87f0c018f5fa990860999e9e2551  STATIC-VERIFICATION-MOU-CLANG.txt
++fc8f6968896fa00119395b6d58a5cab500f4fd22760052443ac0e2f16a124e36  STATIC-VERIFICATION-MOU.txt
++32106b29bb6d55b4e92bbd0ebe7f9b7e382137e3f27271080ca737c1b075a746  common/api/os2_api_catalog.inc
++8901ffb1914b6cd4b35c98ff655f5e1f0be0a67279c8b86d23b2a130cc223849  common/include/os2_mou.h
++e58ab53d57ade9b0b6eb9d6164f09752ef5af8e495604cb420bbe3e53fb3f1b9  common/include/os2_mou_backend.h
++9282a068168dd04a123f37e19a9945d616c649e4ccd73e11673604b99dd47e79  common/include/os2_mou_win32.h
++c174b180459e2e632b575eacb296d274dfd5d384dd1942150f82ff73991438a8  common/mou/os2_mou.c
++ada83d2043371df81aadfc69d1b82f06575c058eddcbfcc5900bea5e8d25d702  common/win32/os2_mou_win32.c
++fdc0f6f46ff371892f55344bc836477ee05bc0a18ef487ccdb61d6fce0ca471d  dlls/moucalls/moucalls.c
++0012477185e814ab8d1670ca776edf3de3d4f23032a6a97bd6a4eb1056d7ec9b  dlls/moucalls/moucalls.def
++f70f7136e49971f5cacaeec4b17aab1afb768f9f32dcf267d47512f9f210ebda  loader/os2host32.c
++b45fc3f00a3963d86356a127ed930a962cab427a7103e05885e84e11a665dffb  tests/mou/c386-mou-probe.c
++afdcd3f15dd2848375e168eb82c49a710dda48cab2713975ffc0d5757f276dd6  tests/mou/mou-core-check.c
++f5e16a000822e61ef8d9b754a90e118753c265fc9fd8d2a646893d45a99cbc3a  tests/mou/mou-veneer-check.c
++dcd98e1d40b4714cbc530e0f1c636b211886b8d02656ca1fd95d5a7d957be2a3  tests/mou/mou-win32-shim-check.c
++0f6fff10ace1c32f9405e1ff521b6479df94c7978c3ac09468516727167dde30  tests/mou/win32-stub/windows.h
++10676e0c18063b427a2140a7a5e873a8339304105e2014bb924d7804ed744fa5  tests/mou/win32-stub/win32_mou_stub.c
++13a2f9fc126ac808544d0023dcd64f0049ee8abf4610ac00f72507385218fd9d  tools/check_mou_r2.py
++16331edc79201d832e9f58581b18c831f40ca08f11dab268be3f8f2ec70b364f  tools/check_sesmgr_r2.py
+diff --git a/STATIC-VERIFICATION-MOU-CLANG.txt b/STATIC-VERIFICATION-MOU-CLANG.txt
+new file mode 100644
+index 0000000..c6b4547
+--- /dev/null
++++ b/STATIC-VERIFICATION-MOU-CLANG.txt
+@@ -0,0 +1,142 @@
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o personality-core-check tests/common/personality-core-check.c \
++	common/doscalls/os2_doscalls_core.c common/api/os2_api_catalog.c
++./personality-core-check
++PASS: shared DOSCALLS personality core and ordinal catalogue
++rm -f personality-core-check
++python3 tools/gen_nls_tables.py --check
++PASS: built-in CP437/CP850 case tables are reproducible
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o nls-core-check tests/nls/nls-core-check.c \
++	common/nls/os2_nls.c common/nls/os2_nls_api.c common/doscalls/os2_doscalls_core.c
++./nls-core-check
++PASS: OS/2 NLS core, process state, extended case maps and guest ABI
++rm -f nls-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/nls/win32-stub -Icommon/include \
++	-o nls-win32-shim-check tests/nls/nls-win32-shim-check.c \
++	tests/nls/win32-stub/win32_nls_stub.c \
++	common/nls/os2_nls.c common/win32/os2_nls_win32.c
++./nls-win32-shim-check
++nls-win32-shim-check: PASS
++rm -f nls-win32-shim-check
++python3 tools/check_nls_r2.py
++nls-static-check: PASS
++python3 tools/check_api_catalog.py
++PASS: 282 catalogue entries cover 280 ordinal DLL exports
++python3 tools/check_shared_personality.py
++PASS: native DOSCALLS/WHP core plus process-owned NLS wiring; 8 original shared DOSCALLS implementations preserved
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o doscalls-core-check tests/doscalls/doscalls-core-check.c \
++	common/doscalls/os2_doscalls.c common/nls/os2_nls.c
++./doscalls-core-check
++doscalls-core-check: PASS
++rm -f doscalls-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o doscalls-veneer-check tests/doscalls/doscalls-veneer-check.c \
++	dlls/doscalls/doscalls.c common/doscalls/os2_doscalls.c common/nls/os2_nls.c
++./doscalls-veneer-check
++doscalls-veneer-check: PASS
++rm -f doscalls-veneer-check
++python3 tools/check_doscalls_r2.py
++DOSCALLS-R2 static architecture check: PASS (86 frozen exports)
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o vio-core-check tests/vio/vio-core-check.c common/vio/os2_vio.c \
++	common/win32/os2_vio_win32_attr.c
++./vio-core-check
++vio-core-check: PASS
++rm -f vio-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/vio/win32-stub -Icommon/include \
++	-o vio-win32-shim-check tests/vio/vio-win32-shim-check.c \
++	tests/vio/win32-stub/win32_vio_stub.c dlls/viocalls/viocalls.c \
++	common/vio/os2_vio.c common/win32/os2_vio_win32.c common/win32/os2_vio_win32_attr.c
++./vio-win32-shim-check
++vio-win32-shim-check: PASS
++rm -f vio-win32-shim-check
++python3 tools/check_vio_life_surface.py
++check_vio_life_surface: PASS
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o queue-core-check tests/queue/queue-core-check.c common/queue/os2_queue.c
++./queue-core-check
++queue-core-check: PASS
++rm -f queue-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o queue-veneer-check tests/queue/queue-veneer-check.c \
++	dlls/quecalls/quecalls.c common/queue/os2_queue.c
++./queue-veneer-check
++queue-veneer-check: PASS
++rm -f queue-veneer-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/queue/win32-stub -Icommon/include \
++	-o queue-win32-shim-check tests/queue/queue-win32-shim-check.c \
++	tests/queue/win32-stub/win32_queue_stub.c \
++	common/queue/os2_queue.c common/win32/os2_queue_win32.c
++./queue-win32-shim-check
++queue-win32-shim-check: PASS
++rm -f queue-win32-shim-check
++python3 tools/check_queue_r2.py
++QUEUE-R2 static architecture check: PASS (4 frozen exports)
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o kbd-core-check tests/kbd/kbd-core-check.c common/kbd/os2_kbd.c
++./kbd-core-check
++kbd-core-check: PASS
++rm -f kbd-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o kbd-veneer-check tests/kbd/kbd-veneer-check.c \
++	dlls/kbdcalls/kbdcalls.c common/kbd/os2_kbd.c
++./kbd-veneer-check
++kbd-veneer-check: PASS
++rm -f kbd-veneer-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/kbd/win32-stub -Icommon/include \
++	-o kbd-win32-shim-check tests/kbd/kbd-win32-shim-check.c \
++	tests/kbd/win32-stub/win32_kbd_stub.c \
++	common/kbd/os2_kbd.c common/win32/os2_kbd_win32.c
++./kbd-win32-shim-check
++kbd-win32-shim-check: PASS
++rm -f kbd-win32-shim-check
++python3 tools/check_kbd_r2.py
++KBD-R2 static architecture check: PASS (6 frozen exports)
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o sesmgr-core-check tests/sesmgr/sesmgr-core-check.c common/sesmgr/os2_sesmgr.c
++./sesmgr-core-check
++SESMGR common core: PASS
++rm -f sesmgr-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic -DOS2_SESMGR_NO_DLLMAIN \
++	-Icommon/include -o sesmgr-veneer-check \
++	tests/sesmgr/sesmgr-veneer-check.c dlls/sesmgr/sesmgr.c common/sesmgr/os2_sesmgr.c
++./sesmgr-veneer-check
++sesmgr-veneer-check: PASS
++rm -f sesmgr-veneer-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/sesmgr/win32-stub -Icommon/include \
++	-o sesmgr-win32-shim-check tests/sesmgr/sesmgr-win32-shim-check.c \
++	tests/sesmgr/win32-stub/win32_sesmgr_stub.c \
++	common/sesmgr/os2_sesmgr.c common/win32/os2_sesmgr_win32.c
++./sesmgr-win32-shim-check
++sesmgr-win32-shim-check: PASS
++rm -f sesmgr-win32-shim-check
++python3 tools/check_sesmgr_r2.py
++SESMGR R2 static architecture: PASS
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o mou-core-check tests/mou/mou-core-check.c common/mou/os2_mou.c
++./mou-core-check
++mou-core-check: PASS
++rm -f mou-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o mou-veneer-check tests/mou/mou-veneer-check.c \
++	dlls/moucalls/moucalls.c common/mou/os2_mou.c
++./mou-veneer-check
++mou-veneer-check: PASS
++rm -f mou-veneer-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/mou/win32-stub -Icommon/include \
++	-o mou-win32-shim-check tests/mou/mou-win32-shim-check.c \
++	tests/mou/win32-stub/win32_mou_stub.c \
++	common/mou/os2_mou.c common/win32/os2_mou_win32.c
++./mou-win32-shim-check
++mou-win32-shim-check: PASS
++rm -f mou-win32-shim-check
++python3 tools/check_mou_r2.py
++mou-static-check: PASS
+diff --git a/STATIC-VERIFICATION-MOU-GCC.txt b/STATIC-VERIFICATION-MOU-GCC.txt
+new file mode 100644
+index 0000000..298bc0c
+--- /dev/null
++++ b/STATIC-VERIFICATION-MOU-GCC.txt
+@@ -0,0 +1,142 @@
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o personality-core-check tests/common/personality-core-check.c \
++	common/doscalls/os2_doscalls_core.c common/api/os2_api_catalog.c
++./personality-core-check
++PASS: shared DOSCALLS personality core and ordinal catalogue
++rm -f personality-core-check
++python3 tools/gen_nls_tables.py --check
++PASS: built-in CP437/CP850 case tables are reproducible
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o nls-core-check tests/nls/nls-core-check.c \
++	common/nls/os2_nls.c common/nls/os2_nls_api.c common/doscalls/os2_doscalls_core.c
++./nls-core-check
++PASS: OS/2 NLS core, process state, extended case maps and guest ABI
++rm -f nls-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/nls/win32-stub -Icommon/include \
++	-o nls-win32-shim-check tests/nls/nls-win32-shim-check.c \
++	tests/nls/win32-stub/win32_nls_stub.c \
++	common/nls/os2_nls.c common/win32/os2_nls_win32.c
++./nls-win32-shim-check
++nls-win32-shim-check: PASS
++rm -f nls-win32-shim-check
++python3 tools/check_nls_r2.py
++nls-static-check: PASS
++python3 tools/check_api_catalog.py
++PASS: 282 catalogue entries cover 280 ordinal DLL exports
++python3 tools/check_shared_personality.py
++PASS: native DOSCALLS/WHP core plus process-owned NLS wiring; 8 original shared DOSCALLS implementations preserved
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o doscalls-core-check tests/doscalls/doscalls-core-check.c \
++	common/doscalls/os2_doscalls.c common/nls/os2_nls.c
++./doscalls-core-check
++doscalls-core-check: PASS
++rm -f doscalls-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o doscalls-veneer-check tests/doscalls/doscalls-veneer-check.c \
++	dlls/doscalls/doscalls.c common/doscalls/os2_doscalls.c common/nls/os2_nls.c
++./doscalls-veneer-check
++doscalls-veneer-check: PASS
++rm -f doscalls-veneer-check
++python3 tools/check_doscalls_r2.py
++DOSCALLS-R2 static architecture check: PASS (86 frozen exports)
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o vio-core-check tests/vio/vio-core-check.c common/vio/os2_vio.c \
++	common/win32/os2_vio_win32_attr.c
++./vio-core-check
++vio-core-check: PASS
++rm -f vio-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/vio/win32-stub -Icommon/include \
++	-o vio-win32-shim-check tests/vio/vio-win32-shim-check.c \
++	tests/vio/win32-stub/win32_vio_stub.c dlls/viocalls/viocalls.c \
++	common/vio/os2_vio.c common/win32/os2_vio_win32.c common/win32/os2_vio_win32_attr.c
++./vio-win32-shim-check
++vio-win32-shim-check: PASS
++rm -f vio-win32-shim-check
++python3 tools/check_vio_life_surface.py
++check_vio_life_surface: PASS
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o queue-core-check tests/queue/queue-core-check.c common/queue/os2_queue.c
++./queue-core-check
++queue-core-check: PASS
++rm -f queue-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o queue-veneer-check tests/queue/queue-veneer-check.c \
++	dlls/quecalls/quecalls.c common/queue/os2_queue.c
++./queue-veneer-check
++queue-veneer-check: PASS
++rm -f queue-veneer-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/queue/win32-stub -Icommon/include \
++	-o queue-win32-shim-check tests/queue/queue-win32-shim-check.c \
++	tests/queue/win32-stub/win32_queue_stub.c \
++	common/queue/os2_queue.c common/win32/os2_queue_win32.c
++./queue-win32-shim-check
++queue-win32-shim-check: PASS
++rm -f queue-win32-shim-check
++python3 tools/check_queue_r2.py
++QUEUE-R2 static architecture check: PASS (4 frozen exports)
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o kbd-core-check tests/kbd/kbd-core-check.c common/kbd/os2_kbd.c
++./kbd-core-check
++kbd-core-check: PASS
++rm -f kbd-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o kbd-veneer-check tests/kbd/kbd-veneer-check.c \
++	dlls/kbdcalls/kbdcalls.c common/kbd/os2_kbd.c
++./kbd-veneer-check
++kbd-veneer-check: PASS
++rm -f kbd-veneer-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/kbd/win32-stub -Icommon/include \
++	-o kbd-win32-shim-check tests/kbd/kbd-win32-shim-check.c \
++	tests/kbd/win32-stub/win32_kbd_stub.c \
++	common/kbd/os2_kbd.c common/win32/os2_kbd_win32.c
++./kbd-win32-shim-check
++kbd-win32-shim-check: PASS
++rm -f kbd-win32-shim-check
++python3 tools/check_kbd_r2.py
++KBD-R2 static architecture check: PASS (6 frozen exports)
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o sesmgr-core-check tests/sesmgr/sesmgr-core-check.c common/sesmgr/os2_sesmgr.c
++./sesmgr-core-check
++SESMGR common core: PASS
++rm -f sesmgr-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic -DOS2_SESMGR_NO_DLLMAIN \
++	-Icommon/include -o sesmgr-veneer-check \
++	tests/sesmgr/sesmgr-veneer-check.c dlls/sesmgr/sesmgr.c common/sesmgr/os2_sesmgr.c
++./sesmgr-veneer-check
++sesmgr-veneer-check: PASS
++rm -f sesmgr-veneer-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/sesmgr/win32-stub -Icommon/include \
++	-o sesmgr-win32-shim-check tests/sesmgr/sesmgr-win32-shim-check.c \
++	tests/sesmgr/win32-stub/win32_sesmgr_stub.c \
++	common/sesmgr/os2_sesmgr.c common/win32/os2_sesmgr_win32.c
++./sesmgr-win32-shim-check
++sesmgr-win32-shim-check: PASS
++rm -f sesmgr-win32-shim-check
++python3 tools/check_sesmgr_r2.py
++SESMGR R2 static architecture: PASS
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o mou-core-check tests/mou/mou-core-check.c common/mou/os2_mou.c
++./mou-core-check
++mou-core-check: PASS
++rm -f mou-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o mou-veneer-check tests/mou/mou-veneer-check.c \
++	dlls/moucalls/moucalls.c common/mou/os2_mou.c
++./mou-veneer-check
++mou-veneer-check: PASS
++rm -f mou-veneer-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/mou/win32-stub -Icommon/include \
++	-o mou-win32-shim-check tests/mou/mou-win32-shim-check.c \
++	tests/mou/win32-stub/win32_mou_stub.c \
++	common/mou/os2_mou.c common/win32/os2_mou_win32.c
++./mou-win32-shim-check
++mou-win32-shim-check: PASS
++rm -f mou-win32-shim-check
++python3 tools/check_mou_r2.py
++mou-static-check: PASS
+diff --git a/STATIC-VERIFICATION-MOU.txt b/STATIC-VERIFICATION-MOU.txt
+new file mode 100644
+index 0000000..5733185
+--- /dev/null
++++ b/STATIC-VERIFICATION-MOU.txt
+@@ -0,0 +1,68 @@
++MOUCALLS R2 verification
++
++== GCC ==
++	-Itests/sesmgr/win32-stub -Icommon/include \
++	-o sesmgr-win32-shim-check tests/sesmgr/sesmgr-win32-shim-check.c \
++	tests/sesmgr/win32-stub/win32_sesmgr_stub.c \
++	common/sesmgr/os2_sesmgr.c common/win32/os2_sesmgr_win32.c
++./sesmgr-win32-shim-check
++sesmgr-win32-shim-check: PASS
++rm -f sesmgr-win32-shim-check
++python3 tools/check_sesmgr_r2.py
++SESMGR R2 static architecture: PASS
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o mou-core-check tests/mou/mou-core-check.c common/mou/os2_mou.c
++./mou-core-check
++mou-core-check: PASS
++rm -f mou-core-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o mou-veneer-check tests/mou/mou-veneer-check.c \
++	dlls/moucalls/moucalls.c common/mou/os2_mou.c
++./mou-veneer-check
++mou-veneer-check: PASS
++rm -f mou-veneer-check
++cc -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/mou/win32-stub -Icommon/include \
++	-o mou-win32-shim-check tests/mou/mou-win32-shim-check.c \
++	tests/mou/win32-stub/win32_mou_stub.c \
++	common/mou/os2_mou.c common/win32/os2_mou_win32.c
++./mou-win32-shim-check
++mou-win32-shim-check: PASS
++rm -f mou-win32-shim-check
++python3 tools/check_mou_r2.py
++mou-static-check: PASS
++
++== Clang ==
++	-Itests/sesmgr/win32-stub -Icommon/include \
++	-o sesmgr-win32-shim-check tests/sesmgr/sesmgr-win32-shim-check.c \
++	tests/sesmgr/win32-stub/win32_sesmgr_stub.c \
++	common/sesmgr/os2_sesmgr.c common/win32/os2_sesmgr_win32.c
++./sesmgr-win32-shim-check
++sesmgr-win32-shim-check: PASS
++rm -f sesmgr-win32-shim-check
++python3 tools/check_sesmgr_r2.py
++SESMGR R2 static architecture: PASS
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o mou-core-check tests/mou/mou-core-check.c common/mou/os2_mou.c
++./mou-core-check
++mou-core-check: PASS
++rm -f mou-core-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
++	-o mou-veneer-check tests/mou/mou-veneer-check.c \
++	dlls/moucalls/moucalls.c common/mou/os2_mou.c
++./mou-veneer-check
++mou-veneer-check: PASS
++rm -f mou-veneer-check
++clang -std=c89 -O2 -Wall -Wextra -pedantic \
++	-Itests/mou/win32-stub -Icommon/include \
++	-o mou-win32-shim-check tests/mou/mou-win32-shim-check.c \
++	tests/mou/win32-stub/win32_mou_stub.c \
++	common/mou/os2_mou.c common/win32/os2_mou_win32.c
++./mou-win32-shim-check
++mou-win32-shim-check: PASS
++rm -f mou-win32-shim-check
++python3 tools/check_mou_r2.py
++mou-static-check: PASS
++
++== MinGW availability ==
++i686-w64-mingw32-gcc: unavailable in this environment
+diff --git a/common/api/os2_api_catalog.inc b/common/api/os2_api_catalog.inc
+index 18a6319..ef2f4c9 100644
+--- a/common/api/os2_api_catalog.inc
++++ b/common/api/os2_api_catalog.inc
+@@ -257,3 +257,28 @@ OS2_API("VIOCALLS", 21u, "VioGetMode", 0u, OS2_API_ROUTE_BACKEND)
+ OS2_API("VIOCALLS", 27u, "VioGetCurType", 0u, OS2_API_ROUTE_BACKEND)
+ OS2_API("VIOCALLS", 32u, "VioSetCurType", 0u, OS2_API_ROUTE_BACKEND)
+ OS2_API("VIOCALLS", 48u, "VioWrtCharStrAtt", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 1u, "MouGetPtrShape", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 2u, "MouSetPtrShape", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 3u, "MouGetNumMickeys", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 4u, "MouGetThreshold", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 6u, "MouGetScaleFact", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 7u, "MouFlushQue", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 8u, "MouGetNumButtons", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 9u, "MouClose", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 10u, "MouSetThreshold", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 11u, "MouSetScaleFact", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 13u, "MouGetNumQueEl", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 14u, "MouDeRegister", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 15u, "MouGetEventMask", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 16u, "MouSetEventMask", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 17u, "MouOpen", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 18u, "MouRemovePtr", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 19u, "MouGetPtrPos", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 20u, "MouReadEventQue", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 21u, "MouSetPtrPos", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 22u, "MouGetDevStatus", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 23u, "MouSynch", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 24u, "MouRegister", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 25u, "MouSetDevStatus", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 26u, "MouDrawPtr", 0u, OS2_API_ROUTE_BACKEND)
++OS2_API("MOUCALLS", 27u, "MouInitReal", 0u, OS2_API_ROUTE_BACKEND)
+diff --git a/common/include/os2_mou.h b/common/include/os2_mou.h
+new file mode 100644
+index 0000000..3df20ca
+--- /dev/null
++++ b/common/include/os2_mou.h
+@@ -0,0 +1,237 @@
++#ifndef OS2_MOU_H
++#define OS2_MOU_H
++
++/*
++ * Backend-neutral OS/2 Base Mouse semantics/state.
++ *
++ * The common layer owns HMOU allocation, event filtering/queueing, pointer
++ * location, device status, event mask, scale/threshold values and the logical
++ * pointer shape.  A backend supplies only host device activation, observation,
++ * flushing and (optionally) host pointer warping.
++ */
++
++#include <stdint.h>
++#include "os2_mou_backend.h"
++
++#ifndef __cdecl
++#define __cdecl
++#endif
++
++#define OS2_MOU_NO_ERROR                    0U
++#define OS2_MOU_ERROR_INVALID_FUNCTION      1U
++#define OS2_MOU_ERROR_INVALID_HANDLE        6U
++#define OS2_MOU_ERROR_INVALID_PARAMETER    87U
++#define OS2_MOU_ERROR_MOUSE_NO_DEVICE     385U
++#define OS2_MOU_ERROR_MOUSE_INV_HANDLE    386U
++#define OS2_MOU_ERROR_MOUSE_INV_PARMS     387U
++#define OS2_MOU_NO_ERROR_MOUSE_NO_DATA    393U
++#define OS2_MOU_ERROR_MOUSE_REGISTER      415U
++#define OS2_MOU_ERROR_MOUSE_DEREGISTER    416U
++#define OS2_MOU_ERROR_INVALID_IOWAIT      435U
++
++#define OS2_MOU_MOUSE_MOTION                 0x0001U
++#define OS2_MOU_MOUSE_MOTION_WITH_BN1_DOWN   0x0002U
++#define OS2_MOU_MOUSE_BN1_DOWN                0x0004U
++#define OS2_MOU_MOUSE_MOTION_WITH_BN2_DOWN   0x0008U
++#define OS2_MOU_MOUSE_BN2_DOWN                0x0010U
++#define OS2_MOU_MOUSE_MOTION_WITH_BN3_DOWN   0x0020U
++#define OS2_MOU_MOUSE_BN3_DOWN                0x0040U
++#define OS2_MOU_EVENT_MASK_ALL                0x007fU
++
++#define OS2_MOU_BUTTON1                       0x0001U
++#define OS2_MOU_BUTTON2                       0x0002U
++#define OS2_MOU_BUTTON3                       0x0004U
++
++#define OS2_MOU_NOWAIT                        0U
++#define OS2_MOU_WAIT                          1U
++
++#define OS2_MOU_NODRAW                        0x0001U
++#define OS2_MOU_DRAW                          0x0000U
++#define OS2_MOU_MICKEYS                       0x0002U
++#define OS2_MOU_PELS                          0x0000U
++#define OS2_MOU_DISABLED                      0x0100U
++#define OS2_MOU_STATUS_MICKEYS                0x0200U
++
++#define OS2_MOU_MAX_HANDLES                   8U
++#define OS2_MOU_MAX_EVENTS                   64U
++#define OS2_MOU_MAX_SHAPE_BYTES             256U
++
++#pragma pack(push, 2)
++struct Os2MouPtrLoc {
++    unsigned short row;
++    unsigned short col;
++};
++
++struct Os2MouPtrShape {
++    unsigned short cb;
++    unsigned short col;
++    unsigned short row;
++    unsigned short colHot;
++    unsigned short rowHot;
++};
++
++struct Os2MouEventInfo {
++    unsigned short fs;
++    uint32_t time;
++    unsigned short row;
++    unsigned short col;
++};
++
++struct Os2MouQueInfo {
++    unsigned short cEvents;
++    unsigned short cmaxEvents;
++};
++
++struct Os2MouScaleFact {
++    unsigned short rowScale;
++    unsigned short colScale;
++};
++
++struct Os2MouNoPtrRect {
++    unsigned short row;
++    unsigned short col;
++    unsigned short cRow;
++    unsigned short cCol;
++};
++
++struct Os2MouThreshold {
++    unsigned short Length;
++    unsigned short Level1;
++    unsigned short Lev1Mult;
++    unsigned short Level2;
++    unsigned short lev2Mult;
++};
++#pragma pack(pop)
++
++typedef char Os2MouPtrLoc_must_be_4[(sizeof(struct Os2MouPtrLoc) == 4) ? 1 : -1];
++typedef char Os2MouPtrShape_must_be_10[(sizeof(struct Os2MouPtrShape) == 10) ? 1 : -1];
++typedef char Os2MouEventInfo_must_be_10[(sizeof(struct Os2MouEventInfo) == 10) ? 1 : -1];
++typedef char Os2MouQueInfo_must_be_4[(sizeof(struct Os2MouQueInfo) == 4) ? 1 : -1];
++typedef char Os2MouScaleFact_must_be_4[(sizeof(struct Os2MouScaleFact) == 4) ? 1 : -1];
++typedef char Os2MouNoPtrRect_must_be_8[(sizeof(struct Os2MouNoPtrRect) == 8) ? 1 : -1];
++typedef char Os2MouThreshold_must_be_10[(sizeof(struct Os2MouThreshold) == 10) ? 1 : -1];
++
++/* Host-normalized absolute mouse sample. No Win32 types cross this boundary. */
++struct Os2MouHostEvent {
++    unsigned short row;
++    unsigned short col;
++    unsigned short buttons;
++    unsigned short changed_buttons;
++    uint32_t time;
++    int motion;
++};
++
++struct Os2MouHandleSlot {
++    int in_use;
++    unsigned short value;
++};
++
++struct Os2MouSession {
++    void *backend_opaque;
++    const struct Os2MouBackendOps *backend;
++    struct Os2MouHandleSlot handles[OS2_MOU_MAX_HANDLES];
++    unsigned short next_handle;
++    unsigned short open_count;
++    unsigned short event_mask;
++    unsigned short dev_status;
++    unsigned short buttons;
++    unsigned short mickeys;
++    struct Os2MouPtrLoc pointer;
++    struct Os2MouPtrLoc last_host_pointer;
++    int have_last_host_pointer;
++    struct Os2MouScaleFact scale;
++    struct Os2MouThreshold threshold;
++    struct Os2MouPtrShape shape;
++    unsigned char shape_bytes[OS2_MOU_MAX_SHAPE_BYTES];
++    int pointer_drawn;
++    int exclusion_active;
++    struct Os2MouNoPtrRect exclusion;
++    struct Os2MouEventInfo events[OS2_MOU_MAX_EVENTS];
++    unsigned short event_head;
++    unsigned short event_count;
++};
++
++void os2_mou_session_init(struct Os2MouSession *session,
++                          void *backend_opaque,
++                          const struct Os2MouBackendOps *backend);
++
++Os2MouApiRet os2_mou_MouOpen(struct Os2MouSession *session,
++                              const char *driver_name,
++                              unsigned short *hmou);
++Os2MouApiRet os2_mou_MouClose(struct Os2MouSession *session,
++                               unsigned short hmou);
++Os2MouApiRet os2_mou_MouFlushQue(struct Os2MouSession *session,
++                                  unsigned short hmou);
++Os2MouApiRet os2_mou_MouGetPtrPos(struct Os2MouSession *session,
++                                   struct Os2MouPtrLoc *loc,
++                                   unsigned short hmou);
++Os2MouApiRet os2_mou_MouSetPtrPos(struct Os2MouSession *session,
++                                   const struct Os2MouPtrLoc *loc,
++                                   unsigned short hmou);
++Os2MouApiRet os2_mou_MouGetPtrShape(struct Os2MouSession *session,
++                                     unsigned char *buffer,
++                                     struct Os2MouPtrShape *shape,
++                                     unsigned short hmou);
++Os2MouApiRet os2_mou_MouSetPtrShape(struct Os2MouSession *session,
++                                     const unsigned char *buffer,
++                                     const struct Os2MouPtrShape *shape,
++                                     unsigned short hmou);
++Os2MouApiRet os2_mou_MouGetDevStatus(struct Os2MouSession *session,
++                                      unsigned short *status,
++                                      unsigned short hmou);
++Os2MouApiRet os2_mou_MouSetDevStatus(struct Os2MouSession *session,
++                                      const unsigned short *status,
++                                      unsigned short hmou);
++Os2MouApiRet os2_mou_MouGetNumButtons(struct Os2MouSession *session,
++                                       unsigned short *buttons,
++                                       unsigned short hmou);
++Os2MouApiRet os2_mou_MouGetNumMickeys(struct Os2MouSession *session,
++                                       unsigned short *mickeys,
++                                       unsigned short hmou);
++Os2MouApiRet os2_mou_MouReadEventQue(struct Os2MouSession *session,
++                                      struct Os2MouEventInfo *event,
++                                      unsigned short *wait,
++                                      unsigned short hmou);
++Os2MouApiRet os2_mou_MouGetNumQueEl(struct Os2MouSession *session,
++                                     struct Os2MouQueInfo *info,
++                                     unsigned short hmou);
++Os2MouApiRet os2_mou_MouGetEventMask(struct Os2MouSession *session,
++                                      unsigned short *mask,
++                                      unsigned short hmou);
++Os2MouApiRet os2_mou_MouSetEventMask(struct Os2MouSession *session,
++                                      const unsigned short *mask,
++                                      unsigned short hmou);
++Os2MouApiRet os2_mou_MouGetScaleFact(struct Os2MouSession *session,
++                                      struct Os2MouScaleFact *scale,
++                                      unsigned short hmou);
++Os2MouApiRet os2_mou_MouSetScaleFact(struct Os2MouSession *session,
++                                      const struct Os2MouScaleFact *scale,
++                                      unsigned short hmou);
++Os2MouApiRet os2_mou_MouGetThreshold(struct Os2MouSession *session,
++                                      struct Os2MouThreshold *threshold,
++                                      unsigned short hmou);
++Os2MouApiRet os2_mou_MouSetThreshold(struct Os2MouSession *session,
++                                      const struct Os2MouThreshold *threshold,
++                                      unsigned short hmou);
++Os2MouApiRet os2_mou_MouRemovePtr(struct Os2MouSession *session,
++                                   const struct Os2MouNoPtrRect *rect,
++                                   unsigned short hmou);
++Os2MouApiRet os2_mou_MouDrawPtr(struct Os2MouSession *session,
++                                 unsigned short hmou);
++Os2MouApiRet os2_mou_MouSynch(struct Os2MouSession *session,
++                               unsigned short wait);
++Os2MouApiRet os2_mou_MouInitReal(struct Os2MouSession *session,
++                                  const char *driver_name);
++Os2MouApiRet os2_mou_MouRegister(struct Os2MouSession *session,
++                                  const char *module_name,
++                                  const char *entry_name,
++                                  uint32_t functions);
++Os2MouApiRet os2_mou_MouDeRegister(struct Os2MouSession *session);
++
++/* Scheduler-friendly nonblocking event primitive for future WHP/OS2SS. */
++Os2MouApiRet os2_mou_try_read(struct Os2MouSession *session,
++                               struct Os2MouEventInfo *event,
++                               int *present,
++                               unsigned short hmou);
++
++#endif
+diff --git a/common/include/os2_mou_backend.h b/common/include/os2_mou_backend.h
+new file mode 100644
+index 0000000..bed495c
+--- /dev/null
++++ b/common/include/os2_mou_backend.h
+@@ -0,0 +1,24 @@
++#ifndef OS2_MOU_BACKEND_H
++#define OS2_MOU_BACKEND_H
++
++/* Host pointing-device contract for backend-neutral OS/2 MOUCALLS semantics. */
++
++struct Os2MouHostEvent;
++
++typedef unsigned short Os2MouApiRet;
++
++struct Os2MouBackendOps {
++    Os2MouApiRet (*activate)(void *opaque, unsigned short *buttons,
++                             unsigned short *mickeys,
++                             unsigned short *row, unsigned short *col);
++    Os2MouApiRet (*deactivate)(void *opaque);
++    Os2MouApiRet (*read_event)(void *opaque, int wait,
++                               struct Os2MouHostEvent *event,
++                               int *present);
++    Os2MouApiRet (*flush_events)(void *opaque);
++    Os2MouApiRet (*set_pointer_position)(void *opaque,
++                                         unsigned short row,
++                                         unsigned short col);
++};
++
++#endif
+diff --git a/common/include/os2_mou_win32.h b/common/include/os2_mou_win32.h
+new file mode 100644
+index 0000000..9a47c6c
+--- /dev/null
++++ b/common/include/os2_mou_win32.h
+@@ -0,0 +1,7 @@
++#ifndef OS2_MOU_WIN32_H
++#define OS2_MOU_WIN32_H
++
++struct Os2MouSession;
++struct Os2MouSession *os2_mou_win32_session(void);
++
++#endif
+diff --git a/common/mou/os2_mou.c b/common/mou/os2_mou.c
+new file mode 100644
+index 0000000..c6d2343
+--- /dev/null
++++ b/common/mou/os2_mou.c
+@@ -0,0 +1,681 @@
++#include <string.h>
++
++#include "os2_mou.h"
++#include "os2_mou_backend.h"
++
++static int mou_ready(const struct Os2MouSession *session)
++{
++    return session != NULL && session->backend != NULL &&
++           session->backend->activate != NULL &&
++           session->backend->deactivate != NULL &&
++           session->backend->read_event != NULL &&
++           session->backend->flush_events != NULL;
++}
++
++static int valid_handle(const struct Os2MouSession *session,
++                        unsigned short hmou)
++{
++    unsigned int i;
++    if (session == NULL || hmou == 0U)
++        return 0;
++    for (i = 0U; i < OS2_MOU_MAX_HANDLES; ++i) {
++        if (session->handles[i].in_use &&
++            session->handles[i].value == hmou)
++            return 1;
++    }
++    return 0;
++}
++
++static int alloc_handle(struct Os2MouSession *session,
++                        unsigned short *hmou)
++{
++    unsigned int i;
++    unsigned short candidate;
++    unsigned int tries;
++
++    if (session == NULL || hmou == NULL)
++        return 0;
++    for (i = 0U; i < OS2_MOU_MAX_HANDLES; ++i) {
++        if (!session->handles[i].in_use) {
++            candidate = session->next_handle;
++            if (candidate == 0U)
++                candidate = 1U;
++            for (tries = 0U; tries < 0xfffeU; ++tries) {
++                if (!valid_handle(session, candidate))
++                    break;
++                ++candidate;
++                if (candidate == 0U)
++                    candidate = 1U;
++            }
++            if (tries == 0xfffeU)
++                return 0;
++            session->handles[i].in_use = 1;
++            session->handles[i].value = candidate;
++            session->next_handle = (unsigned short)(candidate + 1U);
++            if (session->next_handle == 0U)
++                session->next_handle = 1U;
++            *hmou = candidate;
++            return 1;
++        }
++    }
++    return 0;
++}
++
++static void free_handle(struct Os2MouSession *session,
++                        unsigned short hmou)
++{
++    unsigned int i;
++    if (session == NULL)
++        return;
++    for (i = 0U; i < OS2_MOU_MAX_HANDLES; ++i) {
++        if (session->handles[i].in_use &&
++            session->handles[i].value == hmou) {
++            memset(&session->handles[i], 0, sizeof(session->handles[i]));
++            return;
++        }
++    }
++}
++
++static void clear_queue(struct Os2MouSession *session)
++{
++    if (session == NULL)
++        return;
++    memset(session->events, 0, sizeof(session->events));
++    session->event_head = 0U;
++    session->event_count = 0U;
++}
++
++static void enqueue_event(struct Os2MouSession *session,
++                          const struct Os2MouEventInfo *event)
++{
++    unsigned short pos;
++    if (session == NULL || event == NULL)
++        return;
++    if (session->event_count >= OS2_MOU_MAX_EVENTS) {
++        session->event_head = (unsigned short)
++            ((session->event_head + 1U) % OS2_MOU_MAX_EVENTS);
++        --session->event_count;
++    }
++    pos = (unsigned short)
++        ((session->event_head + session->event_count) % OS2_MOU_MAX_EVENTS);
++    session->events[pos] = *event;
++    ++session->event_count;
++}
++
++static int dequeue_event(struct Os2MouSession *session,
++                         struct Os2MouEventInfo *event)
++{
++    if (session == NULL || event == NULL || session->event_count == 0U)
++        return 0;
++    *event = session->events[session->event_head];
++    memset(&session->events[session->event_head], 0,
++           sizeof(session->events[session->event_head]));
++    session->event_head = (unsigned short)
++        ((session->event_head + 1U) % OS2_MOU_MAX_EVENTS);
++    --session->event_count;
++    return 1;
++}
++
++static unsigned short event_fs_from_host(const struct Os2MouHostEvent *host)
++{
++    unsigned short fs;
++    fs = 0U;
++    if (host->motion) {
++        if ((host->buttons & OS2_MOU_BUTTON1) != 0U)
++            fs |= OS2_MOU_MOUSE_MOTION_WITH_BN1_DOWN;
++        if ((host->buttons & OS2_MOU_BUTTON2) != 0U)
++            fs |= OS2_MOU_MOUSE_MOTION_WITH_BN2_DOWN;
++        if ((host->buttons & OS2_MOU_BUTTON3) != 0U)
++            fs |= OS2_MOU_MOUSE_MOTION_WITH_BN3_DOWN;
++        if ((host->buttons & (OS2_MOU_BUTTON1 | OS2_MOU_BUTTON2 |
++                              OS2_MOU_BUTTON3)) == 0U)
++            fs |= OS2_MOU_MOUSE_MOTION;
++    }
++    if ((host->buttons & OS2_MOU_BUTTON1) != 0U)
++        fs |= OS2_MOU_MOUSE_BN1_DOWN;
++    if ((host->buttons & OS2_MOU_BUTTON2) != 0U)
++        fs |= OS2_MOU_MOUSE_BN2_DOWN;
++    if ((host->buttons & OS2_MOU_BUTTON3) != 0U)
++        fs |= OS2_MOU_MOUSE_BN3_DOWN;
++    return fs;
++}
++
++static unsigned short generation_mask(const struct Os2MouHostEvent *host)
++{
++    unsigned short mask;
++    mask = 0U;
++    if (host->motion) {
++        if ((host->buttons & OS2_MOU_BUTTON1) != 0U)
++            mask |= OS2_MOU_MOUSE_MOTION_WITH_BN1_DOWN;
++        if ((host->buttons & OS2_MOU_BUTTON2) != 0U)
++            mask |= OS2_MOU_MOUSE_MOTION_WITH_BN2_DOWN;
++        if ((host->buttons & OS2_MOU_BUTTON3) != 0U)
++            mask |= OS2_MOU_MOUSE_MOTION_WITH_BN3_DOWN;
++        if ((host->buttons & (OS2_MOU_BUTTON1 | OS2_MOU_BUTTON2 |
++                              OS2_MOU_BUTTON3)) == 0U)
++            mask |= OS2_MOU_MOUSE_MOTION;
++    }
++    if ((host->changed_buttons & OS2_MOU_BUTTON1) != 0U)
++        mask |= OS2_MOU_MOUSE_BN1_DOWN;
++    if ((host->changed_buttons & OS2_MOU_BUTTON2) != 0U)
++        mask |= OS2_MOU_MOUSE_BN2_DOWN;
++    if ((host->changed_buttons & OS2_MOU_BUTTON3) != 0U)
++        mask |= OS2_MOU_MOUSE_BN3_DOWN;
++    return mask;
++}
++
++static void accept_host_event(struct Os2MouSession *session,
++                              const struct Os2MouHostEvent *host)
++{
++    struct Os2MouEventInfo event;
++    unsigned short generated;
++    signed short dr;
++    signed short dc;
++
++    if (session == NULL || host == NULL)
++        return;
++
++    dr = 0;
++    dc = 0;
++    if (session->have_last_host_pointer) {
++        dr = (signed short)((signed long)host->row -
++                            (signed long)session->last_host_pointer.row);
++        dc = (signed short)((signed long)host->col -
++                            (signed long)session->last_host_pointer.col);
++    }
++    session->last_host_pointer.row = host->row;
++    session->last_host_pointer.col = host->col;
++    session->have_last_host_pointer = 1;
++    session->pointer.row = host->row;
++    session->pointer.col = host->col;
++
++    if ((session->dev_status & OS2_MOU_DISABLED) != 0U)
++        return;
++
++    generated = generation_mask(host);
++    if ((generated & session->event_mask) == 0U)
++        return;
++
++    memset(&event, 0, sizeof(event));
++    event.fs = event_fs_from_host(host);
++    event.time = host->time;
++    if ((session->dev_status & OS2_MOU_STATUS_MICKEYS) != 0U) {
++        event.row = (unsigned short)dr;
++        event.col = (unsigned short)dc;
++    } else {
++        event.row = host->row;
++        event.col = host->col;
++    }
++    enqueue_event(session, &event);
++}
++
++static Os2MouApiRet pump_one(struct Os2MouSession *session, int wait,
++                             int *present)
++{
++    struct Os2MouHostEvent host;
++    Os2MouApiRet rc;
++    int host_present;
++
++    if (present == NULL)
++        return OS2_MOU_ERROR_INVALID_PARAMETER;
++    *present = 0;
++    if (!mou_ready(session))
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++
++    memset(&host, 0, sizeof(host));
++    host_present = 0;
++    rc = session->backend->read_event(session->backend_opaque, wait,
++                                      &host, &host_present);
++    if (rc != OS2_MOU_NO_ERROR)
++        return rc;
++    if (host_present) {
++        accept_host_event(session, &host);
++        *present = 1;
++    }
++    return OS2_MOU_NO_ERROR;
++}
++
++static Os2MouApiRet drain_available(struct Os2MouSession *session)
++{
++    Os2MouApiRet rc;
++    int present;
++    unsigned int guard;
++
++    for (guard = 0U; guard < OS2_MOU_MAX_EVENTS; ++guard) {
++        present = 0;
++        rc = pump_one(session, 0, &present);
++        if (rc != OS2_MOU_NO_ERROR)
++            return rc;
++        if (!present)
++            break;
++    }
++    return OS2_MOU_NO_ERROR;
++}
++
++void os2_mou_session_init(struct Os2MouSession *session,
++                          void *backend_opaque,
++                          const struct Os2MouBackendOps *backend)
++{
++    if (session == NULL)
++        return;
++    memset(session, 0, sizeof(*session));
++    session->backend_opaque = backend_opaque;
++    session->backend = backend;
++    session->next_handle = 1U;
++    session->event_mask = OS2_MOU_EVENT_MASK_ALL;
++    session->buttons = 2U;
++    session->mickeys = 8U;
++    session->scale.rowScale = 1U;
++    session->scale.colScale = 1U;
++    session->threshold.Length = 10U;
++    session->threshold.Level1 = 5U;
++    session->threshold.Lev1Mult = 2U;
++    session->threshold.Level2 = 10U;
++    session->threshold.lev2Mult = 4U;
++    session->shape.cb = 4U;
++    session->shape.col = 1U;
++    session->shape.row = 1U;
++    session->shape.colHot = 0U;
++    session->shape.rowHot = 0U;
++    session->shape_bytes[0] = 0xffU;
++    session->shape_bytes[1] = 0xffU;
++    session->shape_bytes[2] = 0x00U;
++    session->shape_bytes[3] = 0x70U;
++}
++
++Os2MouApiRet os2_mou_MouOpen(struct Os2MouSession *session,
++                              const char *driver_name,
++                              unsigned short *hmou)
++{
++    Os2MouApiRet rc;
++    unsigned short buttons;
++    unsigned short mickeys;
++    unsigned short row;
++    unsigned short col;
++    (void)driver_name;
++
++    if (hmou == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!mou_ready(session))
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++
++    if (session->open_count == 0U) {
++        buttons = session->buttons;
++        mickeys = session->mickeys;
++        row = session->pointer.row;
++        col = session->pointer.col;
++        rc = session->backend->activate(session->backend_opaque,
++                                        &buttons, &mickeys, &row, &col);
++        if (rc != OS2_MOU_NO_ERROR)
++            return rc;
++        if (buttons != 0U)
++            session->buttons = buttons;
++        if (mickeys != 0U)
++            session->mickeys = mickeys;
++        session->pointer.row = row;
++        session->pointer.col = col;
++        session->last_host_pointer = session->pointer;
++        session->have_last_host_pointer = 1;
++        clear_queue(session);
++    }
++    if (!alloc_handle(session, hmou)) {
++        if (session->open_count == 0U)
++            (void)session->backend->deactivate(session->backend_opaque);
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++    }
++    ++session->open_count;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouClose(struct Os2MouSession *session,
++                               unsigned short hmou)
++{
++    Os2MouApiRet rc;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    free_handle(session, hmou);
++    if (session->open_count != 0U)
++        --session->open_count;
++    if (session->open_count == 0U && mou_ready(session)) {
++        clear_queue(session);
++        rc = session->backend->deactivate(session->backend_opaque);
++        if (rc != OS2_MOU_NO_ERROR)
++            return rc;
++    }
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouFlushQue(struct Os2MouSession *session,
++                                  unsigned short hmou)
++{
++    Os2MouApiRet rc;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    clear_queue(session);
++    rc = session->backend->flush_events(session->backend_opaque);
++    return rc;
++}
++
++Os2MouApiRet os2_mou_MouGetPtrPos(struct Os2MouSession *session,
++                                   struct Os2MouPtrLoc *loc,
++                                   unsigned short hmou)
++{
++    if (loc == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    (void)drain_available(session);
++    *loc = session->pointer;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouSetPtrPos(struct Os2MouSession *session,
++                                   const struct Os2MouPtrLoc *loc,
++                                   unsigned short hmou)
++{
++    Os2MouApiRet rc;
++    if (loc == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    session->pointer = *loc;
++    session->last_host_pointer = *loc;
++    session->have_last_host_pointer = 1;
++    if (session->backend->set_pointer_position == NULL)
++        return OS2_MOU_NO_ERROR;
++    rc = session->backend->set_pointer_position(session->backend_opaque,
++                                                loc->row, loc->col);
++    return rc;
++}
++
++Os2MouApiRet os2_mou_MouGetPtrShape(struct Os2MouSession *session,
++                                     unsigned char *buffer,
++                                     struct Os2MouPtrShape *shape,
++                                     unsigned short hmou)
++{
++    unsigned short provided;
++    if (shape == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    provided = shape->cb;
++    *shape = session->shape;
++    if (provided < session->shape.cb || buffer == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    memcpy(buffer, session->shape_bytes, session->shape.cb);
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouSetPtrShape(struct Os2MouSession *session,
++                                     const unsigned char *buffer,
++                                     const struct Os2MouPtrShape *shape,
++                                     unsigned short hmou)
++{
++    if (shape == NULL || (shape->cb != 0U && buffer == NULL) ||
++        shape->cb > OS2_MOU_MAX_SHAPE_BYTES)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    session->shape = *shape;
++    if (shape->cb != 0U)
++        memcpy(session->shape_bytes, buffer, shape->cb);
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouGetDevStatus(struct Os2MouSession *session,
++                                      unsigned short *status,
++                                      unsigned short hmou)
++{
++    if (status == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    *status = session->dev_status;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouSetDevStatus(struct Os2MouSession *session,
++                                      const unsigned short *status,
++                                      unsigned short hmou)
++{
++    unsigned short allowed;
++    if (status == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    allowed = (unsigned short)(OS2_MOU_DISABLED | OS2_MOU_STATUS_MICKEYS);
++    if ((*status & (unsigned short)~allowed) != 0U)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    session->dev_status = *status;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouGetNumButtons(struct Os2MouSession *session,
++                                       unsigned short *buttons,
++                                       unsigned short hmou)
++{
++    if (buttons == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    *buttons = session->buttons;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouGetNumMickeys(struct Os2MouSession *session,
++                                       unsigned short *mickeys,
++                                       unsigned short hmou)
++{
++    if (mickeys == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    *mickeys = session->mickeys;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouReadEventQue(struct Os2MouSession *session,
++                                      struct Os2MouEventInfo *event,
++                                      unsigned short *wait,
++                                      unsigned short hmou)
++{
++    Os2MouApiRet rc;
++    int added;
++    if (event == NULL || wait == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    if (*wait != OS2_MOU_NOWAIT && *wait != OS2_MOU_WAIT)
++        return OS2_MOU_ERROR_INVALID_IOWAIT;
++
++    memset(event, 0, sizeof(*event));
++    rc = drain_available(session);
++    if (rc != OS2_MOU_NO_ERROR)
++        return rc;
++    if (dequeue_event(session, event))
++        return OS2_MOU_NO_ERROR;
++    if (*wait == OS2_MOU_NOWAIT)
++        return OS2_MOU_NO_ERROR_MOUSE_NO_DATA;
++
++    for (;;) {
++        added = 0;
++        rc = pump_one(session, 1, &added);
++        if (rc != OS2_MOU_NO_ERROR)
++            return rc;
++        if (dequeue_event(session, event))
++            return OS2_MOU_NO_ERROR;
++    }
++}
++
++Os2MouApiRet os2_mou_try_read(struct Os2MouSession *session,
++                               struct Os2MouEventInfo *event,
++                               int *present,
++                               unsigned short hmou)
++{
++    unsigned short wait;
++    Os2MouApiRet rc;
++    if (present == NULL || event == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    *present = 0;
++    wait = OS2_MOU_NOWAIT;
++    rc = os2_mou_MouReadEventQue(session, event, &wait, hmou);
++    if (rc == OS2_MOU_NO_ERROR) {
++        *present = 1;
++        return rc;
++    }
++    if (rc == OS2_MOU_NO_ERROR_MOUSE_NO_DATA) {
++        memset(event, 0, sizeof(*event));
++        return OS2_MOU_NO_ERROR;
++    }
++    return rc;
++}
++
++Os2MouApiRet os2_mou_MouGetNumQueEl(struct Os2MouSession *session,
++                                     struct Os2MouQueInfo *info,
++                                     unsigned short hmou)
++{
++    Os2MouApiRet rc;
++    if (info == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    rc = drain_available(session);
++    if (rc != OS2_MOU_NO_ERROR)
++        return rc;
++    info->cEvents = session->event_count;
++    info->cmaxEvents = OS2_MOU_MAX_EVENTS;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouGetEventMask(struct Os2MouSession *session,
++                                      unsigned short *mask,
++                                      unsigned short hmou)
++{
++    if (mask == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    *mask = session->event_mask;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouSetEventMask(struct Os2MouSession *session,
++                                      const unsigned short *mask,
++                                      unsigned short hmou)
++{
++    if (mask == NULL || (*mask & (unsigned short)~OS2_MOU_EVENT_MASK_ALL) != 0U)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    session->event_mask = *mask;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouGetScaleFact(struct Os2MouSession *session,
++                                      struct Os2MouScaleFact *scale,
++                                      unsigned short hmou)
++{
++    if (scale == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    *scale = session->scale;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouSetScaleFact(struct Os2MouSession *session,
++                                      const struct Os2MouScaleFact *scale,
++                                      unsigned short hmou)
++{
++    if (scale == NULL || scale->rowScale == 0U || scale->colScale == 0U)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    session->scale = *scale;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouGetThreshold(struct Os2MouSession *session,
++                                      struct Os2MouThreshold *threshold,
++                                      unsigned short hmou)
++{
++    if (threshold == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    *threshold = session->threshold;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouSetThreshold(struct Os2MouSession *session,
++                                      const struct Os2MouThreshold *threshold,
++                                      unsigned short hmou)
++{
++    if (threshold == NULL || threshold->Length != 10U)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    session->threshold = *threshold;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouRemovePtr(struct Os2MouSession *session,
++                                   const struct Os2MouNoPtrRect *rect,
++                                   unsigned short hmou)
++{
++    if (rect == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    session->exclusion = *rect;
++    session->exclusion_active = 1;
++    session->pointer_drawn = 0;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouDrawPtr(struct Os2MouSession *session,
++                                 unsigned short hmou)
++{
++    if (!valid_handle(session, hmou))
++        return OS2_MOU_ERROR_MOUSE_INV_HANDLE;
++    session->exclusion_active = 0;
++    session->pointer_drawn = 1;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouSynch(struct Os2MouSession *session,
++                               unsigned short wait)
++{
++    if (session == NULL)
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++    if (wait != OS2_MOU_NOWAIT && wait != OS2_MOU_WAIT)
++        return OS2_MOU_ERROR_INVALID_IOWAIT;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouInitReal(struct Os2MouSession *session,
++                                  const char *driver_name)
++{
++    (void)driver_name;
++    if (session == NULL)
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++    return OS2_MOU_NO_ERROR;
++}
++
++Os2MouApiRet os2_mou_MouRegister(struct Os2MouSession *session,
++                                  const char *module_name,
++                                  const char *entry_name,
++                                  uint32_t functions)
++{
++    (void)session;
++    (void)module_name;
++    (void)entry_name;
++    (void)functions;
++    return OS2_MOU_ERROR_MOUSE_REGISTER;
++}
++
++Os2MouApiRet os2_mou_MouDeRegister(struct Os2MouSession *session)
++{
++    (void)session;
++    return OS2_MOU_ERROR_MOUSE_DEREGISTER;
++}
+diff --git a/common/win32/os2_mou_win32.c b/common/win32/os2_mou_win32.c
+new file mode 100644
+index 0000000..d4565c2
+--- /dev/null
++++ b/common/win32/os2_mou_win32.c
+@@ -0,0 +1,281 @@
++#define WIN32_LEAN_AND_MEAN
++#include <windows.h>
++
++#include <string.h>
++
++#include "os2_mou.h"
++#include "os2_mou_backend.h"
++#include "os2_mou_win32.h"
++
++#ifndef SM_CMOUSEBUTTONS
++#define SM_CMOUSEBUTTONS 43
++#endif
++
++struct Os2MouWin32Context {
++    int active;
++    unsigned short last_row;
++    unsigned short last_col;
++    unsigned short last_buttons;
++    int have_sample;
++};
++
++static struct Os2MouWin32Context mou_context;
++static struct Os2MouSession mou_session_storage;
++static int mou_session_ready;
++
++static Os2MouApiRet mouse_host_error(void)
++{
++    DWORD e;
++    e = GetLastError();
++    if (e == ERROR_INVALID_HANDLE)
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++    if (e == ERROR_INVALID_PARAMETER)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++}
++
++static unsigned short sample_buttons(void)
++{
++    unsigned short buttons;
++    buttons = 0U;
++    if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0)
++        buttons |= OS2_MOU_BUTTON1;
++    if ((GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0)
++        buttons |= OS2_MOU_BUTTON2;
++    if ((GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0)
++        buttons |= OS2_MOU_BUTTON3;
++    return buttons;
++}
++
++static Os2MouApiRet sample_position(unsigned short *row,
++                                    unsigned short *col)
++{
++    HANDLE out;
++    HWND hwnd;
++    POINT pt;
++    CONSOLE_SCREEN_BUFFER_INFO info;
++    CONSOLE_FONT_INFO font;
++    COORD cell;
++    LONG x;
++    LONG y;
++
++    if (row == NULL || col == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    out = GetStdHandle(STD_OUTPUT_HANDLE);
++    if (out == NULL || out == INVALID_HANDLE_VALUE ||
++        GetFileType(out) != FILE_TYPE_CHAR)
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++    hwnd = GetConsoleWindow();
++    if (hwnd == NULL)
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++    if (!GetCursorPos(&pt) || !ScreenToClient(hwnd, &pt))
++        return mouse_host_error();
++    if (!GetConsoleScreenBufferInfo(out, &info))
++        return mouse_host_error();
++    memset(&font, 0, sizeof(font));
++    if (!GetCurrentConsoleFont(out, FALSE, &font))
++        return mouse_host_error();
++    cell = GetConsoleFontSize(out, font.nFont);
++    if (cell.X <= 0 || cell.Y <= 0)
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++
++    x = pt.x;
++    y = pt.y;
++    if (x < 0)
++        x = 0;
++    if (y < 0)
++        y = 0;
++    x = x / cell.X + info.srWindow.Left;
++    y = y / cell.Y + info.srWindow.Top;
++    if (x < 0)
++        x = 0;
++    if (y < 0)
++        y = 0;
++    if (x >= info.dwSize.X)
++        x = info.dwSize.X > 0 ? info.dwSize.X - 1 : 0;
++    if (y >= info.dwSize.Y)
++        y = info.dwSize.Y > 0 ? info.dwSize.Y - 1 : 0;
++    *row = (unsigned short)y;
++    *col = (unsigned short)x;
++    return OS2_MOU_NO_ERROR;
++}
++
++static Os2MouApiRet win32_activate(void *opaque, unsigned short *buttons,
++                                    unsigned short *mickeys,
++                                    unsigned short *row,
++                                    unsigned short *col)
++{
++    struct Os2MouWin32Context *context;
++    int count;
++    Os2MouApiRet rc;
++
++    context = (struct Os2MouWin32Context *)opaque;
++    if (context == NULL || buttons == NULL || mickeys == NULL ||
++        row == NULL || col == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    rc = sample_position(row, col);
++    if (rc != OS2_MOU_NO_ERROR)
++        return rc;
++    count = GetSystemMetrics(SM_CMOUSEBUTTONS);
++    if (count <= 0)
++        count = 2;
++    if (count > 3)
++        count = 3;
++    *buttons = (unsigned short)count;
++    /* Win32 exposes acceleration/speed, not the OS/2 mickeys/cm quantity.
++     * Preserve a deterministic proof-level default rather than pretending
++     * that SPI_GETMOUSESPEED is the same measurement. */
++    *mickeys = 8U;
++    context->active = 1;
++    context->last_row = *row;
++    context->last_col = *col;
++    context->last_buttons = sample_buttons();
++    context->have_sample = 1;
++    return OS2_MOU_NO_ERROR;
++}
++
++static Os2MouApiRet win32_deactivate(void *opaque)
++{
++    struct Os2MouWin32Context *context;
++    context = (struct Os2MouWin32Context *)opaque;
++    if (context == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    context->active = 0;
++    context->have_sample = 0;
++    return OS2_MOU_NO_ERROR;
++}
++
++static Os2MouApiRet sample_event(struct Os2MouWin32Context *context,
++                                 struct Os2MouHostEvent *event,
++                                 int *present)
++{
++    unsigned short row;
++    unsigned short col;
++    unsigned short buttons;
++    Os2MouApiRet rc;
++
++    *present = 0;
++    memset(event, 0, sizeof(*event));
++    rc = sample_position(&row, &col);
++    if (rc != OS2_MOU_NO_ERROR)
++        return rc;
++    buttons = sample_buttons();
++    if (!context->have_sample) {
++        context->last_row = row;
++        context->last_col = col;
++        context->last_buttons = buttons;
++        context->have_sample = 1;
++        return OS2_MOU_NO_ERROR;
++    }
++    if (row == context->last_row && col == context->last_col &&
++        buttons == context->last_buttons)
++        return OS2_MOU_NO_ERROR;
++
++    event->row = row;
++    event->col = col;
++    event->buttons = buttons;
++    event->changed_buttons = (unsigned short)(buttons ^ context->last_buttons);
++    event->motion = (row != context->last_row || col != context->last_col);
++    event->time = (uint32_t)GetTickCount();
++    context->last_row = row;
++    context->last_col = col;
++    context->last_buttons = buttons;
++    *present = 1;
++    return OS2_MOU_NO_ERROR;
++}
++
++static Os2MouApiRet win32_read_event(void *opaque, int wait,
++                                     struct Os2MouHostEvent *event,
++                                     int *present)
++{
++    struct Os2MouWin32Context *context;
++    Os2MouApiRet rc;
++
++    context = (struct Os2MouWin32Context *)opaque;
++    if (context == NULL || event == NULL || present == NULL)
++        return OS2_MOU_ERROR_MOUSE_INV_PARMS;
++    if (!context->active)
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++    for (;;) {
++        rc = sample_event(context, event, present);
++        if (rc != OS2_MOU_NO_ERROR || *present || !wait)
++            return rc;
++        Sleep(1UL);
++    }
++}
++
++static Os2MouApiRet win32_flush_events(void *opaque)
++{
++    struct Os2MouWin32Context *context;
++    unsigned short row;
++    unsigned short col;
++    Os2MouApiRet rc;
++    context = (struct Os2MouWin32Context *)opaque;
++    if (context == NULL || !context->active)
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++    rc = sample_position(&row, &col);
++    if (rc != OS2_MOU_NO_ERROR)
++        return rc;
++    context->last_row = row;
++    context->last_col = col;
++    context->last_buttons = sample_buttons();
++    context->have_sample = 1;
++    return OS2_MOU_NO_ERROR;
++}
++
++static Os2MouApiRet win32_set_pointer_position(void *opaque,
++                                                unsigned short row,
++                                                unsigned short col)
++{
++    struct Os2MouWin32Context *context;
++    HANDLE out;
++    HWND hwnd;
++    CONSOLE_SCREEN_BUFFER_INFO info;
++    CONSOLE_FONT_INFO font;
++    COORD cell;
++    POINT pt;
++
++    context = (struct Os2MouWin32Context *)opaque;
++    if (context == NULL || !context->active)
++        return OS2_MOU_ERROR_MOUSE_NO_DEVICE;
++    out = GetStdHandle(STD_OUTPUT_HANDLE);
++    hwnd = GetConsoleWindow();
++    if (out == NULL || out == INVALID_HANDLE_VALUE || hwnd == NULL)
++        return OS2_MOU_NO_ERROR;
++    if (!GetConsoleScreenBufferInfo(out, &info))
++        return OS2_MOU_NO_ERROR;
++    memset(&font, 0, sizeof(font));
++    if (!GetCurrentConsoleFont(out, FALSE, &font))
++        return OS2_MOU_NO_ERROR;
++    cell = GetConsoleFontSize(out, font.nFont);
++    if (cell.X <= 0 || cell.Y <= 0)
++        return OS2_MOU_NO_ERROR;
++    pt.x = ((LONG)col - info.srWindow.Left) * cell.X + cell.X / 2;
++    pt.y = ((LONG)row - info.srWindow.Top) * cell.Y + cell.Y / 2;
++    if (ClientToScreen(hwnd, &pt))
++        (void)SetCursorPos((int)pt.x, (int)pt.y);
++    context->last_row = row;
++    context->last_col = col;
++    context->last_buttons = sample_buttons();
++    context->have_sample = 1;
++    return OS2_MOU_NO_ERROR;
++}
++
++static const struct Os2MouBackendOps win32_backend = {
++    win32_activate,
++    win32_deactivate,
++    win32_read_event,
++    win32_flush_events,
++    win32_set_pointer_position
++};
++
++struct Os2MouSession *os2_mou_win32_session(void)
++{
++    if (!mou_session_ready) {
++        memset(&mou_context, 0, sizeof(mou_context));
++        os2_mou_session_init(&mou_session_storage, &mou_context,
++                             &win32_backend);
++        mou_session_ready = 1;
++    }
++    return &mou_session_storage;
++}
+diff --git a/dlls/moucalls/moucalls.c b/dlls/moucalls/moucalls.c
+new file mode 100644
+index 0000000..8435b7a
+--- /dev/null
++++ b/dlls/moucalls/moucalls.c
+@@ -0,0 +1,167 @@
++/*
++ * MOUCALLS.dll - thin exported OS/2 Base Mouse ABI veneer.
++ *
++ * MOUCALLS R2 starts backend-neutral from its first native implementation:
++ * OS/2 mouse state/event semantics live in common/mou, while Win32 pointer
++ * observation/warping lives in common/win32/os2_mou_win32.c.
++ */
++
++#include "os2_mou.h"
++#include "os2_mou_win32.h"
++
++#ifndef __cdecl
++#define __cdecl
++#endif
++
++static struct Os2MouSession *mou_session(void)
++{
++    return os2_mou_win32_session();
++}
++
++unsigned short __cdecl MouGetPtrShape(unsigned char *buffer,
++                                       struct Os2MouPtrShape *shape,
++                                       unsigned short hmou)
++{
++    return os2_mou_MouGetPtrShape(mou_session(), buffer, shape, hmou);
++}
++
++unsigned short __cdecl MouSetPtrShape(const unsigned char *buffer,
++                                       const struct Os2MouPtrShape *shape,
++                                       unsigned short hmou)
++{
++    return os2_mou_MouSetPtrShape(mou_session(), buffer, shape, hmou);
++}
++
++unsigned short __cdecl MouGetNumMickeys(unsigned short *mickeys,
++                                         unsigned short hmou)
++{
++    return os2_mou_MouGetNumMickeys(mou_session(), mickeys, hmou);
++}
++
++unsigned short __cdecl MouGetThreshold(struct Os2MouThreshold *threshold,
++                                        unsigned short hmou)
++{
++    return os2_mou_MouGetThreshold(mou_session(), threshold, hmou);
++}
++
++unsigned short __cdecl MouGetScaleFact(struct Os2MouScaleFact *scale,
++                                        unsigned short hmou)
++{
++    return os2_mou_MouGetScaleFact(mou_session(), scale, hmou);
++}
++
++unsigned short __cdecl MouFlushQue(unsigned short hmou)
++{
++    return os2_mou_MouFlushQue(mou_session(), hmou);
++}
++
++unsigned short __cdecl MouGetNumButtons(unsigned short *buttons,
++                                         unsigned short hmou)
++{
++    return os2_mou_MouGetNumButtons(mou_session(), buttons, hmou);
++}
++
++unsigned short __cdecl MouClose(unsigned short hmou)
++{
++    return os2_mou_MouClose(mou_session(), hmou);
++}
++
++unsigned short __cdecl MouSetThreshold(const struct Os2MouThreshold *threshold,
++                                        unsigned short hmou)
++{
++    return os2_mou_MouSetThreshold(mou_session(), threshold, hmou);
++}
++
++unsigned short __cdecl MouSetScaleFact(const struct Os2MouScaleFact *scale,
++                                        unsigned short hmou)
++{
++    return os2_mou_MouSetScaleFact(mou_session(), scale, hmou);
++}
++
++unsigned short __cdecl MouGetNumQueEl(struct Os2MouQueInfo *info,
++                                       unsigned short hmou)
++{
++    return os2_mou_MouGetNumQueEl(mou_session(), info, hmou);
++}
++
++unsigned short __cdecl MouDeRegister(void)
++{
++    return os2_mou_MouDeRegister(mou_session());
++}
++
++unsigned short __cdecl MouGetEventMask(unsigned short *mask,
++                                        unsigned short hmou)
++{
++    return os2_mou_MouGetEventMask(mou_session(), mask, hmou);
++}
++
++unsigned short __cdecl MouSetEventMask(const unsigned short *mask,
++                                        unsigned short hmou)
++{
++    return os2_mou_MouSetEventMask(mou_session(), mask, hmou);
++}
++
++unsigned short __cdecl MouOpen(const char *driver_name, unsigned short *hmou)
++{
++    return os2_mou_MouOpen(mou_session(), driver_name, hmou);
++}
++
++unsigned short __cdecl MouRemovePtr(const struct Os2MouNoPtrRect *rect,
++                                     unsigned short hmou)
++{
++    return os2_mou_MouRemovePtr(mou_session(), rect, hmou);
++}
++
++unsigned short __cdecl MouGetPtrPos(struct Os2MouPtrLoc *loc,
++                                     unsigned short hmou)
++{
++    return os2_mou_MouGetPtrPos(mou_session(), loc, hmou);
++}
++
++unsigned short __cdecl MouReadEventQue(struct Os2MouEventInfo *event,
++                                        unsigned short *wait,
++                                        unsigned short hmou)
++{
++    return os2_mou_MouReadEventQue(mou_session(), event, wait, hmou);
++}
++
++unsigned short __cdecl MouSetPtrPos(const struct Os2MouPtrLoc *loc,
++                                     unsigned short hmou)
++{
++    return os2_mou_MouSetPtrPos(mou_session(), loc, hmou);
++}
++
++unsigned short __cdecl MouGetDevStatus(unsigned short *status,
++                                        unsigned short hmou)
++{
++    return os2_mou_MouGetDevStatus(mou_session(), status, hmou);
++}
++
++unsigned short __cdecl MouSynch(unsigned short wait)
++{
++    return os2_mou_MouSynch(mou_session(), wait);
++}
++
++unsigned short __cdecl MouRegister(const char *module_name,
++                                    const char *entry_name,
++                                    uint32_t functions)
++{
++    return os2_mou_MouRegister(mou_session(), module_name, entry_name,
++                                functions);
++}
++
++unsigned short __cdecl MouSetDevStatus(const unsigned short *status,
++                                        unsigned short hmou)
++{
++    return os2_mou_MouSetDevStatus(mou_session(), status, hmou);
++}
++
++unsigned short __cdecl MouDrawPtr(unsigned short hmou)
++{
++    return os2_mou_MouDrawPtr(mou_session(), hmou);
++}
++
++unsigned short __cdecl MouInitReal(const char *driver_name)
++{
++    return os2_mou_MouInitReal(mou_session(), driver_name);
++}
+diff --git a/dlls/moucalls/moucalls.def b/dlls/moucalls/moucalls.def
+new file mode 100644
+index 0000000..d4484f0
+--- /dev/null
++++ b/dlls/moucalls/moucalls.def
+@@ -0,0 +1,27 @@
++LIBRARY MOUCALLS
++EXPORTS
++    MouGetPtrShape   @1 NONAME
++    MouSetPtrShape   @2 NONAME
++    MouGetNumMickeys @3 NONAME
++    MouGetThreshold  @4 NONAME
++    MouGetScaleFact  @6 NONAME
++    MouFlushQue      @7 NONAME
++    MouGetNumButtons @8 NONAME
++    MouClose         @9 NONAME
++    MouSetThreshold  @10 NONAME
++    MouSetScaleFact  @11 NONAME
++    MouGetNumQueEl   @13 NONAME
++    MouDeRegister    @14 NONAME
++    MouGetEventMask  @15 NONAME
++    MouSetEventMask  @16 NONAME
++    MouOpen          @17 NONAME
++    MouRemovePtr     @18 NONAME
++    MouGetPtrPos     @19 NONAME
++    MouReadEventQue  @20 NONAME
++    MouSetPtrPos     @21 NONAME
++    MouGetDevStatus  @22 NONAME
++    MouSynch         @23 NONAME
++    MouRegister      @24 NONAME
++    MouSetDevStatus  @25 NONAME
++    MouDrawPtr       @26 NONAME
++    MouInitReal      @27 NONAME
+diff --git a/loader/os2host32.c b/loader/os2host32.c
+index 77f725f..f7aa7f8 100644
+--- a/loader/os2host32.c
++++ b/loader/os2host32.c
+@@ -203,7 +203,32 @@ static const struct C386Far16ApiDesc c386_far16_apis[] = {
+     { "VIOCALLS", 48UL, "VioWrtCharStrAtt",6, { 2, 4, 2, 2, 2, 4, 0, 0 } },
+     { "KBDCALLS",  4UL, "KbdCharIn",       3, { 2, 2, 4, 0, 0, 0, 0, 0 } },
+     { "KBDCALLS",  9UL, "KbdStringIn",     4, { 2, 2, 4, 4, 0, 0, 0, 0 } },
+-    { "KBDCALLS", 13UL, "KbdFlushBuffer",  1, { 2, 0, 0, 0, 0, 0, 0, 0 } }
++    { "KBDCALLS", 13UL, "KbdFlushBuffer",  1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS",  1UL, "MouGetPtrShape",   3, { 2, 4, 4, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS",  2UL, "MouSetPtrShape",   3, { 2, 4, 4, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS",  3UL, "MouGetNumMickeys", 2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS",  4UL, "MouGetThreshold",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS",  6UL, "MouGetScaleFact",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS",  7UL, "MouFlushQue",      1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS",  8UL, "MouGetNumButtons", 2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS",  9UL, "MouClose",         1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 10UL, "MouSetThreshold",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 11UL, "MouSetScaleFact",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 13UL, "MouGetNumQueEl",   2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 14UL, "MouDeRegister",    0, { 0, 0, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 15UL, "MouGetEventMask",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 16UL, "MouSetEventMask",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 17UL, "MouOpen",          2, { 4, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 18UL, "MouRemovePtr",     2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 19UL, "MouGetPtrPos",     2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 20UL, "MouReadEventQue",  3, { 2, 4, 4, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 21UL, "MouSetPtrPos",     2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 22UL, "MouGetDevStatus",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 23UL, "MouSynch",         1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 24UL, "MouRegister",      3, { 4, 4, 4, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 25UL, "MouSetDevStatus",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 26UL, "MouDrawPtr",       1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
++    { "MOUCALLS", 27UL, "MouInitReal",      1, { 4, 0, 0, 0, 0, 0, 0, 0 } }
+ };
+ #define C386_FAR16_API_COUNT \
+     ((U32)(sizeof(c386_far16_apis) / sizeof(c386_far16_apis[0])))
+@@ -2438,7 +2463,7 @@ static int trace_modules(void)
+ static int is_personality_module(const char *name)
+ {
+     static const char *const names[] = {
+-        "DOSCALLS", "KBDCALLS", "VIOCALLS", "QUECALLS",
++        "DOSCALLS", "KBDCALLS", "VIOCALLS", "MOUCALLS", "QUECALLS",
+         "SESMGR", "NLS", "PMWIN", "PMGPI", "PMSHAPI", "PMWP", "HELPMGR"
+     };
+     U32 i;
+diff --git a/tests/mou/c386-mou-probe.c b/tests/mou/c386-mou-probe.c
+new file mode 100644
+index 0000000..41d282b
+--- /dev/null
++++ b/tests/mou/c386-mou-probe.c
+@@ -0,0 +1,60 @@
++/* Simple Microsoft C/386 mixed-mode MOUCALLS probe for os2host32. */
++#define INCL_16
++#define INCL_MOU
++#define INCL_DOSPROCESS
++#include <os2.h>
++#include <stdio.h>
++#include <string.h>
++
++int main(void)
++{
++    HMOU hmou;
++    USHORT rc;
++    USHORT buttons;
++    USHORT mickeys;
++    USHORT mask;
++    USHORT wait;
++    PTRLOC pos;
++    MOUEVENTINFO event;
++    int i;
++
++    hmou = 0;
++    rc = MouOpen((PSZ)0, &hmou);
++    printf("MouOpen rc=%u hmou=%u\n", rc, hmou);
++    if (rc != 0)
++        return 1;
++
++    buttons = 0;
++    mickeys = 0;
++    rc = MouGetNumButtons(&buttons, hmou);
++    printf("MouGetNumButtons rc=%u buttons=%u\n", rc, buttons);
++    rc = MouGetNumMickeys(&mickeys, hmou);
++    printf("MouGetNumMickeys rc=%u mickeys/cm=%u\n", rc, mickeys);
++
++    memset(&pos, 0, sizeof(pos));
++    rc = MouGetPtrPos(&pos, hmou);
++    printf("MouGetPtrPos rc=%u row=%u col=%u\n", rc, pos.row, pos.col);
++
++    mask = MOUSE_MOTION | MOUSE_BN1_DOWN | MOUSE_MOTION_WITH_BN1_DOWN;
++    rc = MouSetEventMask(&mask, hmou);
++    printf("MouSetEventMask rc=%u mask=%04x\n", rc, mask);
++    (void)MouDrawPtr(hmou);
++
++    printf("Move the mouse or click button 1...\n");
++    for (i = 0; i < 100; ++i) {
++        memset(&event, 0, sizeof(event));
++        wait = MOU_NOWAIT;
++        rc = MouReadEventQue(&event, &wait, hmou);
++        if (rc == 0) {
++            printf("event fs=%04x time=%lu row=%u col=%u\n",
++                   event.fs, (unsigned long)event.time,
++                   event.row, event.col);
++            break;
++        }
++        DosSleep(50L);
++    }
++
++    rc = MouClose(hmou);
++    printf("MouClose rc=%u\n", rc);
++    return 0;
++}
+diff --git a/tests/mou/mou-core-check.c b/tests/mou/mou-core-check.c
+new file mode 100644
+index 0000000..7338319
+--- /dev/null
++++ b/tests/mou/mou-core-check.c
+@@ -0,0 +1,261 @@
++#include <stdio.h>
++#include <string.h>
++
++#include "os2_mou.h"
++#include "os2_mou_backend.h"
++
++#define MAX_HOST_EVENTS 16
++
++struct FakeBackend {
++    struct Os2MouHostEvent events[MAX_HOST_EVENTS];
++    unsigned int head;
++    unsigned int count;
++    unsigned int activate_count;
++    unsigned int deactivate_count;
++    unsigned int flush_count;
++    unsigned int warp_count;
++    unsigned short warp_row;
++    unsigned short warp_col;
++};
++
++static int failures;
++
++static void check(int ok, const char *message)
++{
++    if (!ok) {
++        fprintf(stderr, "FAIL: %s\n", message);
++        ++failures;
++    }
++}
++
++static Os2MouApiRet fake_activate(void *opaque, unsigned short *buttons,
++                                  unsigned short *mickeys,
++                                  unsigned short *row, unsigned short *col)
++{
++    struct FakeBackend *f;
++    f = (struct FakeBackend *)opaque;
++    ++f->activate_count;
++    *buttons = 3U;
++    *mickeys = 12U;
++    *row = 4U;
++    *col = 7U;
++    return 0U;
++}
++
++static Os2MouApiRet fake_deactivate(void *opaque)
++{
++    struct FakeBackend *f;
++    f = (struct FakeBackend *)opaque;
++    ++f->deactivate_count;
++    return 0U;
++}
++
++static Os2MouApiRet fake_read(void *opaque, int wait,
++                              struct Os2MouHostEvent *event, int *present)
++{
++    struct FakeBackend *f;
++    (void)wait;
++    f = (struct FakeBackend *)opaque;
++    *present = 0;
++    memset(event, 0, sizeof(*event));
++    if (f->count == 0U)
++        return 0U;
++    *event = f->events[f->head];
++    f->head = (f->head + 1U) % MAX_HOST_EVENTS;
++    --f->count;
++    *present = 1;
++    return 0U;
++}
++
++static Os2MouApiRet fake_flush(void *opaque)
++{
++    struct FakeBackend *f;
++    f = (struct FakeBackend *)opaque;
++    f->head = f->count = 0U;
++    ++f->flush_count;
++    return 0U;
++}
++
++static Os2MouApiRet fake_warp(void *opaque, unsigned short row,
++                              unsigned short col)
++{
++    struct FakeBackend *f;
++    f = (struct FakeBackend *)opaque;
++    ++f->warp_count;
++    f->warp_row = row;
++    f->warp_col = col;
++    return 0U;
++}
++
++static const struct Os2MouBackendOps fake_ops = {
++    fake_activate, fake_deactivate, fake_read, fake_flush, fake_warp
++};
++
++static void push_event(struct FakeBackend *f, unsigned short row,
++                       unsigned short col, unsigned short buttons,
++                       unsigned short changed, int motion,
++                       unsigned long time)
++{
++    unsigned int pos;
++    pos = (f->head + f->count) % MAX_HOST_EVENTS;
++    memset(&f->events[pos], 0, sizeof(f->events[pos]));
++    f->events[pos].row = row;
++    f->events[pos].col = col;
++    f->events[pos].buttons = buttons;
++    f->events[pos].changed_buttons = changed;
++    f->events[pos].motion = motion;
++    f->events[pos].time = (uint32_t)time;
++    ++f->count;
++}
++
++int main(void)
++{
++    struct FakeBackend fake;
++    struct Os2MouSession session;
++    struct Os2MouEventInfo event;
++    struct Os2MouQueInfo qi;
++    struct Os2MouPtrLoc loc;
++    struct Os2MouScaleFact scale;
++    struct Os2MouThreshold threshold;
++    struct Os2MouPtrShape shape;
++    unsigned char shape_data[8];
++    unsigned short hmou;
++    unsigned short hmou2;
++    unsigned short value;
++    unsigned short wait;
++    int present;
++
++    memset(&fake, 0, sizeof(fake));
++    os2_mou_session_init(&session, &fake, &fake_ops);
++
++    hmou = hmou2 = 0U;
++    check(os2_mou_MouOpen(&session, NULL, &hmou) == 0U && hmou != 0U,
++          "MouOpen allocates handle");
++    check(fake.activate_count == 1U && session.buttons == 3U &&
++          session.mickeys == 12U && session.pointer.row == 4U &&
++          session.pointer.col == 7U,
++          "first open activates backend and seeds device profile");
++    check(os2_mou_MouOpen(&session, NULL, &hmou2) == 0U && hmou2 != hmou &&
++          fake.activate_count == 1U,
++          "second handle shares one device activation");
++
++    value = 0U;
++    check(os2_mou_MouGetNumButtons(&session, &value, hmou) == 0U && value == 3U,
++          "button count common state");
++    check(os2_mou_MouGetNumMickeys(&session, &value, hmou) == 0U && value == 12U,
++          "mickeys count common state");
++
++    value = OS2_MOU_MOUSE_MOTION | OS2_MOU_MOUSE_BN1_DOWN |
++            OS2_MOU_MOUSE_MOTION_WITH_BN1_DOWN;
++    check(os2_mou_MouSetEventMask(&session, &value, hmou) == 0U,
++          "set event mask");
++    value = 0U;
++    check(os2_mou_MouGetEventMask(&session, &value, hmou) == 0U &&
++          value == (OS2_MOU_MOUSE_MOTION | OS2_MOU_MOUSE_BN1_DOWN |
++                    OS2_MOU_MOUSE_MOTION_WITH_BN1_DOWN),
++          "get event mask");
++
++    push_event(&fake, 5U, 8U, 0U, 0U, 1, 100UL);
++    push_event(&fake, 5U, 8U, OS2_MOU_BUTTON1, OS2_MOU_BUTTON1, 0, 101UL);
++    memset(&qi, 0, sizeof(qi));
++    check(os2_mou_MouGetNumQueEl(&session, &qi, hmou) == 0U &&
++          qi.cEvents == 2U && qi.cmaxEvents == OS2_MOU_MAX_EVENTS,
++          "queue count drains backend samples into common queue");
++
++    wait = OS2_MOU_NOWAIT;
++    memset(&event, 0, sizeof(event));
++    check(os2_mou_MouReadEventQue(&session, &event, &wait, hmou) == 0U &&
++          event.fs == OS2_MOU_MOUSE_MOTION && event.row == 5U &&
++          event.col == 8U && event.time == 100UL,
++          "absolute motion event semantics");
++    memset(&event, 0, sizeof(event));
++    check(os2_mou_MouReadEventQue(&session, &event, &wait, hmou) == 0U &&
++          (event.fs & OS2_MOU_MOUSE_BN1_DOWN) != 0U && event.time == 101UL,
++          "button-down event semantics");
++    memset(&event, 0xff, sizeof(event));
++    check(os2_mou_MouReadEventQue(&session, &event, &wait, hmou) ==
++              OS2_MOU_NO_ERROR_MOUSE_NO_DATA &&
++          event.fs == 0U && event.time == 0UL,
++          "NOWAIT empty queue returns NO_DATA and zero event");
++
++    value = OS2_MOU_STATUS_MICKEYS;
++    check(os2_mou_MouSetDevStatus(&session, &value, hmou) == 0U,
++          "enable relative mickey reporting");
++    push_event(&fake, 8U, 10U, OS2_MOU_BUTTON1, 0U, 1, 102UL);
++    memset(&event, 0, sizeof(event));
++    check(os2_mou_MouReadEventQue(&session, &event, &wait, hmou) == 0U &&
++          (signed short)event.row == 3 && (signed short)event.col == 2 &&
++          (event.fs & OS2_MOU_MOUSE_MOTION_WITH_BN1_DOWN) != 0U,
++          "relative motion uses signed two's-complement row/col");
++
++    loc.row = 9U; loc.col = 11U;
++    check(os2_mou_MouSetPtrPos(&session, &loc, hmou) == 0U &&
++          fake.warp_count == 1U && fake.warp_row == 9U && fake.warp_col == 11U,
++          "set pointer updates common state and backend");
++    memset(&loc, 0, sizeof(loc));
++    check(os2_mou_MouGetPtrPos(&session, &loc, hmou) == 0U &&
++          loc.row == 9U && loc.col == 11U,
++          "get pointer returns common absolute position");
++
++    scale.rowScale = 2U; scale.colScale = 3U;
++    check(os2_mou_MouSetScaleFact(&session, &scale, hmou) == 0U,
++          "set scale factors");
++    memset(&scale, 0, sizeof(scale));
++    check(os2_mou_MouGetScaleFact(&session, &scale, hmou) == 0U &&
++          scale.rowScale == 2U && scale.colScale == 3U,
++          "get scale factors");
++
++    memset(&threshold, 0, sizeof(threshold));
++    threshold.Length = 10U;
++    threshold.Level1 = 3U; threshold.Lev1Mult = 2U;
++    threshold.Level2 = 7U; threshold.lev2Mult = 4U;
++    check(os2_mou_MouSetThreshold(&session, &threshold, hmou) == 0U,
++          "set threshold");
++    memset(&threshold, 0, sizeof(threshold));
++    check(os2_mou_MouGetThreshold(&session, &threshold, hmou) == 0U &&
++          threshold.Level2 == 7U && threshold.lev2Mult == 4U,
++          "get threshold");
++
++    memset(&shape, 0, sizeof(shape));
++    shape.cb = 4U; shape.col = 1U; shape.row = 1U;
++    shape_data[0] = 1U; shape_data[1] = 2U;
++    shape_data[2] = 3U; shape_data[3] = 4U;
++    check(os2_mou_MouSetPtrShape(&session, shape_data, &shape, hmou) == 0U,
++          "set logical pointer shape");
++    memset(shape_data, 0, sizeof(shape_data));
++    memset(&shape, 0, sizeof(shape));
++    shape.cb = (unsigned short)sizeof(shape_data);
++    check(os2_mou_MouGetPtrShape(&session, shape_data, &shape, hmou) == 0U &&
++          shape.cb == 4U && shape_data[0] == 1U && shape_data[3] == 4U,
++          "get logical pointer shape");
++
++    push_event(&fake, 10U, 12U, 0U, OS2_MOU_BUTTON1, 0, 103UL);
++    check(os2_mou_MouFlushQue(&session, hmou) == 0U && fake.flush_count == 1U,
++          "flush clears common and backend pending input");
++    present = 1;
++    memset(&event, 0, sizeof(event));
++    check(os2_mou_try_read(&session, &event, &present, hmou) == 0U && !present,
++          "nonblocking scheduler primitive reports no event");
++
++    check(os2_mou_MouRegister(&session, "X", "Y", 1UL) ==
++              OS2_MOU_ERROR_MOUSE_REGISTER,
++          "subsystem replacement explicitly unsupported");
++    check(os2_mou_MouDeRegister(&session) == OS2_MOU_ERROR_MOUSE_DEREGISTER,
++          "deregister explicitly unsupported");
++
++    check(os2_mou_MouClose(&session, hmou) == 0U &&
++          fake.deactivate_count == 0U,
++          "closing one handle leaves shared device active");
++    check(os2_mou_MouClose(&session, hmou2) == 0U &&
++          fake.deactivate_count == 1U,
++          "last close deactivates backend");
++    check(os2_mou_MouClose(&session, hmou2) == OS2_MOU_ERROR_MOUSE_INV_HANDLE,
++          "stale HMOU rejected");
++
++    if (failures != 0) {
++        fprintf(stderr, "mou-core-check: %d failure(s)\n", failures);
++        return 1;
++    }
++    printf("mou-core-check: PASS\n");
++    return 0;
++}
+diff --git a/tests/mou/mou-veneer-check.c b/tests/mou/mou-veneer-check.c
+new file mode 100644
+index 0000000..8d0c00c
+--- /dev/null
++++ b/tests/mou/mou-veneer-check.c
+@@ -0,0 +1,100 @@
++#include <stdio.h>
++#include <string.h>
++
++#include "os2_mou.h"
++#include "os2_mou_backend.h"
++
++static struct Os2MouSession session;
++static int initialized;
++static unsigned int activate_count;
++static unsigned int read_count;
++
++static Os2MouApiRet fake_activate(void *opaque, unsigned short *buttons,
++                                  unsigned short *mickeys,
++                                  unsigned short *row, unsigned short *col)
++{
++    (void)opaque;
++    ++activate_count;
++    *buttons = 2U; *mickeys = 8U; *row = 1U; *col = 2U;
++    return 0U;
++}
++static Os2MouApiRet fake_deactivate(void *opaque) { (void)opaque; return 0U; }
++static Os2MouApiRet fake_read(void *opaque, int wait,
++                              struct Os2MouHostEvent *event, int *present)
++{
++    (void)opaque; (void)wait;
++    ++read_count;
++    memset(event, 0, sizeof(*event));
++    *present = 0;
++    if (read_count == 1U) {
++        event->row = 3U; event->col = 4U; event->motion = 1;
++        event->time = 123UL; *present = 1;
++    }
++    return 0U;
++}
++static Os2MouApiRet fake_flush(void *opaque) { (void)opaque; return 0U; }
++static Os2MouApiRet fake_warp(void *opaque, unsigned short row,
++                              unsigned short col)
++{ (void)opaque; (void)row; (void)col; return 0U; }
++static const struct Os2MouBackendOps ops = {
++    fake_activate, fake_deactivate, fake_read, fake_flush, fake_warp
++};
++
++struct Os2MouSession *os2_mou_win32_session(void)
++{
++    if (!initialized) {
++        os2_mou_session_init(&session, NULL, &ops);
++        initialized = 1;
++    }
++    return &session;
++}
++
++unsigned short MouOpen(const char *, unsigned short *);
++unsigned short MouClose(unsigned short);
++unsigned short MouGetNumButtons(unsigned short *, unsigned short);
++unsigned short MouReadEventQue(struct Os2MouEventInfo *, unsigned short *, unsigned short);
++unsigned short MouSetEventMask(const unsigned short *, unsigned short);
++unsigned short MouGetPtrPos(struct Os2MouPtrLoc *, unsigned short);
++
++static int failures;
++static void check(int ok, const char *message)
++{
++    if (!ok) { fprintf(stderr, "FAIL: %s\n", message); ++failures; }
++}
++
++int main(void)
++{
++    unsigned short hmou;
++    unsigned short buttons;
++    unsigned short mask;
++    unsigned short wait;
++    struct Os2MouEventInfo event;
++    struct Os2MouPtrLoc loc;
++
++    hmou = 0U;
++    check(MouOpen(NULL, &hmou) == 0U && hmou != 0U && activate_count == 1U,
++          "actual MouOpen veneer reaches common semantics");
++    buttons = 0U;
++    check(MouGetNumButtons(&buttons, hmou) == 0U && buttons == 2U,
++          "actual MouGetNumButtons veneer");
++    mask = OS2_MOU_MOUSE_MOTION;
++    check(MouSetEventMask(&mask, hmou) == 0U,
++          "actual MouSetEventMask veneer");
++    wait = OS2_MOU_NOWAIT;
++    memset(&event, 0, sizeof(event));
++    check(MouReadEventQue(&event, &wait, hmou) == 0U &&
++          event.fs == OS2_MOU_MOUSE_MOTION && event.row == 3U &&
++          event.col == 4U && event.time == 123UL,
++          "actual MouReadEventQue veneer");
++    memset(&loc, 0, sizeof(loc));
++    check(MouGetPtrPos(&loc, hmou) == 0U && loc.row == 3U && loc.col == 4U,
++          "actual MouGetPtrPos veneer shares common state");
++    check(MouClose(hmou) == 0U, "actual MouClose veneer");
++
++    if (failures != 0) {
++        fprintf(stderr, "mou-veneer-check: %d failure(s)\n", failures);
++        return 1;
++    }
++    printf("mou-veneer-check: PASS\n");
++    return 0;
++}
+diff --git a/tests/mou/mou-win32-shim-check.c b/tests/mou/mou-win32-shim-check.c
+new file mode 100644
+index 0000000..cb38ce8
+--- /dev/null
++++ b/tests/mou/mou-win32-shim-check.c
+@@ -0,0 +1,77 @@
++#include <stdio.h>
++#include <string.h>
++
++#include "windows.h"
++#include "os2_mou.h"
++#include "os2_mou_win32.h"
++
++static int failures;
++static void check(int ok, const char *message)
++{
++    if (!ok) { fprintf(stderr, "FAIL: %s\n", message); ++failures; }
++}
++
++int main(void)
++{
++    struct Os2MouSession *session;
++    struct Os2MouEventInfo event;
++    struct Os2MouPtrLoc loc;
++    unsigned short hmou;
++    unsigned short wait;
++    unsigned short row;
++    unsigned short col;
++
++    mou_stub_reset();
++    session = os2_mou_win32_session();
++    hmou = 0U;
++    check(os2_mou_MouOpen(session, NULL, &hmou) == 0U && hmou != 0U &&
++          session->pointer.row == 2U && session->pointer.col == 3U &&
++          session->buttons == 3U,
++          "Win32 activation samples pointer and button count");
++
++    wait = OS2_MOU_NOWAIT;
++    memset(&event, 0, sizeof(event));
++    check(os2_mou_MouReadEventQue(session, &event, &wait, hmou) ==
++              OS2_MOU_NO_ERROR_MOUSE_NO_DATA,
++          "unchanged sampled pointer yields no event");
++
++    mou_stub_set_pointer(4U, 5U, 0U);
++    memset(&event, 0, sizeof(event));
++    check(os2_mou_MouReadEventQue(session, &event, &wait, hmou) == 0U &&
++          event.fs == OS2_MOU_MOUSE_MOTION && event.row == 4U &&
++          event.col == 5U,
++          "Win32 pointer motion becomes OS/2 motion event");
++
++    mou_stub_set_pointer(4U, 5U, OS2_MOU_BUTTON1);
++    memset(&event, 0, sizeof(event));
++    check(os2_mou_MouReadEventQue(session, &event, &wait, hmou) == 0U &&
++          (event.fs & OS2_MOU_MOUSE_BN1_DOWN) != 0U,
++          "Win32 left-button transition becomes OS/2 button event");
++
++    loc.row = 6U; loc.col = 7U;
++    check(os2_mou_MouSetPtrPos(session, &loc, hmou) == 0U &&
++          mou_stub_setpos_count() == 1U,
++          "MouSetPtrPos reaches Win32 pointer warp backend");
++    row = col = 0U;
++    mou_stub_get_pointer(&row, &col);
++    check(row == 6U && col == 7U,
++          "Win32 pointer warp maps OS/2 cell coordinates to host pixels");
++
++    mou_stub_set_pointer(8U, 9U, 0U);
++    check(os2_mou_MouFlushQue(session, hmou) == 0U,
++          "Win32 flush resamples baseline");
++    memset(&event, 0, sizeof(event));
++    check(os2_mou_MouReadEventQue(session, &event, &wait, hmou) ==
++              OS2_MOU_NO_ERROR_MOUSE_NO_DATA,
++          "flush prevents pre-flush sample from leaking as event");
++
++    check(os2_mou_MouClose(session, hmou) == 0U,
++          "Win32 close/deactivate path");
++
++    if (failures != 0) {
++        fprintf(stderr, "mou-win32-shim-check: %d failure(s)\n", failures);
++        return 1;
++    }
++    printf("mou-win32-shim-check: PASS\n");
++    return 0;
++}
+diff --git a/tests/mou/win32-stub/win32_mou_stub.c b/tests/mou/win32-stub/win32_mou_stub.c
+new file mode 100644
+index 0000000..fae9b07
+--- /dev/null
++++ b/tests/mou/win32-stub/win32_mou_stub.c
+@@ -0,0 +1,97 @@
++#include <string.h>
++#include "windows.h"
++
++static int output_token;
++static int hwnd_token;
++static POINT cursor;
++static unsigned short button_state;
++static DWORD last_error;
++static DWORD tick;
++static unsigned int sleeps;
++static unsigned int setpos_count;
++
++#define CELL_X 8
++#define CELL_Y 16
++
++void mou_stub_reset(void)
++{
++    cursor.x = 3 * CELL_X + CELL_X / 2;
++    cursor.y = 2 * CELL_Y + CELL_Y / 2;
++    button_state = 0U;
++    last_error = 0UL;
++    tick = 1000UL;
++    sleeps = 0U;
++    setpos_count = 0U;
++}
++
++void mou_stub_set_pointer(unsigned short row, unsigned short col,
++                          unsigned short buttons)
++{
++    cursor.x = (LONG)col * CELL_X + CELL_X / 2;
++    cursor.y = (LONG)row * CELL_Y + CELL_Y / 2;
++    button_state = buttons;
++}
++
++void mou_stub_get_pointer(unsigned short *row, unsigned short *col)
++{
++    if (row != NULL) *row = (unsigned short)(cursor.y / CELL_Y);
++    if (col != NULL) *col = (unsigned short)(cursor.x / CELL_X);
++}
++unsigned int mou_stub_sleep_count(void) { return sleeps; }
++unsigned int mou_stub_setpos_count(void) { return setpos_count; }
++
++HANDLE GetStdHandle(DWORD which)
++{
++    if (which == STD_OUTPUT_HANDLE) return (HANDLE)&output_token;
++    return INVALID_HANDLE_VALUE;
++}
++DWORD GetFileType(HANDLE handle)
++{
++    return handle == (HANDLE)&output_token ? FILE_TYPE_CHAR : 0UL;
++}
++HWND GetConsoleWindow(void) { return (HWND)&hwnd_token; }
++BOOL GetCursorPos(POINT *point) { *point = cursor; return TRUE; }
++BOOL ScreenToClient(HWND hwnd, POINT *point)
++{ (void)hwnd; (void)point; return TRUE; }
++BOOL ClientToScreen(HWND hwnd, POINT *point)
++{ (void)hwnd; (void)point; return TRUE; }
++BOOL GetConsoleScreenBufferInfo(HANDLE handle, CONSOLE_SCREEN_BUFFER_INFO *info)
++{
++    (void)handle;
++    memset(info, 0, sizeof(*info));
++    info->dwSize.X = 80; info->dwSize.Y = 25;
++    info->srWindow.Left = 0; info->srWindow.Top = 0;
++    info->srWindow.Right = 79; info->srWindow.Bottom = 24;
++    return TRUE;
++}
++BOOL GetCurrentConsoleFont(HANDLE handle, BOOL maximum_window, CONSOLE_FONT_INFO *font)
++{
++    (void)handle; (void)maximum_window;
++    font->nFont = 1UL;
++    font->dwFontSize.X = CELL_X; font->dwFontSize.Y = CELL_Y;
++    return TRUE;
++}
++COORD GetConsoleFontSize(HANDLE handle, DWORD font_index)
++{
++    COORD c;
++    (void)handle; (void)font_index;
++    c.X = CELL_X; c.Y = CELL_Y; return c;
++}
++SHORT GetAsyncKeyState(int key)
++{
++    unsigned short bit;
++    bit = 0U;
++    if (key == VK_LBUTTON) bit = 0x0001U;
++    else if (key == VK_RBUTTON) bit = 0x0002U;
++    else if (key == VK_MBUTTON) bit = 0x0004U;
++    return (button_state & bit) != 0U ? (SHORT)0x8000 : 0;
++}
++int GetSystemMetrics(int index)
++{ return index == SM_CMOUSEBUTTONS ? 3 : 0; }
++DWORD GetTickCount(void) { return tick++; }
++void Sleep(DWORD milliseconds) { (void)milliseconds; ++sleeps; }
++BOOL SetCursorPos(int x, int y)
++{
++    cursor.x = x; cursor.y = y; ++setpos_count; return TRUE;
++}
++DWORD GetLastError(void) { return last_error; }
+diff --git a/tests/mou/win32-stub/windows.h b/tests/mou/win32-stub/windows.h
+new file mode 100644
+index 0000000..5f0a966
+--- /dev/null
++++ b/tests/mou/win32-stub/windows.h
+@@ -0,0 +1,64 @@
++#ifndef MOU_TEST_WINDOWS_H
++#define MOU_TEST_WINDOWS_H
++
++#include <stddef.h>
++#include <string.h>
++
++typedef unsigned long DWORD;
++typedef unsigned short WORD;
++typedef short SHORT;
++typedef long LONG;
++typedef int BOOL;
++typedef void *HANDLE;
++typedef void *HWND;
++
++#define TRUE 1
++#define FALSE 0
++#define INVALID_HANDLE_VALUE ((HANDLE)(long)-1)
++#define STD_OUTPUT_HANDLE ((DWORD)-11)
++#define FILE_TYPE_CHAR 2UL
++#define ERROR_INVALID_HANDLE 6UL
++#define ERROR_INVALID_PARAMETER 87UL
++#define VK_LBUTTON 0x01
++#define VK_RBUTTON 0x02
++#define VK_MBUTTON 0x04
++#define SM_CMOUSEBUTTONS 43
++
++#define ZeroMemory(p,n) memset((p),0,(n))
++
++typedef struct _COORD { short X; short Y; } COORD;
++typedef struct _SMALL_RECT { short Left; short Top; short Right; short Bottom; } SMALL_RECT;
++typedef struct _CONSOLE_SCREEN_BUFFER_INFO {
++    COORD dwSize;
++    COORD dwCursorPosition;
++    WORD wAttributes;
++    SMALL_RECT srWindow;
++    COORD dwMaximumWindowSize;
++} CONSOLE_SCREEN_BUFFER_INFO;
++typedef struct _CONSOLE_FONT_INFO { DWORD nFont; COORD dwFontSize; } CONSOLE_FONT_INFO;
++typedef struct tagPOINT { LONG x; LONG y; } POINT;
++
++HANDLE GetStdHandle(DWORD which);
++DWORD GetFileType(HANDLE handle);
++HWND GetConsoleWindow(void);
++BOOL GetCursorPos(POINT *point);
++BOOL ScreenToClient(HWND hwnd, POINT *point);
++BOOL ClientToScreen(HWND hwnd, POINT *point);
++BOOL GetConsoleScreenBufferInfo(HANDLE handle, CONSOLE_SCREEN_BUFFER_INFO *info);
++BOOL GetCurrentConsoleFont(HANDLE handle, BOOL maximum_window, CONSOLE_FONT_INFO *font);
++COORD GetConsoleFontSize(HANDLE handle, DWORD font_index);
++SHORT GetAsyncKeyState(int key);
++int GetSystemMetrics(int index);
++DWORD GetTickCount(void);
++void Sleep(DWORD milliseconds);
++BOOL SetCursorPos(int x, int y);
++DWORD GetLastError(void);
++
++void mou_stub_reset(void);
++void mou_stub_set_pointer(unsigned short row, unsigned short col,
++                          unsigned short buttons);
++void mou_stub_get_pointer(unsigned short *row, unsigned short *col);
++unsigned int mou_stub_sleep_count(void);
++unsigned int mou_stub_setpos_count(void);
++
++#endif
+diff --git a/tools/check_mou_r2.py b/tools/check_mou_r2.py
+new file mode 100755
+index 0000000..cee6f5d
+--- /dev/null
++++ b/tools/check_mou_r2.py
+@@ -0,0 +1,73 @@
++#!/usr/bin/env python3
++from pathlib import Path
++import re, sys
++
++root = Path(__file__).resolve().parents[1]
++fail = []
++
++def need(cond, msg):
++    if not cond:
++        fail.append(msg)
++
++expected = [
++    ("MouGetPtrShape",1),("MouSetPtrShape",2),("MouGetNumMickeys",3),
++    ("MouGetThreshold",4),("MouGetScaleFact",6),("MouFlushQue",7),
++    ("MouGetNumButtons",8),("MouClose",9),("MouSetThreshold",10),
++    ("MouSetScaleFact",11),("MouGetNumQueEl",13),("MouDeRegister",14),
++    ("MouGetEventMask",15),("MouSetEventMask",16),("MouOpen",17),
++    ("MouRemovePtr",18),("MouGetPtrPos",19),("MouReadEventQue",20),
++    ("MouSetPtrPos",21),("MouGetDevStatus",22),("MouSynch",23),
++    ("MouRegister",24),("MouSetDevStatus",25),("MouDrawPtr",26),
++    ("MouInitReal",27),
++]
++
++def_text=(root/'dlls/moucalls/moucalls.def').read_text()
++for name,ordv in expected:
++    need(re.search(r'^\s*%s\s+@%d\s+NONAME\s*$' % (name,ordv), def_text, re.M),
++         '%s @%d missing from moucalls.def' % (name,ordv))
++need(len(re.findall(r'^\s*Mou\w+\s+@\d+\s+NONAME\s*$', def_text, re.M)) == len(expected),
++     'unexpected MOUCALLS export count')
++
++common=(root/'common/mou/os2_mou.c').read_text()
++header=(root/'common/include/os2_mou.h').read_text()
++backend=(root/'common/win32/os2_mou_win32.c').read_text()
++veneer=(root/'dlls/moucalls/moucalls.c').read_text()
++loader=(root/'loader/os2host32.c').read_text()
++make=(root/'Makefile').read_text()
++catalog=(root/'common/api/os2_api_catalog.inc').read_text()
++
++for token in ('windows.h','GetCursorPos','GetAsyncKeyState','SetCursorPos'):
++    need(token not in common, 'Win32 token leaked into common mouse semantics: '+token)
++need(re.search(r'\bHANDLE\b|\bHWND\b', common) is None,
++     'Win32 handle/window type leaked into common mouse semantics')
++need('struct Os2MouSession' in header and 'events[OS2_MOU_MAX_EVENTS]' in header,
++     'common mouse session/event queue missing')
++need('os2_mou_try_read' in common and 'os2_mou_try_read' in header,
++     'nonblocking MOU scheduler primitive missing')
++need('GetCursorPos' in backend and 'GetAsyncKeyState' in backend,
++     'Win32 backend is not host pointer/button adapter')
++need('ReadConsoleInput' not in backend and 'PeekConsoleInput' not in backend,
++     'MOU backend must not consume KBD console INPUT_RECORD stream')
++need('os2_mou_' in veneer and 'GetCursorPos' not in veneer,
++     'MOUCALLS veneer is not thin/common-routed')
++need('MOUCALLS.dll' in make and 'mou-win32-shim-check' in make,
++     'Makefile MOU wiring/checks missing')
++need('"MOUCALLS"' in loader and 'MouReadEventQue' in loader,
++     'loader MOUCALLS personality/far16 wiring missing')
++for name,ordv in expected:
++    need(re.search(r'\{\s*"MOUCALLS",\s*%dUL,\s*"%s"' % (ordv, name), loader) is not None,
++         'far16 descriptor missing for %s.%d' % (name, ordv))
++for name,ordv in expected:
++    need(('OS2_API("MOUCALLS", %du, "%s"' % (ordv,name)) in catalog,
++         'API catalog missing %s.%d' % (name,ordv))
++
++# Registration routing is intentionally not implemented in this milestone.
++need('OS2_MOU_ERROR_MOUSE_REGISTER' in common and
++     'OS2_MOU_ERROR_MOUSE_DEREGISTER' in common,
++     'MouRegister/MouDeRegister limitation is not explicit')
++
++if fail:
++    for msg in fail:
++        print('FAIL:', msg)
++    sys.exit(1)
++print('mou-static-check: PASS')
+diff --git a/tools/check_sesmgr_r2.py b/tools/check_sesmgr_r2.py
+index 019ae82..0307672 100755
+--- a/tools/check_sesmgr_r2.py
++++ b/tools/check_sesmgr_r2.py
+@@ -20,9 +20,11 @@ def need(cond, msg):
+ need(sha('dlls/sesmgr/sesmgr.def') ==
+      'a61b200f3b1e6ff595d6219b31779129bf9c88dfae3b01ea5400ec78918ee913',
+      'sesmgr.def changed')
+-need(sha('loader/os2host32.c') ==
++loader_hash = sha('loader/os2host32.c')
++need(loader_hash in (
+      '793ee7de7c6d0bd79b7d8bbdfaab6774cb2ec6af39b88d0cefc3c714430f0c55',
+-     'loader/os2host32.c changed')
++     'f70f7136e49971f5cacaeec4b17aab1afb768f9f32dcf267d47512f9f210ebda'),
++     'loader/os2host32.c changed outside frozen SESMGR or later MOUCALLS wiring')
+ 
+ def_text = read('dlls/sesmgr/sesmgr.def')
+ for exp in ('DOSSMSETTITLE=DosSmSetTitle @5', 'DosStopSession @8',

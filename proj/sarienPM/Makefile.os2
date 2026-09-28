@@ -1,0 +1,32 @@
+
+DEFS =  -D__32BIT__ -DM_I386 -D _MSC_VER=6 -DKEYS_WORK
+INC = /u /w -Iinclude
+OPT = /G3 /Ox
+#OPT = /G3 /Ogilt /Gs
+DEBUG = #/Zi
+LDEBUG = #-debug:full
+CC=cl386
+OS2LINK = LINK386.EXE
+
+CFLAGS= $(INC) $(DEFS) $(OPT)
+
+OBJ = agi.obj agi_v2.obj agi_v3.obj agi_v4.obj checks.obj cli.obj console.obj cycle.obj \
+ font.obj getopt.obj getopt1.obj global.obj graphics.obj hirespic.obj id.obj inv.obj \
+keyboard.obj logic.obj lzw.obj main.obj menu.obj motion.obj objects.obj op_cmd.obj \
+op_dbg.obj op_test.obj patches.obj path.obj picture.obj picview.obj rand.obj savegame.obj \
+silent.obj sound.obj sprite.obj text.obj view.obj words.obj fileglob.obj
+INVOLVED = fileglob.obj
+HARD = dummy.obj pccga.obj pcvga.obj pharcga.obj pharvid.obj
+NULL = dummy.obj nullvid.obj
+
+sarien:  $(OBJ) $(NULL)
+	$(OS2LINK) @sarien.lnk
+
+.c.obj:
+	$(CC) $(CFLAGS) /c $*.c
+
+
+clean:
+	@del $(OBJ)
+	@del  sarien.exe
+	@del *.asm *.a1 *.a

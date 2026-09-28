@@ -1,0 +1,37 @@
+Stack Allocation = 16000 bytes
+
+ HACK
+
+ Start         Length     Name                   Class
+ 0001:00000000 0000259CEH _TEXT                  CODE 32-bit
+ 0002:00000000 00000009AH $C20005_CODE16         CODE 16-bit
+ 0002:0000009A 00000002AH $C20004_CODE16         CODE 16-bit
+ 0003:00000000 000000041H NULL                   BEGDATA 32-bit
+ 0003:00000044 00000B9A4H _DATA                  DATA 32-bit
+ 0003:0000B9E8 000000000H XIB                    DATA 32-bit
+ 0003:0000B9E8 000000000H XI                     DATA 32-bit
+ 0003:0000B9E8 000000000H XIE                    DATA 32-bit
+ 0003:0000B9E8 000000000H XPB                    DATA 32-bit
+ 0003:0000B9E8 000000004H XP                     DATA 32-bit
+ 0003:0000B9EC 000000000H XPE                    DATA 32-bit
+ 0003:0000B9EC 000000000H XCB                    DATA 32-bit
+ 0003:0000B9EC 000000000H XC                     DATA 32-bit
+ 0003:0000B9EC 000000000H XCE                    DATA 32-bit
+ 0003:0000B9EC 000000010H CDATA                  DATA 32-bit
+ 0003:0000B9FC 000000000H CONST                  CONST 32-bit
+ 0003:0000B9FC 000000008H HDR                    MSG 32-bit
+ 0003:0000BA04 000000108H MSG                    MSG 32-bit
+ 0003:0000BB0C 000000013H PAD                    MSG 32-bit
+ 0003:0000BB1F 000000001H EPAD                   MSG 32-bit
+ 0003:0000BB20 0000008B4H _BSS                   BSS 32-bit
+ 0003:0000C3D4 000000000H XOB                    BSS 32-bit
+ 0003:0000C3D4 000000000H XO                     BSS 32-bit
+ 0003:0000C3D4 000000000H XOE                    BSS 32-bit
+ 0003:0000C3E0 0000048CCH c_common               BSS 32-bit
+ 0003:00010CB0 000003E80H STACK                  STACK 32-bit
+
+ Origin   Group
+ 0003:0   DGROUP
+ 0000:0   FLAT
+
+Program entry point at 0001:12D8

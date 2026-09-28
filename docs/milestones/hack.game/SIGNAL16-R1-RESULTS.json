@@ -1,0 +1,46 @@
+{
+  "milestone": "SIGNAL16_R1_STATIC_VERIFIED_RUNTIME_PENDING",
+  "baseline": "os2host32-MOUCALLS-R2",
+  "crt_missing_symbols": [
+    "SYSSETSIGHANDLER",
+    "SYSSETVEC"
+  ],
+  "import_aliases": {
+    "SYSSETSIGHANDLER": "DOSCALLS.14",
+    "SYSSETVEC": "DOSCALLS.89"
+  },
+  "apis": {
+    "DosSetSigHandler": {
+      "ordinal": 14,
+      "far16_widths_low_to_high": [
+        2,
+        2,
+        4,
+        4,
+        4
+      ],
+      "common_state": true,
+      "actual_delivery": false
+    },
+    "DosSetVec": {
+      "ordinal": 89,
+      "far16_widths_low_to_high": [
+        4,
+        4,
+        2
+      ],
+      "common_state": true,
+      "actual_delivery": false
+    }
+  },
+  "verification": {
+    "gcc_strict_c89_make_verify": "PASS",
+    "clang_strict_c89_make_verify": "PASS",
+    "mingw_build": "PENDING_USER",
+    "c386_link_runtime": "PENDING_USER"
+  },
+  "hashes": {
+    "doscalls_def": "1675df8a6723f40a1344b90c9ebeb398312b9439cb8000008e3ff903ccb7d4c1",
+    "loader_os2host32_c": "2c529621dab08a3f5f01de7b4e22b83b7bd34077061ae1e18f094e7ff0ca99ad"
+  }
+}

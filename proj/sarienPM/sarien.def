@@ -1,0 +1,8 @@
+;-----------------------------------
+; BEZIER.DEF module definition file
+;-----------------------------------
+
+NAME            FASTGPI    WINDOWAPI
+
+DESCRIPTION    'Sarien 0.8.0-j2me'
+STACKSIZE       256000

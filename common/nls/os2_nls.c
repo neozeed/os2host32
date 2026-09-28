@@ -7,6 +7,7 @@
  * WHP and a future software-x86 loader.
  */
 #include "os2_nls.h"
+#include "os2_nls_backend.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -70,16 +71,41 @@ const struct Os2NlsCountryProfile *os2_nls_country(uint32_t country)
     return NULL;
 }
 
-void os2_nls_state_init(struct Os2NlsState *state)
+void os2_nls_session_init(struct Os2NlsState *state,
+                          void *backend_opaque,
+                          const struct Os2NlsBackendOps *backend)
 {
+    uint32_t host_country;
+    uint32_t host_codepage;
+
     if (state == NULL)
         return;
     memset(state, 0, sizeof(*state));
+    state->backend_opaque = backend_opaque;
+    state->backend = backend;
     state->country = 1u;
     state->current_codepage = 437u;
     state->prepared_codepages[0] = 437u;
     state->prepared_codepages[1] = 850u;
     state->prepared_count = 2u;
+
+    /* Host values are bootstrap hints only.  Unsupported host locale/codepage
+     * values never escape into guest-visible state. */
+    host_country = 0u;
+    host_codepage = 0u;
+    if (backend != NULL && backend->query_initial_profile != NULL &&
+        backend->query_initial_profile(backend_opaque, &host_country,
+                                       &host_codepage)) {
+        if (host_country != 0u)
+            (void)os2_nls_set_country(state, host_country);
+        if (host_codepage != 0u)
+            (void)os2_nls_set_process_cp(state, host_codepage);
+    }
+}
+
+void os2_nls_state_init(struct Os2NlsState *state)
+{
+    os2_nls_session_init(state, NULL, NULL);
 }
 
 int os2_nls_set_country(struct Os2NlsState *state, uint32_t country)

@@ -1,0 +1,73 @@
+{
+  "milestone": "OS2HOST32 VIO R2 full cell state",
+  "date": "2026-09-27",
+  "status": "VIO_R2_FULL_CELL_STATE_STATIC_VERIFIED_RUNTIME_PENDING",
+  "baseline": {
+    "package": "os2host32-VIO-R1-R2.zip",
+    "sha256": "13319b58124104ffab2f3c8b52291c2e0a9aa59abf4453da2f1b6b9d752df70a",
+    "user_runtime_report": "Phase-1 behavior reported as working well enough to proceed"
+  },
+  "scope": {
+    "backend": "Win32 Console only",
+    "new_os2_api_exports": 0,
+    "loader_descriptor_changes": 0,
+    "kbd_changes": 0,
+    "doscalls_behavior_changes": 0,
+    "reactos": false,
+    "whp": false,
+    "pm_avio": false,
+    "ansi": false,
+    "real_16bit_cpu_execution": false
+  },
+  "common_state": {
+    "rows_columns": true,
+    "cursor_position": true,
+    "cursor_type_visibility": true,
+    "default_attribute": true,
+    "cell_buffer": true,
+    "cell_format": "unsigned char character + unsigned char OS/2 attribute",
+    "dynamic_resize": true,
+    "backend_seed": "read_cells",
+    "session_destroy": true
+  },
+  "win32_backend": {
+    "snapshot_characters": "ReadConsoleOutputCharacterA",
+    "snapshot_attributes": "ReadConsoleOutputAttribute",
+    "direct_char_render": "WriteConsoleOutputCharacterA",
+    "direct_attr_render": "FillConsoleOutputAttribute",
+    "scroll_render": "ScrollConsoleScreenBufferA / fill",
+    "tty_render": "WriteFile"
+  },
+  "semantic_results": {
+    "VioWrtCharStr": "backend render then common character update; attribute preserved; cursor unchanged",
+    "VioWrtCharStrAtt": "backend render then common character+OS/2 attribute update; cursor unchanged",
+    "VioScrollUp": "backend scroll then matching common cell move/fill",
+    "VioWrtTTY": "native stream write retained; opportunistic console resnapshot afterwards",
+    "VioGetCurPos_SetCurPos": "common state retained with backend synchronization",
+    "VioGetCurType_SetCurType": "common state retained with Win32 cursor approximation",
+    "VioGetMode": "dynamic backend dimensions retained",
+    "HVIO": "0 only"
+  },
+  "tests": {
+    "make_verify": "PASS",
+    "vio_core_check": "PASS",
+    "vio_win32_shim_check": "PASS",
+    "check_vio_life_surface": "PASS",
+    "clang_c89_vio_core": "PASS",
+    "clang_c89_vio_win32_shim": "PASS",
+    "partial_scroll_shadow": "PASS",
+    "tty_resnapshot": "PASS",
+    "existing_regressions": "PASS"
+  },
+  "runtime": {
+    "r1_baseline": "user reported success",
+    "r2_real_win32_execution": "NOT_RUN in worker environment",
+    "r2_pass_claimed": false
+  },
+  "known_boundaries": [
+    "Win32 cursor size is percentage-based; OS/2 scan-line shape remains approximate.",
+    "OS/2 attribute bit 7 is retained in common state but dropped by Win32 rendering rather than being misrepresented as background intensity.",
+    "DosWrite(stdout) is not routed through VIO; external host writes can temporarily desynchronize the common cell image.",
+    "Win32 Console remains the only backend."
+  ]
+}

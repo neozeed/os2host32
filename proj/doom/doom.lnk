@@ -1,0 +1,16 @@
+am_map doomdef doomstat dstrings d_items d_main +
+d_net fixdfsi f_finale f_wipe g_game hu_lib +
+hu_stuff info i_main i_net i_sound m_argv +
+m_bbox m_cheat m_fixed m_menu m_misc m_random +
+m_swap p_ceilng p_doors p_enemy p_floor p_inter +
+p_lights p_map p_maputl p_mobj p_plats p_pspr +
+p_saveg p_setup p_sight p_spec p_switch p_telept +
+p_tick p_user r_bsp r_data r_draw r_main +
+r_plane r_segs r_sky r_things sounds +
+st_lib st_stuff s_sound tables v_video +
+wi_stuff w_wad z_zone i_video i_system
+doom2 /NOIG /NOD:OLDNAMES /NOD:LIBCRT
+nul.map
+libc.lib +
+os2386.lib
+nul.def;

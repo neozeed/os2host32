@@ -1,0 +1,266 @@
+
+                         TradeWars 200/QuixPlus version
+
+
+This ARC file contains all of the files necessary to run TradeWars II/QP on a
+WWIV 3.21D BBS.  The steps to setting up the file for use are relativly simple:
+
+You should have the following files in your ARC package:
+
+TW2.PAS
+TWOVER.PAS
+TWMAINT.PAS
+TWEDIT.PAS
+TWDATA.DAT
+TWOPENG.DAT
+TWSMF.DAT
+KENTMAD.MSG
+GENEBOOM.MSG
+GENESIS.MSG
+TWHELLO.MSG
+TWMINE.MSG
+TWNEWMOD.MSG
+TW2.DOC
+TWINSTR.DOC
+TWMAP1.DOC
+
+1) Transfer all of the .MSG files to your GFILES subdirectory.
+
+2) Transfer all other files to the main BBS Directory.
+
+3) First, compile TW2.PAS, then TWEDIT.PAS as .CHN files, and place them in
+   your CHN file manager.  (using your common.pas file)
+
+4) There is no 4). I told you this was simple. Just fire up WWIV, call up
+   TW2, and play. If you need to edit a player, call up TWEDIT. Both are
+   Menu-Driven, so, it's really simple!...
+
+
+...HOWEVER...
+
+...The hard part is explaining the program itself, and what each individual
+part of it does. Perhaps if I go over the history of the program, you'll under-
+stand how difficult it is...
+
+
+
+                        HISTORY (duh.....)
+
+
+...This program was originally written by Chris Sherrick (PTL, whether that's
+his handle, or short for Praise You-Know-Who, I dunno...) in an obscure little
+language called Beginner's All-Purose Instructional Code (BASIC for short...).
+The program was intended for use by RBBS users (my apologies to those who have
+just eaten their lunches...) as part of the DOORS utility.
+
+...The original version of TradeWars was, for it's time, one of the more
+advanced DOOR games availiable, and was soon upgraded to versions II and III.
+Again, both versions were in BASIC, and oddly enough, Sherrick released the
+source code with his game. But once you took a glance at that code, you then
+realized WHY he bothered not to withhold it...
+
+...The BASIC code for TW2 & 3 was SO completely unintelligible, that it simply
+could not even be flowcharted without DAYS of research!! Hell, it even managed
+to confuse Tracing on occasion!! And to top it all off, Sherrick had the gall
+to ask any who managed to convert the program to other languages to get in
+touch with him! (The guy probably works for the CIA, and is recruiting code
+decryptors...).
+
+...Well, this is all fine and dandy, so long as you run RBBS and can run
+compiled BASIC programs on your system...
+
+...BUT...
+
+...What if you CAN'T run BASIC in any form due to some system incompatibility?
+Say, if your BBS is run on a system that is also attatched to that dinosaur of
+networks, the IBM PC Network (which IRREVOCABLY requires a certain area of
+memory that BASIC also requires...), what do you do?
+
+...ALSO...
+
+...What do you do if the only other WWIV board in the entire Central Texas
+Region is run by a snooty little 10-year-old blind brat who is constantly
+harassing you about your running WWIV ("I'm blind, and it's not fair that you
+should be running MY BBS program!"), trying to crash the BBS, AND running a
+bunch of rather...STUPID on line games (Darts, Dice, Coin Toss, Rope Jump,
+Etc...all based on the SAME dice game!)?
+
+...Yeah, you guessed it.  We took Sherricks' TW2 and converted it to Pascal.
+
+...As to who 'we' is, the first of those was Lord Darkseid, the sysop of the
+most infamous BBS in Central Texas, Apokolips BBS.  LD, as he was usually
+called, acquired the code from Lloyd Blauen, the Sysop of Fun World (sorry,
+don't have the number right now...) after weeks of badgering.  Then, LD spent
+almost a month taking Sherricks' code apart and attempting to flowchart it.
+The latter was given up only a fifth of the way through the decyphering...
+
+...Then, LD took the code and in one unbelievable 34-hour marathon session,
+he singlehandedly converted the TW2 program itself into Pascal!  Now, keeping
+in mind the condition of the original BASIC code, you'll understand why
+certain routines and variables were not given clear and revealing names.  To
+this day, I still don't fully understand what certain routines exactly do!
+
+...Once that was working, he started working on the editor, and got only as
+far as the portions that manipulate player statistics. Then, on the fourth
+thru sixth days, he rested, and on the seventh he declared war on the local
+sysop's group that the little blind brat was alligned with. Thus, he never
+finished the editor.  HOWEVER, Quixotic Software came to the sysop's rescue,
+and has provided a quick-and-dirty sector map editor to allow sysops to
+configure the universe to their own satisfaction.  Later editions of the
+release package will come with several pre-packaged universes to start with.
+You'll need to rename one of the GALAXY1, 2, or 3.DAT files to TWDATA.DAT in
+order to use a different universe map.  Several other editing features have
+been added, including a report on Romulan activity and a player report/ranking
+routine a lot more extensive than the one players can access from the computer.
+
+...Next, along came both myself(Omega Man) and Alex & Droogs (down here, we
+call him Sorcerer for some odd reason...). A&D did most of the initial
+playtesting, as well as assisting LD in converting the BASIC record files to a
+Turdo (SIC and SICK) Record File, while I, on the other hand, debugged the rest
+of the code and eliminated most of the errors that A&D found.  Finally, in
+September 1986, our version of TW2 went on line.  Oddly enough, we never
+finished the editor...That had to wait until Quixotic Software got hold of the
+code in July '87.
+
+...Needless to say, it was an instant success. This was due to (A) our
+additions to the code that improved game play, and (B) the fact that all of
+the BBS's that ran either TW2 or 3 were either pay boards or one of that
+dying breed, the no-handles board. Since Apokolips was a bit of a renegade
+board, users flocked to it like junkies on crack! It became next to impossible
+to get on the board due to the mass numbers of TW2 players!
+
+...A side note: The reason we called it TW2 was because this was the second
+version of our conversion efforts. In actuality, we converted TW3!
+
+...Things went fine from there until December of that year, when Apokolips
+finally bit the dust (a LONG story...). But from it's ashes rose The
+Klingon Empire! BBS (512-471-5850...THAT one I know!), and as you have
+probably guessed, it ran TW2. But, there were two problems with this move...
+
+...The first of these was discovered when the Apokolips version's data files
+were erased in order to restart the game. I discovered that if the stars
+were in the wrong position, and God was in a bad mood, the purge would
+produce a record file that would contain several EOF's in the wrong places!
+Several weeks of debugging failed to turn up the source of the problem, so
+solving it was relegated to one of the most useful items in the IBM world
+today: the Norton Editor (if you don't have it, buy it! If you can't afford
+it, PIRATE it, then pay the guy when you can!). This is tricky, so I don't
+reccommend it to anyone unless you've had a lot of Norton experience (remind
+me to show you my HAL 9000 DOS sometimes...heh,heh,heh...).
+
+...The second problem occurred when the general theme of the game did not
+exactly fit the motif of the board. That was easily changed at first, but
+subsequent additions stretched the code to it's memory limits. Thus, all of
+the menues and messages of any size were moved to .MSG files and called by
+the printfile function. Also, I modified the game to allow you to drop
+your fighters in sectors 2-7, but left in the restrictions for sector 1 (the
+only place you can buy fighters), and had the program slap you silly if you
+tried to do so. Finally, just before LD left town, we installed an option that
+allowed you to create and destroy planets. Needless to say, this was indeed a
+very popular feature...
+
+...Since TW2 went online, I've gotten numerous requests for the code, but
+up till now I've resisted because the damn thing had a tendency to crash
+the board from time to time. Now, for the most part, these bugs have been
+taken care of. The one sole bug remaining occurs when the game itself has
+been restarted and teh player roster has been purged. There is a routine that
+moves the Romulans around the Galaxy, and one part of it sends an attack
+squadron against the top ranking player. Now, this works, provided there IS
+at least one player, and he's not in sectors 1-7 (Roms can't go there...). If
+this glitch occurs (happens around midnight...sorry folx), the only thing to
+do is ALT-CTRL-DEL and reset the board. Then, you go into the game yourself
+and start a player and move it out of sectors 1-7. Usually, this will clear
+up the problem, but there are some cases where it may take a couple of tries
+to reset the randomizer on the Rom subroutines.
+
+...So, what you have here is essentially a working version of TW2 for WWIV,
+and a partially finished editor for the game. With a little tender loving
+care, this code could be reworked into beiing much more efficient, but at the
+present neither I nor LD have the time to do so. If you think you can handle
+the task, be my guest! I do recommend you borrow the BASIC code from some
+poor sod who runs an RBBS board to use that for some sort of referrence, but
+even that might not help you...
+
+...Anyway, that's pretty much the history behind the game and it's conversion.
+I would like to mention a word or two of thanks to the following people for
+their assistance in getting the game running: Joe DiMaggio (His REAL name!)
+for supplying the Pretty/Pformat programs that made the code a bit more
+readable; Supreme Dalek (NOT his real name!), who offered his wit and wisdom
+in most of the KE! mods; Mr. Roboto, Forte, THE Red Baron, SSlik!, Avatar,
+Saint Vincent, and Martini for their comments, sugestions, gripes, bitches,
+snivels, whines, and cryings abou the game and it's multifacets; and finally,
+to Chris Sherrick, for coding the game itself, and despite the fact that via
+the usual pirate grapevines it has come to my attention that he is aware of
+my version, and is not pleased at all. To him, I can only say this:
+
+                  THTHTHTHTHTHTHTHTHTPPPPPPPPPPPPPP!!!!
+
+...If he hadn't made the code so full of gibberish that we practically needed
+the Rosetta Stone to decrypt, I'd probably listen to his complaints. However,
+I have no room or time for whiners without a cause...
+
+...Before I leave you to searching for that back door I installed...
+
+
+
+...Sucker! Couldn't find it, eh? heh,heh,heh...Anyway, let me state here and
+now that neither LD, nor I, nor anybody mentioned here take any responsibility
+for any system crashes this program causes. It's buggy, true...but so was the
+original code! But you wanted it, and here it is! If you CAN improve it, at
+least send me a copy! That's the only payment I ask...
+
+...OME MORE THING: This is related to the previous statement, but don't let
+anyone else have this code without checking with me first. The less people
+have the code the less the problems. This is especially true in the case of
+the Grey Mouser, who refuses to send the Mousetrap code to Texas for various
+asinine reasons. I doubt seriously he'll get this code in the future...
+
+
+                                           Omega Man
+                                           Sysop
+                                           Klingon Empire! BBS
+                                           512-471-5850
+
+Hello, my name is Preston Stroud, sysop of File 13 (919) 527-9227 (2400 baud).
+I received this fantastic pascal ver of Tradewars from a fellow sysop needing
+help to get it running...  It seems that the Ver he got came from a sysop
+who had modified his ver of WWIV and also went on to use his mods in Tradewars.
+Therefore, it wouldn't work with the original WWIV boards.  Well I spend all
+night and part of the next morning fixing that little problem and a few others
+I ran across while fixing that one.  It should now work on unmodified versions
+of WWIV.  If you have any trouble getting it working on your WWIV, please call
+my board and leave me E-mail explaining.  I will help if I can.
+
+                                           Preston Stroud        call for other
+                                           sysop of            great on-line
+                                           File 13 BBS       programs for
+                                           919-527-9227    World War IV
+
+
+*******************************************************************************
+
+MORE CREDITS!
+
+*******************************************************************************
+
+We here at Quixotic Software, CA, recently received a copy of this fantasic
+chain file from The Original WWIV BBS, run by the author of WWIV, Laison 'Al
+Gaib.  Like every other programmer who's gotten hold of the code, I'd like to
+state that it was a mess, and I've done my share to clean it up.  Some of our
+modifications have been to flesh out the editor, and get a fully functional
+sector and port editor so that every individual game of TradeWars would be
+configured differently by the sysops out there.  A few other of our mods were
+the addition of Ship Armor, space Mines, ship-to-ship radio, Rogue mercenaries,
+and the removal of 'door points'.  The main complaint I've heard is that every
+individual fights against the game, not other players, so we've tried to
+encourage tactical additions to the game.  As other authors in this chain said,
+I'd like to hear about YOUR mods, at 
+
+              The Military Industrial Complex  Site II
+                      (213) 201-3375  300/1200
+
+Filthy Lucre
+R.R.
+------------>Quixotic Software!
+
+

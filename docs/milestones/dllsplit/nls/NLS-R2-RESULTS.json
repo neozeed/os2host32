@@ -1,0 +1,69 @@
+{
+  "milestone": "NLS_R2_COMMON_PROCESS_STATE_WIN32_BOOTSTRAP_STATIC_VERIFIED_RUNTIME_PENDING",
+  "date": "2026-09-27",
+  "baseline": "os2host32-SESMGR-R2 live-proven Win32-hosted tree",
+  "objective": "Make OS/2 NLS state explicitly backend-neutral and process/session-owned while retaining a minimal replaceable host bootstrap service.",
+  "abi": {
+    "nls_exports": {
+      "DosQueryCtryInfo": 5,
+      "DosQueryDBCSEnv": 6,
+      "DosMapCase": 7
+    },
+    "doscalls_nls_exports": {
+      "DosSetProcessCp": 289,
+      "DosQueryCp": 291,
+      "DosQueryCtryInfo": 395,
+      "DosQueryDBCSEnv": 396,
+      "DosMapCase": 397
+    },
+    "nls_def_sha256": "8e1b567043be8767d6c93eee386ad21c57270eaa8421e8639315a874e998aef4",
+    "doscalls_def_sha256": "2a1d6d7aa4f9b1369f9d949ebd448ea76746f42bf23a460763c097fee6f2d13b",
+    "loader_sha256": "793ee7de7c6d0bd79b7d8bbdfaab6774cb2ec6af39b88d0cefc3c714430f0c55"
+  },
+  "architecture": {
+    "common_state_owner": "struct Os2NlsState, embedded as Os2DosSession.nls for native DOSCALLS",
+    "common_semantics": [
+      "country selection",
+      "current process codepage",
+      "prepared codepage ordering",
+      "COUNTRYINFO construction",
+      "DBCS range table selection",
+      "case mapping"
+    ],
+    "backend_contract": [
+      "query_initial_profile"
+    ],
+    "win32_backend": "common/win32/os2_nls_win32.c",
+    "win32_backend_mechanics": [
+      "GetLocaleInfoA initial country hint",
+      "GetOEMCP initial codepage hint"
+    ],
+    "native_nls_dispatch_removed": true,
+    "whp_explicit_backend_binding": true
+  },
+  "preserved_scope": {
+    "countries": [1, 44],
+    "codepages": [437, 850],
+    "nls_dll_exports_added": 0,
+    "doscalls_exports_added": 0,
+    "country_sys_parser_added": false,
+    "collation_api_added": false,
+    "unicode_conversion_added": false
+  },
+  "verification": {
+    "gcc_c89_full_make_verify": "PASS",
+    "clang17_c89_full_make_verify": "PASS",
+    "nls_table_reproducibility": "PASS",
+    "nls_common_session_test": "PASS",
+    "nls_win32_backend_shim": "PASS",
+    "nls_static_architecture": "PASS",
+    "doscalls_common_nls_ownership": "PASS",
+    "doscalls_actual_veneer_nls_path": "PASS",
+    "existing_vio_regressions": "PASS",
+    "existing_queue_regressions": "PASS",
+    "existing_kbd_regressions": "PASS",
+    "existing_sesmgr_regressions": "PASS",
+    "mingw_native_build": "NOT_RUN_TOOLCHAIN_UNAVAILABLE",
+    "whp_msvc_build_runtime": "NOT_RUN_TOOLCHAIN_UNAVAILABLE"
+  }
+}

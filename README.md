@@ -1,77 +1,75 @@
-# OS2HOST32 — Milestone 31 with shared native/WHP personality core
+# OS2HOST32
 
-OS2HOST32 provides two execution backends for 32-bit OS/2 LE/LX programs:
+OS2HOST32 is an experimental OS/2 2.x compatibility environment for running
+32-bit OS/2 LE/LX applications on modern systems.
 
-- `loader/` executes transformed programs as native 32-bit Win32 processes.
-- `whp/` executes untouched 32-bit guest code under Windows Hypervisor Platform
-  from a 64-bit host process.
+The project currently has three execution paths:
 
-The two loaders no longer maintain completely independent copies of ordinary
-OS/2 system-call behaviour.  Shared API semantics live under `common/` and are
-compiled into both the native compatibility DLLs and the WHP executable.
-Loader-sensitive operations—guest scheduling, process creation, thread exit,
-semaphore waits, callbacks, and address-space management—remain explicit
-backend operations or loader intrinsics.
+* **Native Win32** — runs transformed OS/2 applications as 32-bit Windows
+  processes using compatibility DLLs.
+* **WHP** — runs untouched 32-bit OS/2 code under Windows Hypervisor Platform
+  from a 64-bit host.
+* **ReactOS OS2SS** — implements an external OS/2 environment subsystem for
+  ReactOS and runs untouched OS/2 LE applications inside subsystem-5 process
+  vessels.
 
-## Active source layout
+The long-term goal is to share as much OS/2 personality behaviour as possible
+between these backends rather than maintaining unrelated implementations.
 
-- `common/` — loader-neutral OS/2 API semantics, the canonical ordinal catalogue,
-  and small Win32 services used by both execution paths.
-- `loader/` — native Win32 OS2HOST32 loader/runtime.
-- `whp/` — alternative Win64/WHP loader, with its own tests, milestones, and
-  validation history.
-- `transformer/` — LE-to-PE transformer (`le2pe386`).
-- `shell/` — CMD32 shell/personality source.
-- `dlls/` — native compatibility DLL veneers and subsystem-specific code.
-- `tests/` — common-core tests, milestone regressions, and retained legacy probes.
+## Current status
 
-See [`DIRECTORY_LAYOUT.md`](DIRECTORY_LAYOUT.md) for the full directory policy.
+The project can run a growing selection of real 32-bit OS/2 programs.
 
-## Shared system-call layer
+Examples exercised during development include:
 
-The canonical API inventory is:
+* Microsoft C/386 generated LE executables
+* CMD-style console applications
+* Life
+* Sarien
+* Hack
+* phoon
+* Infocom-style applications
 
-    common/api/os2_api_catalog.inc
+The ReactOS OS2SS path can load relocated untouched LE executables, resolve
+DOSCALLS imports through native gateway veneers, communicate with an external
+OS2SS personality server, and provide console/file I/O sufficient for programs
+such as `phoon.exe` and `hi2.exe`.
 
-Each entry records the OS/2 module, ordinal, API name, known argument-byte count,
-and implementation route.  It currently catalogues 247 entries and covers every
-ordinal exported by the native compatibility DLL DEF files.
+This is experimental compatibility software, not a complete OS/2
+implementation.
 
-The first shared DOSCALLS set is:
+## Repository layout
 
-- `DOSCALLS.224` — `DosQueryHType`
-- `DOSCALLS.230` — `DosGetDateTime`
-- `DOSCALLS.256` — `DosSetFilePtr`
-- `DOSCALLS.282` — `DosWrite`
-- `DOSCALLS.299` — `DosAllocMem`
-- `DOSCALLS.304` — `DosFreeMem`
-- `DOSCALLS.305` — `DosSetMem`
-- `DOSCALLS.348` — `DosQuerySysInfo`
+    common/          Shared OS/2 personality code and API semantics
+    dlls/            Native Win32 compatibility DLL veneers
+    loader/          Native Win32 LE/LX loader
+    transformer/     LE-to-PE transformer
+    shell/           CMD32 shell/personality
+    whp/             Windows Hypervisor Platform execution backend
+    subsystem/       ReactOS OS2SS environment subsystem
+    tests/           Tests and regression checks
+    docs/            Architecture notes and milestone history
+    examples/        Example OS/2 programs
 
-For native execution, the exported `DOSCALLS.DLL` functions are thin veneers over
-these common implementations.  For WHP, the same implementations receive a
-backend context that validates and translates 32-bit guest addresses before
-accessing guest RAM.  This avoids treating an untrusted guest pointer as a Win64
-host pointer.
+See `DIRECTORY_LAYOUT.md` for more detail.
 
-The transformer and WHP import diagnostics also use the canonical catalogue, so
-ordinal-only imports are reported by API name and implementation route.
+## Building
 
-Detailed architecture notes are in
-[`docs/current/SHARED-PERSONALITY-ARCHITECTURE.md`](docs/current/SHARED-PERSONALITY-ARCHITECTURE.md).
+### Native Win32
 
-## Build
+Requires a 32-bit MinGW toolchain:
 
-The native build requires 32-bit MinGW:
+    make
+
+or:
 
     make clean
     make
 
-This builds the native loader, transformer, CMD32, and compatibility DLLs.  The
-runtime products remain together in the repository root, matching the existing
-loader/DLL discovery model.
+### WHP
 
-The WHP loader requires an **x64 Visual Studio Developer Command Prompt**:
+The WHP backend is a 64-bit Windows executable and currently uses the Visual
+Studio toolchain:
 
     make whp
 
@@ -80,45 +78,98 @@ or:
     cd whp
     make
 
-The WHP Makefile intentionally produces only:
+### ReactOS OS2SS
 
-    whp_os2_v2_hi.exe
+The ReactOS subsystem build uses GNU Make and:
 
-It links the shared personality sources directly into that executable; it does
-not try to load the 32-bit native compatibility DLL binaries into a Win64 process.
+    i686-w64-mingw32-gcc
 
-## Toolchain-independent verification
+The required frozen ReactOS headers and import-library subset are kept under:
 
-The common layer can be checked on a non-Windows development host:
+    subsystem/reactos/
+
+A full ReactOS source checkout is therefore not required for normal subsystem
+development.
+
+Build with:
+
+    cd subsystem
+    make
+
+The build produces:
+
+    build-mingw/OS2SS.EXE
+    build-mingw/OS2LE4CLAUNCH.EXE
+    build-mingw/OS2BOOT.EXE
+
+`OS2BOOT.EXE` is emitted directly as PE subsystem type 5
+(`IMAGE_SUBSYSTEM_OS2_CUI`).
+
+The same build is intended to work from Windows, Linux and macOS hosts using
+the i686 MinGW-w64 cross toolchain.
+
+## Architecture
+
+Shared OS/2-visible semantics live primarily under `common/`.
+
+Backend-specific code handles operations that genuinely depend on the execution
+environment, such as:
+
+* address-space management
+* thread/process scheduling
+* console and keyboard I/O
+* host file access
+* synchronization
+* guest-memory translation
+
+This allows the native Win32, WHP and ReactOS implementations to converge on a
+common OS/2 personality without pretending that their execution mechanisms are
+identical.
+
+The canonical OS/2 API catalogue is:
+
+    common/api/os2_api_catalog.inc
+
+## ReactOS OS2SS
+
+`subsystem/` implements an experimental OS/2 environment subsystem for ReactOS.
+
+It registers `IMAGE_SUBSYSTEM_OS2_CUI` with SMSS and maintains separate:
+
+* SMSS subsystem callback communication
+* application/personality API communication
+
+`OS2BOOT.EXE` is a small PE subsystem-5 process vessel. It loads an OS/2 LE
+image into its own address space, applies relocations and import fixups, creates
+DOSCALLS veneers, constructs the expected C/386 startup state, and transfers
+control to the untouched OS/2 program.
+
+DOSCALLS requests cross back through a native gateway into OS2SS.
+
+No modified ReactOS kernel, SMSS, CSRSS or KERNEL32 is required.
+
+## Verification
+
+Common code can be checked with:
 
     make verify
 
-That runs:
+Individual backends also contain their own regression and architecture tests.
 
-- the C89 common-core behavioural test;
-- catalogue/DEF coverage and duplicate checks;
-- structural wiring checks proving that every API marked `shared` is called by
-  both native `DOSCALLS.DLL` and WHP.
+Milestone-specific build records, hashes, experiments and historical handoff
+documents belong under `docs/` rather than in this README.
 
-A dry run of either production build is also useful when reviewing dependencies:
+## Documentation
 
-    make -n all
-    make -n whp
+    docs/current/       Current architecture/design material
+    docs/milestones/    Completed milestone records
+    whp/docs/           WHP-specific documentation
+    subsystem/docs/     ReactOS OS2SS documentation, if present
 
-Actual native and WHP binaries still need to be built and regression-tested on
-Windows with their respective toolchains.
+## Project status
 
-## Documentation and retained history
+OS2HOST32 is under active development.
 
-- `docs/current/` — current architecture and handoff notes.
-- `docs/milestones/` — completed native-loader milestone material.
-- `docs/reference/microsoft-programmers-library/` — preserved Microsoft
-  Programmer's Library OS/2 references.
-- `whp/docs/current/` — current WHP milestone notes.
-- `whp/docs/milestones/` — superseded WHP packages, patches, and revision history.
-- `analysis/`, `examples/`, `fixtures/`, `regression-evidence/`, and `tools/` —
-  retained project support material.
-
-The repository cleanup history remains intact, but this revision is no longer a
-layout-only change: it deliberately introduces the first shared native/WHP OS/2
-personality implementation.
+Compatibility is incomplete and many OS/2 APIs remain partial or unimplemented,
+but the project is far enough along to execute non-trivial real OS/2 software
+through multiple independent backends.

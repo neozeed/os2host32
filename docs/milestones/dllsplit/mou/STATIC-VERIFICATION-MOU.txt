@@ -1,0 +1,68 @@
+MOUCALLS R2 verification
+
+== GCC ==
+	-Itests/sesmgr/win32-stub -Icommon/include \
+	-o sesmgr-win32-shim-check tests/sesmgr/sesmgr-win32-shim-check.c \
+	tests/sesmgr/win32-stub/win32_sesmgr_stub.c \
+	common/sesmgr/os2_sesmgr.c common/win32/os2_sesmgr_win32.c
+./sesmgr-win32-shim-check
+sesmgr-win32-shim-check: PASS
+rm -f sesmgr-win32-shim-check
+python3 tools/check_sesmgr_r2.py
+SESMGR R2 static architecture: PASS
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o mou-core-check tests/mou/mou-core-check.c common/mou/os2_mou.c
+./mou-core-check
+mou-core-check: PASS
+rm -f mou-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o mou-veneer-check tests/mou/mou-veneer-check.c \
+	dlls/moucalls/moucalls.c common/mou/os2_mou.c
+./mou-veneer-check
+mou-veneer-check: PASS
+rm -f mou-veneer-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic \
+	-Itests/mou/win32-stub -Icommon/include \
+	-o mou-win32-shim-check tests/mou/mou-win32-shim-check.c \
+	tests/mou/win32-stub/win32_mou_stub.c \
+	common/mou/os2_mou.c common/win32/os2_mou_win32.c
+./mou-win32-shim-check
+mou-win32-shim-check: PASS
+rm -f mou-win32-shim-check
+python3 tools/check_mou_r2.py
+mou-static-check: PASS
+
+== Clang ==
+	-Itests/sesmgr/win32-stub -Icommon/include \
+	-o sesmgr-win32-shim-check tests/sesmgr/sesmgr-win32-shim-check.c \
+	tests/sesmgr/win32-stub/win32_sesmgr_stub.c \
+	common/sesmgr/os2_sesmgr.c common/win32/os2_sesmgr_win32.c
+./sesmgr-win32-shim-check
+sesmgr-win32-shim-check: PASS
+rm -f sesmgr-win32-shim-check
+python3 tools/check_sesmgr_r2.py
+SESMGR R2 static architecture: PASS
+clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o mou-core-check tests/mou/mou-core-check.c common/mou/os2_mou.c
+./mou-core-check
+mou-core-check: PASS
+rm -f mou-core-check
+clang -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o mou-veneer-check tests/mou/mou-veneer-check.c \
+	dlls/moucalls/moucalls.c common/mou/os2_mou.c
+./mou-veneer-check
+mou-veneer-check: PASS
+rm -f mou-veneer-check
+clang -std=c89 -O2 -Wall -Wextra -pedantic \
+	-Itests/mou/win32-stub -Icommon/include \
+	-o mou-win32-shim-check tests/mou/mou-win32-shim-check.c \
+	tests/mou/win32-stub/win32_mou_stub.c \
+	common/mou/os2_mou.c common/win32/os2_mou_win32.c
+./mou-win32-shim-check
+mou-win32-shim-check: PASS
+rm -f mou-win32-shim-check
+python3 tools/check_mou_r2.py
+mou-static-check: PASS
+
+== MinGW availability ==
+i686-w64-mingw32-gcc: unavailable in this environment

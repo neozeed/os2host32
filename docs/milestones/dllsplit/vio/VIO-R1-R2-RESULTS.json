@@ -1,0 +1,10 @@
+{
+  "milestone": "OS2HOST32 VIO R1/R2",
+  "date": "2026-09-27",
+  "status": "VIO_R2_FULL_CELL_STATE_STATIC_VERIFIED_RUNTIME_PENDING",
+  "superseding_detail": "See VIO-R2-RESULTS.json and VIO-R2-HANDOFF.md",
+  "phase1": "Life-required Win32 VIO surface preserved; user reported runtime working well enough to proceed",
+  "phase2": "backend-neutral mode/cursor plus dynamic character/attribute cell image; Win32-only backend",
+  "tests": "make verify PASS; GCC/Clang strict-C89 VIO core and Win32-shim tests PASS",
+  "runtime": "exact R2 tree not run on real Windows in worker environment"
+}

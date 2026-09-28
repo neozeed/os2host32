@@ -1,0 +1,5 @@
+cmd32os2.obj cmdparse.obj cmdbatch.obj cmdfile.obj cmdos2_os2.obj cmdos2_session_os2.obj cmdos2_env.obj
+cmd32os2_os2.exe
+cmd32os2_os2.map
+C:\c386\lib\LIBC.LIB C:\c386\lib\OS2386.LIB
+cmd32os2_os2.def

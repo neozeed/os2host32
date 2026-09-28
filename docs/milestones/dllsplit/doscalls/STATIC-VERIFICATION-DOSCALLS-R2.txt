@@ -1,0 +1,67 @@
+# DOSCALLS R2 static verification
+
+## make verify
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o personality-core-check tests/common/personality-core-check.c \
+	common/doscalls/os2_doscalls_core.c common/api/os2_api_catalog.c
+./personality-core-check
+PASS: shared DOSCALLS personality core and ordinal catalogue
+rm -f personality-core-check
+python3 tools/gen_nls_tables.py --check
+PASS: built-in CP437/CP850 case tables are reproducible
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o nls-core-check tests/nls/nls-core-check.c \
+	common/nls/os2_nls.c common/nls/os2_nls_api.c common/doscalls/os2_doscalls_core.c
+./nls-core-check
+PASS: OS/2 NLS core, process state, extended case maps and guest ABI
+rm -f nls-core-check
+python3 tools/check_api_catalog.py
+PASS: 257 catalogue entries cover 255 ordinal DLL exports
+python3 tools/check_shared_personality.py
+PASS: native DOSCALLS/WHP core plus process-owned NLS wiring; 8 original shared DOSCALLS implementations preserved
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o doscalls-core-check tests/doscalls/doscalls-core-check.c common/doscalls/os2_doscalls.c
+./doscalls-core-check
+doscalls-core-check: PASS
+rm -f doscalls-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o doscalls-veneer-check tests/doscalls/doscalls-veneer-check.c \
+	dlls/doscalls/doscalls.c common/doscalls/os2_doscalls.c
+./doscalls-veneer-check
+doscalls-veneer-check: PASS
+rm -f doscalls-veneer-check
+python3 tools/check_doscalls_r2.py
+DOSCALLS-R2 static architecture check: PASS (86 frozen exports)
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o vio-core-check tests/vio/vio-core-check.c common/vio/os2_vio.c \
+	common/win32/os2_vio_win32_attr.c
+./vio-core-check
+vio-core-check: PASS
+rm -f vio-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic \
+	-Itests/vio/win32-stub -Icommon/include \
+	-o vio-win32-shim-check tests/vio/vio-win32-shim-check.c \
+	tests/vio/win32-stub/win32_vio_stub.c dlls/viocalls/viocalls.c \
+	common/vio/os2_vio.c common/win32/os2_vio_win32.c common/win32/os2_vio_win32_attr.c
+./vio-win32-shim-check
+vio-win32-shim-check: PASS
+rm -f vio-win32-shim-check
+python3 tools/check_vio_life_surface.py
+check_vio_life_surface: PASS
+
+## clang strict-C89 common DOSCALLS
+doscalls-core-check: PASS
+
+## clang strict-C89 exported veneer
+doscalls-veneer-check: PASS
+
+## ABI signature parity against VIO-R2 baseline
+old wrappers: 84
+new wrappers: 84
+signature mismatches: 0
+
+## Frozen DOSCALLS export table
+2a1d6d7aa4f9b1369f9d949ebd448ea76746f42bf23a460763c097fee6f2d13b  dlls/doscalls/doscalls.def
+
+## Win32 compiler availability
+i686-w64-mingw32-gcc: NOT AVAILABLE; live/Win32 DLL build not performed here

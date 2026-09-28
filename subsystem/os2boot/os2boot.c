@@ -36,6 +36,8 @@ static PVOID gVeneerBase;
 static PVOID gStartupBase;
 
 /* Single-thread LE4C gateway state. */
+#if 0
+msvc.. sorry
 static volatile ULONG gLe4cNativeEsp;
 static volatile ULONG gLe4cOs2Esp;
 static volatile ULONG gLe4cSavedEbx;
@@ -45,6 +47,17 @@ static volatile ULONG gLe4cSavedEbp;
 static volatile ULONG gLe4cLastOrdinal;
 static volatile ULONG gLe4cLastReturnCode;
 static volatile ULONG gLe4cEntryVa;
+#else
+ULONG gLe4cEntryVa;
+ULONG gLe4cLastOrdinal;
+ULONG gLe4cLastReturnCode;
+ULONG gLe4cNativeEsp;
+ULONG gLe4cOs2Esp;
+ULONG gLe4cSavedEbp;
+ULONG gLe4cSavedEbx;
+ULONG gLe4cSavedEdi;
+ULONG gLe4cSavedEsi;
+#endif
 
 static CHAR gAnsiEnvironment[LE4C_MAX_ENV_BYTES];
 static CHAR gProgramPath[LE4C_MAX_PATH_BYTES];
@@ -961,7 +974,8 @@ Os2Arg(ULONG Os2Esp, ULONG Number)
     return *(PULONG)(ULONG_PTR)(Os2Esp + 4u * Number);
 }
 
-static ULONG __cdecl
+//static ULONG __cdecl
+ULONG __cdecl
 Le4cGatewayDispatch(ULONG Ordinal, ULONG Os2Esp)
 {
     APIRET Rc;
@@ -990,6 +1004,11 @@ Le4cGatewayDispatch(ULONG Ordinal, ULONG Os2Esp)
     DbgPrint("OS2BOOT: LE4C gateway ordinal=%lu rc=%lu\n", Ordinal, Rc);
     return Rc;
 }
+
+#if 0
+moved to external assmebly file as tyring to build with gcc :(
+
+Sorry
 
 /*
  * Entry from untouched LE code. EAX carries the historical DOSCALLS ordinal.
@@ -1045,6 +1064,13 @@ Le4cEnterLe(ULONG Entry, ULONG Os2Esp)
         jmp eax
     }
 }
+#else
+VOID
+Le4cDoscallGatewayEntry(VOID);
+
+VOID __cdecl
+Le4cEnterLe(ULONG Entry, ULONG Os2Esp);
+#endif
 
 static BOOLEAN
 AsciiEqual(const char *A, const char *B)

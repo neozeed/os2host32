@@ -2,3 +2,13 @@
 # describe historical whitespace.  Do not treat that archived payload as
 # whitespace damage in the repository containing the patch.
 *.patch -whitespace
+Makefile text eol=crlf
+*.mk     text eol=crlf
+*.S      text eol=crlf
+*.c      text eol=crlf
+*.h      text eol=crlf
+*.py     text eol=crlf
+
+*.a      binary
+*.lib    binary
+*.exe    binary

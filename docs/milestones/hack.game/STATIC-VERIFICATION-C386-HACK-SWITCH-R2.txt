@@ -1,0 +1,38 @@
+OS2HOST32 C/386 HACK SWITCH-TABLE RELOCATION R2 STATIC VERIFICATION
+
+Baseline: os2host32-C386-HACK-BRIDGE-R1.zip
+Baseline SHA256: 63fd1ff5b276c7d47a924224658f3b58273376d0c152a4a41a3fdd1984751ed7
+
+Exact investigated specimen:
+  hack.exe
+  SHA256: 8201dd2e40dc4205cd649373d3f4c6f62ff675663f906143059ccc6a65f278bd
+
+Observed native fault supplied by user:
+  exception C0000005
+  execute address / EIP: 00025051
+  ESP: 01054ACC
+
+Offline LE/C386 analysis of exact specimen:
+  C/386 far16 migration thunks recognized: 14
+  indirect CS: jump tables matched through real internal OFF32 fixups: 21
+  consecutive preferred executable DWORD entries: 313
+  faulting table preferred base: 00034FD0
+  faulting table entries:
+    00025051 00025051 00025039 0002504A 00025045
+  observed layout relocation implied by stack: +00FF0000
+  expected repaired faulting target: 01015051
+
+GCC full make verify: PASS
+Clang full make verify: PASS
+check_c386_hack_bridge.py: PASS
+
+Implementation guards:
+  - recognized C/386 bridge profile required
+  - real internal OFF32 source required
+  - indirect CS: JMP byte pattern required
+  - at least two consecutive DWORD entries required
+  - every patched entry must fall in a mapped executable object's preferred range
+  - translation is object-relative, not a blind process-wide delta
+
+Real MinGW/native execution after the repair: PENDING USER TEST.
+No 16-bit CPU execution, LDT execution or 16-bit interpreter was added.

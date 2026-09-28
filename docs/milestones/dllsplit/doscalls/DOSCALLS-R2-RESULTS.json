@@ -1,0 +1,56 @@
+{
+  "milestone": "DOSCALLS_R2_COMMON_SESSION_WIN32_BACKEND_STATIC_VERIFIED_RUNTIME_PENDING",
+  "baseline": {
+    "file": "os2host32-VIO-R2.zip",
+    "sha256": "2cc60643010d088d6edb48805f8428bc6236bef88ecd56c37c85acefb8888551"
+  },
+  "exports": {
+    "count": 86,
+    "def_sha256": "2a1d6d7aa4f9b1369f9d949ebd448ea76746f42bf23a460763c097fee6f2d13b",
+    "changed": false,
+    "ordinary_c_signature_wrappers": 84,
+    "signature_mismatches": 0
+  },
+  "architecture": {
+    "public_veneer": "dlls/doscalls/doscalls.c",
+    "common_session": "common/doscalls/os2_doscalls.c",
+    "common_header": "common/include/os2_doscalls.h",
+    "backend_contract": "common/include/os2_doscalls_backend.h",
+    "win32_backend": "common/win32/os2_doscalls_win32.c",
+    "existing_shared_core_preserved": "common/doscalls/os2_doscalls_core.c",
+    "fully_common_api_entrypoints": 25,
+    "typed_dispatch_api_entrypoints": 56,
+    "hybrid_note": "DosBeep validates OS/2 policy in common code and dispatches actual audio generation",
+    "selector_helpers": "DosFlatToSel/DosSelToFlat stay register-ABI veneers"
+  },
+  "common_state": [
+    "HFILE namespace",
+    "owned standard handles",
+    "find handles",
+    "child process records",
+    "event semaphore namespace/post counts/refcounts/names",
+    "DosSub pools",
+    "exception chain",
+    "signal exception focus",
+    "DosError flags",
+    "max HFILE policy"
+  ],
+  "verification": {
+    "make_verify": "PASS",
+    "gcc_c89_common": "PASS",
+    "gcc_c89_veneer": "PASS",
+    "clang17_c89_common": "PASS",
+    "clang17_c89_veneer": "PASS",
+    "shared_personality": "PASS",
+    "vio_regressions": "PASS",
+    "win32_dll_build": "NOT_RUN_TOOLCHAIN_UNAVAILABLE",
+    "live_runtime": "NOT_RUN"
+  },
+  "scope_guards": {
+    "loader_changed": false,
+    "doscalls_def_changed": false,
+    "whp_core_replaced": false,
+    "new_doscalls_exports": false,
+    "far16_descriptor_changes": false
+  }
+}

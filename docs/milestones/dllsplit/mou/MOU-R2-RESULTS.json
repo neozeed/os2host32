@@ -1,0 +1,22 @@
+{
+  "milestone": "MOUCALLS R2",
+  "status": "MOU_R2_COMMON_STATE_WIN32_BACKEND_STATIC_VERIFIED_RUNTIME_PENDING",
+  "baseline": "os2host32-NLS-R2",
+  "architecture": {
+    "veneer": "dlls/moucalls/moucalls.c",
+    "common": "common/mou/os2_mou.c",
+    "win32_backend": "common/win32/os2_mou_win32.c",
+    "nonblocking_primitive": "os2_mou_try_read"
+  },
+  "exports": 25,
+  "unsupported_semantics": ["MouRegister", "MouDeRegister"],
+  "win32_input_strategy": "GetCursorPos/GetAsyncKeyState polling; does not consume console INPUT_RECORD keyboard stream",
+  "verification": {
+    "gcc_c89": "PASS",
+    "clang17_c89": "PASS",
+    "full_make_verify_gcc": "PASS",
+    "full_make_verify_clang": "PASS",
+    "real_mingw_build": "PENDING",
+    "native_runtime": "PENDING"
+  }
+}

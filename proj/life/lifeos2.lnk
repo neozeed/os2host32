@@ -1,0 +1,5 @@
+lifeos2.obj
+lifeos2.exe
+lifeos2.map
+LIBC.LIB OS2386.LIB
+lifeos2.def

@@ -9,7 +9,11 @@ OS2HOST32 compatibility DLLs and the Win64 Windows Hypervisor Platform loader.
   shared DOSCALLS implementations, catalogue access, and shared Win32 services.
 - `api/` — canonical module/ordinal/name catalogue and lookup implementation.
 - `doscalls/` — loader-neutral DOSCALLS validation and OS/2 result semantics.
-- `win32/` — small Win32 services genuinely identical in both products, such as
+- `queue/` — backend-neutral QUECALLS queue objects, ordering and opaque payload metadata.
+- `kbd/` — backend-neutral KBDCALLS state, key-result and line-input semantics.
+- `vio/` — backend-neutral VIO state and screen/TTY semantics.
+- `sesmgr/` — backend-neutral Session Manager policy, registry format, ownership and lifecycle semantics.
+- `win32/` — Win32 backend mechanics for native DOSCALLS/VIO/QUECALLS/KBDCALLS/SESMGR plus small services, such as
   local DATETIME acquisition and the monotonic millisecond clock.
 
 ## Address rule
@@ -21,7 +25,9 @@ layer.  Every application pointer is an `os2_addr32_t`.
 - The Win64 WHP adapter validates it against guest RAM before mapping or writing.
 
 Common routines own pointer/range validation, fixed OS/2 structure layouts, and
-result writeback.  Backends own handle translation, actual host I/O, allocation,
+result writeback.  For queues, payload addresses are likewise retained only as
+opaque 32-bit OS/2 values and are never dereferenced by the common layer.
+Backends own handle translation, actual host I/O, allocation, blocking/wakeup,
 and execution-engine operations.
 
 ## API routing

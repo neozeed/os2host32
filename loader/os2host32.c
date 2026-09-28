@@ -191,14 +191,52 @@ struct C386Far16ApiDesc {
 };
 
 static const struct C386Far16ApiDesc c386_far16_apis[] = {
+    { "DOSCALLS", 14UL, "DosSetSigHandler", 5, { 2, 2, 4, 4, 4, 0, 0, 0 } },
+    { "DOSCALLS", 32UL, "DosSleep",         1, { 4, 0, 0, 0, 0, 0, 0, 0 } },
+    { "DOSCALLS", 50UL, "Dos16Beep",        2, { 2, 2, 0, 0, 0, 0, 0, 0 } },
+    { "DOSCALLS", 89UL, "DosSetVec",       3, { 4, 4, 2, 0, 0, 0, 0, 0 } },
     { "VIOCALLS",  7UL, "VioScrollUp",      7, { 2, 4, 2, 2, 2, 2, 2, 0 } },
     { "VIOCALLS",  9UL, "VioGetCurPos",    3, { 2, 4, 4, 0, 0, 0, 0, 0 } },
+    { "VIOCALLS", 13UL, "VioWrtCharStr",   5, { 2, 2, 2, 2, 4, 0, 0, 0 } },
     { "VIOCALLS", 15UL, "VioSetCurPos",    3, { 2, 2, 2, 0, 0, 0, 0, 0 } },
     { "VIOCALLS", 19UL, "VioWrtTTY",       3, { 2, 2, 4, 0, 0, 0, 0, 0 } },
     { "VIOCALLS", 21UL, "VioGetMode",      2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "VIOCALLS", 24UL, "VioReadCellStr",  5, { 2, 2, 2, 4, 4, 0, 0, 0 } },
+    { "VIOCALLS", 26UL, "VioWrtNAttr",     5, { 2, 2, 2, 2, 4, 0, 0, 0 } },
+    { "VIOCALLS", 27UL, "VioGetCurType",   2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "VIOCALLS", 32UL, "VioSetCurType",   2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "VIOCALLS", 48UL, "VioWrtCharStrAtt",6, { 2, 4, 2, 2, 2, 4, 0, 0 } },
+    { "VIOCALLS", 52UL, "VioWrtNCell",     5, { 2, 2, 2, 2, 4, 0, 0, 0 } },
     { "KBDCALLS",  4UL, "KbdCharIn",       3, { 2, 2, 4, 0, 0, 0, 0, 0 } },
     { "KBDCALLS",  9UL, "KbdStringIn",     4, { 2, 2, 4, 4, 0, 0, 0, 0 } },
-    { "KBDCALLS", 13UL, "KbdFlushBuffer",  1, { 2, 0, 0, 0, 0, 0, 0, 0 } }
+    { "KBDCALLS", 10UL, "KbdGetStatus",    2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "KBDCALLS", 11UL, "KbdSetStatus",    2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "KBDCALLS", 13UL, "KbdFlushBuffer",  1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS",  1UL, "MouGetPtrShape",   3, { 2, 4, 4, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS",  2UL, "MouSetPtrShape",   3, { 2, 4, 4, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS",  3UL, "MouGetNumMickeys", 2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS",  4UL, "MouGetThreshold",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS",  6UL, "MouGetScaleFact",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS",  7UL, "MouFlushQue",      1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS",  8UL, "MouGetNumButtons", 2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS",  9UL, "MouClose",         1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 10UL, "MouSetThreshold",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 11UL, "MouSetScaleFact",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 13UL, "MouGetNumQueEl",   2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 14UL, "MouDeRegister",    0, { 0, 0, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 15UL, "MouGetEventMask",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 16UL, "MouSetEventMask",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 17UL, "MouOpen",          2, { 4, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 18UL, "MouRemovePtr",     2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 19UL, "MouGetPtrPos",     2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 20UL, "MouReadEventQue",  3, { 2, 4, 4, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 21UL, "MouSetPtrPos",     2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 22UL, "MouGetDevStatus",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 23UL, "MouSynch",         1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 24UL, "MouRegister",      3, { 4, 4, 4, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 25UL, "MouSetDevStatus",  2, { 2, 4, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 26UL, "MouDrawPtr",       1, { 2, 0, 0, 0, 0, 0, 0, 0 } },
+    { "MOUCALLS", 27UL, "MouInitReal",      1, { 4, 0, 0, 0, 0, 0, 0, 0 } }
 };
 #define C386_FAR16_API_COUNT \
     ((U32)(sizeof(c386_far16_apis) / sizeof(c386_far16_apis[0])))
@@ -326,6 +364,13 @@ struct LxImage {
 #ifdef _WIN32
     U8 *emx_thunk_stub;
     U8 *emx_import_traps[MAX_IMPORTS];
+    /* Microsoft C/386 LIBC signal.asm calls historical DOSCALLS.14/.89
+     * directly from 32-bit code using 32-bit Pascal stack semantics
+     * (left-to-right arguments, callee cleanup).  Keep loader-local adapters
+     * so the underlying compatibility DLL exports can remain ordinary cdecl
+     * for EMX and the generic far16 bridge machinery. */
+    U8 *c386_pascal32_sig_stub;
+    U8 *c386_pascal32_vec_stub;
 #endif
 };
 
@@ -1128,6 +1173,7 @@ static void scan_fixups(struct LxImage *x)
  * Recognize the Microsoft C/386 migration shape emitted for the currently
  * proven far-Pascal calls:
  *
+ *     USHORT _far16 _pascal DosSleep(ULONG)
  *     USHORT _far16 _pascal VioScrollUp(USHORT, USHORT, USHORT, USHORT,
  *                                        USHORT, BYTE _far16 *, USHORT)
  *     USHORT _far16 _pascal VioGetCurPos(USHORT _far16 *,
@@ -1525,6 +1571,109 @@ static void detect_emx_generic_bridge(struct LxImage *x)
 }
 
 #ifdef _WIN32
+/*
+ * Microsoft C/386 sometimes emits absolute 32-bit switch-table entries in
+ * the code object without LE relocation records for the individual table
+ * slots.  LINK386 does emit an ordinary internal OFF32 relocation for the
+ * indirect-JMP operand that names the table itself, so a rebased image finds
+ * the right table but then jumps through stale preferred linear addresses.
+ *
+ * Keep the repair deliberately narrow: only a table named by a relocated
+ * internal OFF32 operand attached to one of the C/386 indirect-JMP encodings
+ * observed in real compiler output is eligible.  Every consecutive DWORD
+ * entry must name a preferred address inside an executable object; entries
+ * are translated object-by-object to the actual mapped address.  The scan
+ * stops at the first non-code pointer, and a one-entry candidate is ignored.
+ *
+ * This is relocation repair for 32-bit compiler-generated switch metadata.
+ * It is not 16-bit execution and does not relax the mixed-mode bridge gate.
+ */
+static int preferred_exec_address_to_actual(struct LxImage *x, U32 preferred,
+                                             U32 *actual_out)
+{
+    U32 i;
+    for (i = 0; i < x->object_count; ++i) {
+        struct LxObject *o;
+        U32 end;
+        o = &x->objects[i];
+        if (!o->mapped || (o->flags & 0x0004UL) == 0 || o->size == 0)
+            continue;
+        if (o->base > 0xffffffffUL - o->size)
+            continue;
+        end = o->base + o->size;
+        if (preferred >= o->base && preferred < end) {
+            *actual_out = (U32)(unsigned long)o->mapped +
+                          (preferred - o->base);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int c386_switch_operand_pattern(const U8 *code, U32 source_off)
+{
+    if (source_off >= 4UL &&
+        code[source_off - 4UL] == 0x2e &&
+        code[source_off - 3UL] == 0xff &&
+        code[source_off - 2UL] == 0x24 &&
+        (code[source_off - 1UL] == 0x85 ||
+         code[source_off - 1UL] == 0x45))
+        return 1; /* jmp dword ptr cs:[eax*4/2 + disp32] */
+
+    if (source_off >= 3UL &&
+        code[source_off - 3UL] == 0x2e &&
+        code[source_off - 2UL] == 0xff &&
+        code[source_off - 1UL] == 0xa3)
+        return 1; /* jmp dword ptr cs:[ebx + disp32] */
+
+    return 0;
+}
+
+static void maybe_relocate_c386_switch_table(struct LxImage *x,
+                                              struct LxObject *src_obj,
+                                              U32 source_off,
+                                              struct LxObject *table_obj,
+                                              U32 table_off)
+{
+    U32 count, max_count, i, oldv, newv;
+    U8 *table;
+
+    if (!x->c386_bridges_complete || x->c386_bridge_count == 0)
+        return;
+    if (!src_obj->mapped || !table_obj->mapped)
+        return;
+    if (!c386_switch_operand_pattern(src_obj->mapped, source_off))
+        return;
+    if (table_off > table_obj->size || table_obj->size - table_off < 8UL)
+        return;
+
+    table = table_obj->mapped + table_off;
+    max_count = (table_obj->size - table_off) / 4UL;
+    count = 0;
+    while (count < max_count) {
+        oldv = rd32(table + count * 4UL);
+        if (!preferred_exec_address_to_actual(x, oldv, &newv))
+            break;
+        ++count;
+    }
+
+    if (count < 2UL)
+        return;
+
+    for (i = 0; i < count; ++i) {
+        oldv = rd32(table + i * 4UL);
+        if (!preferred_exec_address_to_actual(x, oldv, &newv))
+            fail("C/386 switch-table relocation changed during validation");
+        wr32(table + i * 4UL, newv);
+    }
+
+    if (!g_quiet) {
+        printf("C/386 switch tbl: %08lX %lu entries rebased\n",
+               (unsigned long)(U32)(unsigned long)table,
+               (unsigned long)count);
+    }
+}
+
 static DWORD object_protection(U32 flags)
 {
     int r, w, e;
@@ -2432,7 +2581,7 @@ static int trace_modules(void)
 static int is_personality_module(const char *name)
 {
     static const char *const names[] = {
-        "DOSCALLS", "KBDCALLS", "VIOCALLS", "QUECALLS",
+        "DOSCALLS", "KBDCALLS", "VIOCALLS", "MOUCALLS", "QUECALLS",
         "SESMGR", "NLS", "PMWIN", "PMGPI", "PMSHAPI", "PMWP", "HELPMGR"
     };
     U32 i;
@@ -3026,6 +3175,14 @@ static void free_guest_image(struct LxImage *x)
         VirtualFree(x->emx_thunk_stub, 0, MEM_RELEASE);
         x->emx_thunk_stub = 0;
     }
+    if (x->c386_pascal32_sig_stub) {
+        VirtualFree(x->c386_pascal32_sig_stub, 0, MEM_RELEASE);
+        x->c386_pascal32_sig_stub = 0;
+    }
+    if (x->c386_pascal32_vec_stub) {
+        VirtualFree(x->c386_pascal32_vec_stub, 0, MEM_RELEASE);
+        x->c386_pascal32_vec_stub = 0;
+    }
     for (i = 0; i < x->import_count; ++i) {
         if (x->emx_import_traps[i]) {
             VirtualFree(x->emx_import_traps[i], 0, MEM_RELEASE);
@@ -3456,6 +3613,99 @@ static void publish_main_pm_resources(struct LxImage *x)
 #else
     (void)x;
 #endif
+}
+
+/*
+ * Microsoft C/386 LIBC signal.asm does not use the generic 32->16 migration
+ * helper for SYSSETSIGHANDLER/SYSSETVEC.  It emits direct 32-bit near calls to
+ * DOSCALLS.14/.89 with a hybrid Pascal ABI: every argument occupies a 32-bit
+ * stack slot, arguments are pushed left-to-right, and the callee removes the
+ * frame.  The native DOSCALLS veneers are intentionally cdecl, so direct
+ * relocation to them reverses the argument interpretation and leaves ESP
+ * unbalanced (the first observed failure was a write through address 1).
+ *
+ * Build tiny loader-local adapters for those two direct imports.  Reading the
+ * Pascal frame low-to-high and pushing each DWORD produces the normal cdecl
+ * right-to-left frame expected by the host veneer; RET n then performs the
+ * historical callee cleanup.  This path is selected only for direct REL32
+ * CALL sites in an otherwise recognized mixed Microsoft C/386 image.
+ */
+static U8 *make_c386_pascal32_signal_adapter(struct LxImage *x,
+                                              U32 ordinal, U32 host)
+{
+    U8 **slot;
+    U8 *stub;
+    U32 argc, p, i, frame_off, pushed;
+
+    if (ordinal == 14UL) {
+        slot = &x->c386_pascal32_sig_stub;
+        argc = 5UL;
+    } else if (ordinal == 89UL) {
+        slot = &x->c386_pascal32_vec_stub;
+        argc = 3UL;
+    } else {
+        return 0;
+    }
+
+    if (*slot)
+        return *slot;
+
+    stub = (U8 *)VirtualAlloc(NULL, 96, MEM_RESERVE | MEM_COMMIT,
+                              PAGE_EXECUTE_READWRITE);
+    if (!stub)
+        fail("cannot allocate C/386 Pascal32 signal adapter");
+
+    p = 0;
+    stub[p++] = 0x8b; stub[p++] = 0xd4;       /* mov edx,esp */
+    frame_off = 4UL;
+    pushed = 0UL;
+    for (i = 0; i < argc; ++i) {
+        if (frame_off > 127UL)
+            fail("C/386 Pascal32 signal frame is too large");
+        stub[p++] = 0x8b; stub[p++] = 0x42; stub[p++] = (U8)frame_off;
+        stub[p++] = 0x50;                     /* push eax */
+        frame_off += 4UL;
+        pushed += 4UL;
+    }
+    stub[p++] = 0xb8; wr32(stub + p, host); p += 4;
+    stub[p++] = 0xff; stub[p++] = 0xd0;       /* call eax */
+    stub[p++] = 0x83; stub[p++] = 0xc4; stub[p++] = (U8)pushed;
+    stub[p++] = 0xc2;                         /* ret argc*4 */
+    stub[p++] = (U8)(pushed & 0xffUL);
+    stub[p++] = (U8)((pushed >> 8) & 0xffUL);
+
+    FlushInstructionCache(GetCurrentProcess(), stub, (SIZE_T)p);
+    *slot = stub;
+    if (!g_quiet)
+        printf("C/386 signal ABI: DOSCALLS.%lu Pascal32 stub %08lX -> %08lX (frame=%lu)\n",
+               (unsigned long)ordinal,
+               (unsigned long)(U32)(unsigned long)stub,
+               (unsigned long)host,
+               (unsigned long)pushed);
+    return stub;
+}
+
+static U32 c386_direct_import_target(struct LxImage *x, U32 idx,
+                                     struct LxObject *src_obj, U32 source_off)
+{
+    U32 ordinal;
+    const char *module;
+    U8 *stub;
+
+    if (!x->c386_bridges_complete || x->c386_bridge_count == 0 ||
+        !src_obj || (src_obj->flags & OBJ_BIG_DEFAULT) == 0 ||
+        source_off == 0 || src_obj->mapped[source_off - 1UL] != 0xe8)
+        return x->imports[idx].address;
+
+    module = x->modules[x->imports[idx].module].name;
+    ordinal = x->imports[idx].ordinal;
+    if (strcmp(module, "DOSCALLS") != 0 ||
+        (ordinal != 14UL && ordinal != 89UL))
+        return x->imports[idx].address;
+
+    stub = make_c386_pascal32_signal_adapter(x, ordinal,
+                                              x->imports[idx].address);
+    return (U32)(unsigned long)stub;
 }
 
 static void resolve_imports(struct LxImage *x)
@@ -4678,6 +4928,8 @@ static void apply_fixups(struct LxImage *x)
                                (unsigned long)dst_va);
                     }
                     wr32(src_obj->mapped + source_off, dst_va);
+                    maybe_relocate_c386_switch_table(x, src_obj, source_off,
+                                                      dst_obj, target_off);
                     if ((getenv("OS2_TRACE_FIXUPS") != NULL ||
                          getenv("OS2_PM_TRACE") != NULL) &&
                         x->format == FORMAT_LE && target == 2UL &&
@@ -4700,7 +4952,7 @@ static void apply_fixups(struct LxImage *x)
                 } else if (kind == TGT_EXT_ORD && st == SRC_REL32 &&
                            (type & SRC_ALIAS) == 0) {
                     idx = import_index(x, first - 1, target);
-                    dst_va = x->imports[idx].address;
+                    dst_va = c386_direct_import_target(x, idx, src_obj, source_off);
                     wr32(src_obj->mapped + source_off,
                          dst_va - (src_va + 4UL));
                 } else if (kind == TGT_EXT_NAME && st == SRC_REL32 &&

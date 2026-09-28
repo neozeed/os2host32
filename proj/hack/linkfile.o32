@@ -1,0 +1,11 @@
+decl apply bones cmd do do_name do_wear dog eat end +
+engrave fight hack invent pcioctl lev main makemon +
+mhitu mklev mkmaze mkobj mkshop mon monst +
+o_init objnam options pager potion pri +
+read rip rumors save search shk shknam steal +
+termos2 timeout topl track trap pctty unix u_init +
+vault wield wizard worm worn zap version rnd alloc msdos
+hack /NOIG /STACK:16000
+hack.map
+libc os2386
+hack32.def;

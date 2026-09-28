@@ -1,0 +1,29 @@
+{
+  "milestone": "DOSCALLS_R2A_COMMON_SESSION_SOURCE_CORRECTED_MINGW_RETRY_REQUIRED",
+  "supersedes_package": "os2host32-DOSCALLS-R2.zip",
+  "trigger": "first real i686-w64-mingw32-gcc compile of common/win32/os2_doscalls_win32.c",
+  "root_causes": [
+    "backend-private O2TibCompat/O2Tib2Compat/O2PibCompat layout definitions accidentally removed",
+    "obsolete Win32 DosSub* implementation left compiled after subpool semantics/state moved to Os2DosSession",
+    "obsolete backend exception/signal/common-owned dispatch cases left after ownership move"
+  ],
+  "corrections": [
+    "restore private TIB/TIB2/PIB presentation layouts",
+    "remove duplicate backend DosSub* implementation and dispatch",
+    "remove duplicate backend exception/signal semantics and dispatch",
+    "remove dead common-owned DosSetRelMaxFH/DosAcknowledgeSignalException dispatch",
+    "remove DosEnterCritSec unused dispatch temporary",
+    "strengthen tools/check_doscalls_r2.py against these regressions"
+  ],
+  "abi": {
+    "doscalls_def_changed": false,
+    "exports_changed": false,
+    "far16_descriptors_changed": false
+  },
+  "verification": {
+    "make_verify": "PASS",
+    "uploaded_error_classes_removed_by_source_inspection": true,
+    "mingw_win32_dll_build": "RETRY_REQUIRED_TOOLCHAIN_UNAVAILABLE_HERE",
+    "live_runtime": "NOT_RUN"
+  }
+}

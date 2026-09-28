@@ -1,0 +1,33 @@
+{
+  "milestone": "VIO_R2B_HOTPATH_FIXED_RUNTIME_RETEST_REQUIRED",
+  "baseline": "DOSCALLS R2A (real MinGW compile succeeded)",
+  "live_regression": {
+    "cmd": "multi-second per-key echo/cursor advance",
+    "life": "extraordinarily slow rendering"
+  },
+  "root_causes": [
+    "VioWrtTTY eagerly re-read the complete console buffer after every stream write",
+    "ensure_initialized polled console dimensions on every initialized VIO operation"
+  ],
+  "corrections": [
+    "remove eager TTY screen resnapshot",
+    "mark optional cell image dirty after TTY instead of reading it back",
+    "query cursor lazily through VioGetCurPos",
+    "cache logical dimensions on hot paths and refresh them through VioGetMode"
+  ],
+  "scope": {
+    "doscalls_changed": false,
+    "exports_changed": false,
+    "far16_descriptors_changed": false,
+    "kbd_changed": false,
+    "loader_changed": false
+  },
+  "verification": {
+    "make_verify_gcc": "PASS",
+    "make_verify_clang": "PASS",
+    "cold_tty_size_polls": 0,
+    "cold_tty_screen_snapshots": 0,
+    "cold_tty_cursor_polls": 0,
+    "win32_runtime_retest": "REQUIRED"
+  }
+}

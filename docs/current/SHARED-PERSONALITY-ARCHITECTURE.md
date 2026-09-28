@@ -93,6 +93,19 @@ The catalogue is used by:
 The Win32 time service used by ordinals 230 and 348 is itself shared under
 `common/win32/`.
 
+## NLS process state
+
+National Language Support now follows the same ownership rule.  The common
+`Os2NlsState` is authoritative for OS/2-visible country, process code page,
+prepared code pages, case tables and DBCS table selection.  Native DOSCALLS
+embeds that state in `Os2DosSession`; WHP owns an independent instance in its
+runtime.  The Win32 NLS backend supplies only a bootstrap country/OEM-codepage
+hint and cannot mutate guest-visible state afterward.
+
+The native NLS-facing DOSCALLS APIs therefore no longer traverse the legacy
+Win32 dispatch seam.  NLS.DLL remains an ABI veneer into the same DOS process
+state, preserving cross-module `DosSetProcessCp` behavior.
+
 ## Deliberately loader-specific operations
 
 The following classes remain loader intrinsics:
@@ -115,6 +128,9 @@ The root build compiles:
 
 ```text
 common/doscalls/os2_doscalls_core.c
+common/doscalls/os2_doscalls.c
+common/nls/os2_nls.c
+common/win32/os2_nls_win32.c
 common/win32/os2_win32_services.c
     -> DOSCALLS.DLL
 ```

@@ -6,10 +6,12 @@ EXPORTS
     DosSetFileInfo      @218 NONAME
     DosSetSigHandler    @14 NONAME
     DosFlagProcess      @15 NONAME
+    DosSetVec           @89 NONAME
     DosSetPathInfo      @219 NONAME
     DosSetDefaultDisk   @220 NONAME
     DosSetPriority      @236 NONAME
     DosCreatePipe       @239 NONAME
+    Dos16Sleep         @32 NONAME
     Dos16Beep          @50 NONAME
     DosQueryPathInfo   @223 NONAME
     DosQueryHType      @224 NONAME

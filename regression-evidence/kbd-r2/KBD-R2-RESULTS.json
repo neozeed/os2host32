@@ -1,0 +1,70 @@
+{
+  "milestone": "KBDCALLS_R2",
+  "date": "2026-09-27",
+  "status": "KBD_R2_COMMON_STATE_WIN32_BACKEND_STATIC_VERIFIED_RUNTIME_PENDING",
+  "baseline": {
+    "package": "os2host32-QUECALLS-R2.zip",
+    "sha256": "0ffab8b3a9c869b3d6b78dd447781bc1cd550462822b70e1aa368aa9d5b03921",
+    "runtime_status": "DOSCALLS/VIO R2B live-proven; QUECALLS R2 subsequently reported live-working in Sarien by user"
+  },
+  "exports": [
+    {"module":"KBDCALLS","ordinal":4,"name":"KbdCharIn"},
+    {"module":"KBDCALLS","ordinal":9,"name":"KbdStringIn"},
+    {"module":"KBDCALLS","ordinal":10,"name":"KbdGetStatus"},
+    {"module":"KBDCALLS","ordinal":11,"name":"KbdSetStatus"},
+    {"module":"KBDCALLS","ordinal":13,"name":"KbdFlushBuffer"},
+    {"module":"KBDCALLS","ordinal":22,"name":"KbdPeek"}
+  ],
+  "kbdcalls_def_sha256": "46e62bde47fa01017fcaf929a6c881720dbcc08649bb2dc30b376da05aa9a7ab",
+  "loader_sha256_unchanged": "793ee7de7c6d0bd79b7d8bbdfaab6774cb2ec6af39b88d0cefc3c714430f0c55",
+  "architecture": {
+    "veneer": "dlls/kbdcalls/kbdcalls.c",
+    "common": "common/kbd/os2_kbd.c",
+    "common_header": "common/include/os2_kbd.h",
+    "backend_contract": "common/include/os2_kbd_backend.h",
+    "win32_backend": "common/win32/os2_kbd_win32.c",
+    "scheduler_primitive": "os2_kbd_try_char"
+  },
+  "common_semantics": [
+    "default KBDINFO session state",
+    "KBDKEYINFO result construction",
+    "fbStatus character availability",
+    "KbdStringIn buffer/cchIn handling",
+    "CR/LF termination",
+    "Backspace editing",
+    "KBDINFO length validation"
+  ],
+  "win32_backend": [
+    "console input records",
+    "pipe/file byte input",
+    "Ctrl+C console handler and synthetic key event",
+    "Win32 modifier to OS/2 fsState mapping",
+    "console input flush",
+    "line-input echo",
+    "GetTickCount timestamp",
+    "Win32 error mapping"
+  ],
+  "tests": {
+    "gcc_strict_c89_kbd_core": "PASS",
+    "gcc_strict_c89_kbd_veneer": "PASS",
+    "gcc_strict_c89_win32_shim": "PASS",
+    "clang17_strict_c89_kbd_core": "PASS",
+    "clang17_strict_c89_kbd_veneer": "PASS",
+    "clang17_strict_c89_win32_shim": "PASS",
+    "kbd_static_architecture": "PASS",
+    "full_make_verify_gcc": "PASS",
+    "full_make_verify_clang17": "PASS",
+    "mingw_build": "NOT_RUN_TOOLCHAIN_UNAVAILABLE",
+    "native_runtime": "PENDING_USER_TEST"
+  },
+  "out_of_scope": [
+    "KbdOpen/KbdClose",
+    "KbdGetFocus/KbdFreeFocus",
+    "KbdGetCp/KbdSetCp",
+    "KbdRegister",
+    "full ASCII/binary mode behavior",
+    "DBCS/interim character support",
+    "WHP backend implementation",
+    "ReactOS OS2SS backend implementation"
+  ]
+}

@@ -54,6 +54,7 @@
 #include "os2_win32_services.h"
 #include "os2_nls.h"
 #include "os2_nls_api.h"
+#include "os2_nls_win32.h"
 
 #pragma comment(lib, "WinHvPlatform.lib")
 
@@ -2845,8 +2846,7 @@ int main(int argc, char **argv)
 
     memset(&rt, 0, sizeof(rt));
     memset(&x, 0, sizeof(x));
-    os2_nls_state_init(&rt.nls_state);
-    os2_win32_initialize_nls(&rt.nls_state);
+    os2_nls_win32_init_session(&rt.nls_state);
     rt.alloc_next = GUEST_ALLOC_BASE;
     rt.module_next = GUEST_MODULE_BASE;
     rt.stub_next = GUEST_STUB_BASE;

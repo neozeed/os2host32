@@ -1,0 +1,29 @@
+{
+  "milestone": "C386_HACK_SWITCH_R2",
+  "status": "STATIC_VERIFIED_RUNTIME_PENDING",
+  "baseline": "os2host32-C386-HACK-BRIDGE-R1.zip",
+  "specimen": {
+    "name": "hack.exe",
+    "sha256": "8201dd2e40dc4205cd649373d3f4c6f62ff675663f906143059ccc6a65f278bd",
+    "observed_fault_eip": "00025051",
+    "observed_stack": "01054ACC"
+  },
+  "root_cause": "C/386 absolute switch-table entries contain preferred executable addresses without per-entry LE fixups; table-reference OFF32 fixups relocate only the table address",
+  "repair": {
+    "scope": "recognized C/386 images only",
+    "candidate_requires_internal_off32": true,
+    "candidate_requires_indirect_cs_jump_signature": true,
+    "minimum_entries": 2,
+    "entry_validation": "preferred address must fall inside a mapped executable object",
+    "tables_in_exact_specimen": 21,
+    "entries_in_exact_specimen": 313,
+    "faulting_entry": "00025051",
+    "expected_rebased_entry_for_observed_layout": "01015051"
+  },
+  "verification": {
+    "gcc_make_verify": "PASS",
+    "clang_make_verify": "PASS",
+    "native_mingw_runtime": "PENDING"
+  },
+  "sixteen_bit_execution_added": false
+}

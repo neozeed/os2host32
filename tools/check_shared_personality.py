@@ -54,6 +54,7 @@ def main() -> int:
     core_header = read("common/include/os2_doscalls_core.h")
     core_source = read("common/doscalls/os2_doscalls_core.c")
     native = read("dlls/doscalls/doscalls.c")
+    native_backend = read("common/win32/os2_doscalls_win32.c")
     nls_veneer = read("dlls/nls/nls.c")
     nls_core = read("common/nls/os2_nls.c")
     nls_api = read("common/nls/os2_nls_api.c")
@@ -79,11 +80,13 @@ def main() -> int:
         if re.search(rf"\b{re.escape(core_name)}\s*\(", core_source) is None:
             errors.append(f"missing implementation for {core_name}")
 
-        body = exported_function_body(native, name)
+        if f"os2_dos_{name}" not in native:
+            errors.append(f"native DOSCALLS veneer {name} is not routed through common semantics")
+        body = exported_function_body(native_backend, f"o2win_{name}")
         if body is None:
-            errors.append(f"native DOSCALLS export {name} was not found")
+            errors.append(f"Win32 DOSCALLS backend {name} was not found")
         elif core_name not in body:
-            errors.append(f"native {name} does not call {core_name}")
+            errors.append(f"Win32 backend {name} does not call {core_name}")
 
         whp_case = re.search(
             rf"case\s+{ordinal}\s*:.*?{re.escape(core_name)}\s*\(",
@@ -99,7 +102,8 @@ def main() -> int:
     required_root_fragments = (
         "common/doscalls/os2_doscalls_core.c",
         "common/win32/os2_win32_services.c",
-        "dlls/doscalls/doscalls.c $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC)",
+        "$(DOSCALLS_SESSION_SRC) $(DOSCALLS_WIN32_SRC)",
+        "$(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC)",
     )
     for fragment in required_root_fragments:
         if fragment not in root_make:

@@ -1,0 +1,26 @@
+OS2HOST32 C/386 HACK BRIDGE R1 STATIC VERIFICATION
+
+Baseline: os2host32-SIGNAL16-R1.zip
+Baseline SHA256: 03faec0ee29abbe269327743fc7168b88bc007c013e704da86b5a56ea04edf26
+
+GCC make verify: PASS
+mou-win32-shim-check: PASS
+rm -f mou-win32-shim-check
+python3 tools/check_mou_r2.py
+mou-static-check: PASS
+python3 tools/check_c386_hack_bridge.py
+c386-hack-bridge-check: PASS (6 new descriptors, VIO 24/26/52 targets, 426 register helper preserved)
+
+Clang make verify: PASS
+mou-win32-shim-check: PASS
+rm -f mou-win32-shim-check
+python3 tools/check_mou_r2.py
+mou-static-check: PASS
+python3 tools/check_c386_hack_bridge.py
+c386-hack-bridge-check: PASS (6 new descriptors, VIO 24/26/52 targets, 426 register helper preserved)
+
+Dedicated bridge check:
+c386-hack-bridge-check: PASS (6 new descriptors, VIO 24/26/52 targets, 426 register helper preserved)
+
+Native MinGW build/scan of user hack.exe: NOT RUN (hack.exe and MinGW unavailable in this environment).
+No 16-bit CPU execution is implemented or claimed.

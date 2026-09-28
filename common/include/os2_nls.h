@@ -39,13 +39,22 @@ struct Os2NlsCountryProfile {
     unsigned char list_separator[2];
 };
 
+struct Os2NlsBackendOps;
+
 struct Os2NlsState {
+    void *backend_opaque;
+    const struct Os2NlsBackendOps *backend;
+
+    /* Authoritative OS/2-visible per-process/session state. */
     uint32_t country;
     uint32_t current_codepage;
     uint32_t prepared_codepages[OS2_NLS_MAX_PREPARED_CP];
     uint32_t prepared_count;
 };
 
+void os2_nls_session_init(struct Os2NlsState *state,
+                          void *backend_opaque,
+                          const struct Os2NlsBackendOps *backend);
 void os2_nls_state_init(struct Os2NlsState *state);
 int os2_nls_set_country(struct Os2NlsState *state, uint32_t country);
 int os2_nls_has_codepage(uint32_t codepage);
