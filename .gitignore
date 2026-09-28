@@ -9,6 +9,12 @@
 *.ilk
 *.d
 
+# Frozen ReactOS import/static libraries required by OS2SS
+!subsystem/reactos/lib/
+!subsystem/reactos/lib/libkernel32.a
+!subsystem/reactos/lib/libntdll.a
+!subsystem/reactos/lib/libsmlib.a
+
 # Local test products and caches
 personality-core-check
 __pycache__/
