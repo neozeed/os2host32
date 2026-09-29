@@ -344,6 +344,9 @@ static HWND g_frame_hwnd;
 static int g_native_create_depth;
 static int g_native_show_depth;
 static int g_show_pending;
+#define PM_PENDING_SHOW_MAX 32
+static HWND g_pending_show[PM_PENDING_SHOW_MAX];
+static unsigned g_pending_show_count;
 static PVOID g_trace_veh;
 
 #define PMCOMPAT_MAX_RESOURCES 256
@@ -2579,10 +2582,21 @@ O2ULONG __cdecl WinFillRect(O2HPS hps, void *prcl, O2LONG color)
     if (prcl)
         or = (O2RECTL *)prcl;
     else {
-        client_rect_os2(p->hwnd, &full);
+        if (p->bitmap) {
+            full.xLeft = 0; full.yBottom = 0;
+            full.xRight = p->bitmap->width;
+            full.yTop = p->bitmap->height;
+        } else {
+            client_rect_os2(p->hwnd, &full);
+        }
         or = &full;
     }
-    rect_os2_to_win(p->hwnd, or, &wr);
+    /* A memory PS has no client HWND.  Its selected bitmap, not the
+       desktop/client rectangle, defines the bottom-up coordinate origin. */
+    wr.left = or->xLeft;
+    wr.right = or->xRight;
+    wr.top = pm_ps_height(p) - or->yTop;
+    wr.bottom = pm_ps_height(p) - or->yBottom;
     owned = 0;
     switch (color) {
     case O2_SYSCLR_WINDOW:
@@ -4139,6 +4153,10 @@ O2HWND __cdecl WinCreateStdWindow(O2HWND parent, O2ULONG frameStyle,
          * at the first WinGetMsg, after WinCreateStdWindow has returned and
          * the application has completed its post-create setup.
          */
+        if (g_pending_show_count < PM_PENDING_SHOW_MAX)
+            g_pending_show[g_pending_show_count++] = hwnd;
+        else
+            pm_trace("deferred show list full", (unsigned long)(DWORD)hwnd, 0, 0);
         g_show_pending = 1;
         pm_trace("show deferred", (unsigned long)(DWORD)hwnd,
                  (unsigned long)style, 0);
@@ -4293,19 +4311,23 @@ O2ULONG __cdecl WinGetMsg(O2HAB hab, void *qmsg, O2HWND filter,
     pm_trace("WinGetMsg enter", (unsigned long)hab,
              (unsigned long)g_show_pending, 0);
 
-    if (g_show_pending && g_frame_hwnd && IsWindow(g_frame_hwnd)) {
+    if (g_show_pending) {
+        unsigned show_index;
         g_show_pending = 0;
-        pm_trace("deferred ShowWindow",
-                 (unsigned long)(DWORD)g_frame_hwnd, 0, 0);
-        ++g_native_show_depth;
-        shown = ShowWindow(g_frame_hwnd, SW_SHOW);
-        --g_native_show_depth;
-        pm_trace("ShowWindow returned",
-                 (unsigned long)(DWORD)g_frame_hwnd,
-                 (unsigned long)shown,
-                 (unsigned long)IsWindowVisible(g_frame_hwnd));
-        InvalidateRect(g_frame_hwnd, NULL, FALSE);
-        pm_trace("paint queued", (unsigned long)(DWORD)g_frame_hwnd, 0, 0);
+        for (show_index = 0; show_index < g_pending_show_count; ++show_index) {
+            HWND pending = g_pending_show[show_index];
+            if (!pending || !IsWindow(pending))
+                continue;
+            pm_trace("deferred ShowWindow", (unsigned long)(DWORD)pending, 0, 0);
+            ++g_native_show_depth;
+            shown = ShowWindow(pending, SW_SHOW);
+            --g_native_show_depth;
+            pm_trace("ShowWindow returned", (unsigned long)(DWORD)pending,
+                     (unsigned long)shown, (unsigned long)IsWindowVisible(pending));
+            InvalidateRect(pending, NULL, FALSE);
+            pm_trace("paint queued", (unsigned long)(DWORD)pending, 0, 0);
+        }
+        g_pending_show_count = 0;
     }
 
     SetLastError(0);
