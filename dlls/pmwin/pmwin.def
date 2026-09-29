@@ -56,6 +56,7 @@ EXPORTS
     WinSetWindowULong      @878 NONAME
     WinShowWindow         @883 NONAME
     WinStartTimer         @884 NONAME
+    WinStopTimer          @885 NONAME
     WinTerminate           @888 NONAME
     WinUpdateWindow        @892 NONAME
     WinWindowFromID        @899 NONAME

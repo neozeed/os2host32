@@ -3419,6 +3419,23 @@ O2ULONG __cdecl WinStartTimer(O2HAB hab, O2HWND hwnd, O2ULONG idTimer,
     return r ? idTimer : 0UL;
 }
 
+/* 885 - stop a PM window timer started by WinStartTimer. */
+O2ULONG __cdecl WinStopTimer(O2HAB hab, O2HWND hwnd, O2ULONG idTimer)
+{
+    HWND wh;
+    int r;
+
+    (void)hab;
+    wh = native_hwnd(hwnd);
+    if (!wh || idTimer == 0UL || idTimer > 0xffffUL)
+        return 0UL;
+
+    r = KillTimer(wh, (UINT_PTR)idTimer);
+    pm_trace(r ? "WinStopTimer OK" : "WinStopTimer FAIL",
+             (unsigned long)hwnd, (unsigned long)idTimer, 0);
+    return r ? 1UL : 0UL;
+}
+
 /* 888 */
 O2ULONG __cdecl WinTerminate(O2HAB hab)
 {
