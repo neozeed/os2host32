@@ -1167,6 +1167,7 @@ static struct CompatPS *alloc_ps(HWND hwnd, HDC dc, DWORD flags)
     p->hwnd = hwnd;
     p->flags = flags;
     p->saved_dc = dc ? SaveDC(dc) : 0;
+    if (dc) SetBkMode(dc, TRANSPARENT);
     return p;
 }
 
@@ -1380,6 +1381,15 @@ static LRESULT CALLBACK pm_dialog_wndproc(HWND hwnd, UINT msg,
                             notify = O2_LN_SELECT;
                         else
                             notify = (O2USHORT)code;
+                    } else if (_stricmp(cls, "COMBOBOX") == 0) {
+                        switch (code) {
+                        case CBN_EDITCHANGE: notify = 1; break;
+                        case CBN_ERRSPACE: notify = 3; break;
+                        case CBN_SELCHANGE: notify = 4; break;
+                        case CBN_DROPDOWN: notify = 6; break;
+                        case CBN_DBLCLK: notify = 7; break;
+                        default: return 0; /* no equivalent PM notification */
+                        }
                     } else {
                         /*
                          * Preserve the notification value for controls for
@@ -1626,7 +1636,12 @@ static HWND pm_create_dialog_template(O2ULONG module,
         if (os_style & 0x00020000UL) ws |= WS_TABSTOP;
         if (os_style & 0x00010000UL) ws |= WS_GROUP;
         klass = "STATIC";
-        if (cls == 3U) {
+        if (cls == O2_WC_COMBOBOX) {
+            klass = "COMBOBOX";
+            ws |= WS_VSCROLL | CBS_NOINTEGRALHEIGHT;
+            ws |= (os_style & 4UL) ? CBS_DROPDOWNLIST :
+                  (os_style & 2UL) ? CBS_DROPDOWN : CBS_SIMPLE;
+        } else if (cls == 3U) {
             klass = "BUTTON";
             if ((os_style & 0x0000000fUL) == 0x0002UL)
                 ws |= BS_AUTOCHECKBOX;
@@ -2305,6 +2320,7 @@ O2HPS __cdecl WinBeginPaint(O2HWND hwnd, O2HPS hps, void *prcl)
        Save the real paint DC now so GPI clip/text/object state cannot
        escape this OS/2 HPS lifetime. */
     p->saved_dc = SaveDC(p->dc);
+    SetBkMode(p->dc, TRANSPARENT);
     if (prcl)
         rect_win_to_os2(wh, &p->paint.rcPaint, (O2RECTL *)prcl);
     if (prcl) {
@@ -3471,6 +3487,33 @@ static int pm_is_listbox(HWND hwnd)
     return lstrcmpiA(cls, "LISTBOX") == 0;
 }
 
+/* OS/2 combo boxes expose the same LM_* interface as list boxes. */
+static int pm_is_combobox(HWND hwnd)
+{
+    char cls[32];
+    return hwnd && GetClassNameA(hwnd,cls,sizeof(cls)) && !lstrcmpiA(cls,"COMBOBOX");
+}
+static LRESULT pm_list_message(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
+{
+    if(pm_is_combobox(hwnd)) {
+        switch(msg) {
+        case LB_RESETCONTENT: msg=CB_RESETCONTENT; break;
+        case LB_GETCOUNT: msg=CB_GETCOUNT; break;
+        case LB_GETCURSEL: msg=CB_GETCURSEL; break;
+        case LB_SETCURSEL: msg=CB_SETCURSEL; break;
+        case LB_ADDSTRING: msg=CB_ADDSTRING; break;
+        case LB_INSERTSTRING: msg=CB_INSERTSTRING; break;
+        case LB_GETTEXTLEN: msg=CB_GETLBTEXTLEN; break;
+        case LB_GETTEXT: msg=CB_GETLBTEXT; break;
+        case LB_DELETESTRING: msg=CB_DELETESTRING; break;
+        case LB_GETITEMDATA: msg=CB_GETITEMDATA; break;
+        case LB_SETITEMDATA: msg=CB_SETITEMDATA; break;
+        default: return CB_ERR;
+        }
+    }
+    return SendMessageA(hwnd,msg,wp,lp);
+}
+
 static O2MRESULT pm_send_listbox(HWND child, O2USHORT msg,
                                  O2MPARAM mp1, O2MPARAM mp2,
                                  int *handled)
@@ -3481,37 +3524,43 @@ static O2MRESULT pm_send_listbox(HWND child, O2USHORT msg,
     char *tmp;
     const char *text;
     if (handled) *handled=0;
-    if (!pm_is_listbox(child)) return 0;
+    if (!pm_is_listbox(child) && !pm_is_combobox(child)) return 0;
     switch (msg) {
     case O2_LM_DELETEALL:
         if (handled) *handled=1;
-        return (O2MRESULT)SendMessageA(child, LB_RESETCONTENT, 0, 0);
+        pm_list_message(child, LB_RESETCONTENT, 0, 0);
+        return 1;
     case O2_LM_QUERYITEMCOUNT:
         if (handled) *handled=1;
-        return (O2MRESULT)SendMessageA(child, LB_GETCOUNT, 0, 0);
+        return (O2MRESULT)pm_list_message(child, LB_GETCOUNT, 0, 0);
     case O2_LM_QUERYSELECTION:
         if (handled) *handled=1;
-        return (O2MRESULT)SendMessageA(child, LB_GETCURSEL, 0, 0);
+        return (O2MRESULT)pm_list_message(child, LB_GETCURSEL, 0, 0);
     case O2_LM_SELECTITEM:
         if (handled) *handled=1;
         pos=(short)LOWORD((DWORD)mp1);
-        return SendMessageA(child, LB_SETCURSEL, (WPARAM)(int)pos, 0) != LB_ERR ? 1UL : 0UL;
+        if (!mp2) {
+            if (pos == -1 || pm_list_message(child,LB_GETCURSEL,0,0) == pos)
+                pm_list_message(child,LB_SETCURSEL,(WPARAM)-1,0);
+            return 1;
+        }
+        return pm_list_message(child, LB_SETCURSEL, (WPARAM)(int)pos, 0) != LB_ERR ? 1UL : 0UL;
     case O2_LM_INSERTITEM:
         if (handled) *handled=1;
         text=(const char *)(DWORD)mp2;
         if (!text) return (O2MRESULT)(LONG)-1;
         pos=(short)LOWORD((DWORD)mp1);
         if (pos == O2_LIT_END)
-            return (O2MRESULT)SendMessageA(child, LB_ADDSTRING, 0, (LPARAM)text);
+            return (O2MRESULT)pm_list_message(child, LB_ADDSTRING, 0, (LPARAM)text);
         if (pos == O2_LIT_SORTASCENDING || pos == O2_LIT_SORTDESCENDING) {
-            count=(int)SendMessageA(child, LB_GETCOUNT, 0, 0);
+            count=(int)pm_list_message(child, LB_GETCOUNT, 0, 0);
             insert_at=count < 0 ? 0 : count;
             for (i=0; i<count; ++i) {
-                n=(int)SendMessageA(child, LB_GETTEXTLEN, (WPARAM)i, 0);
+                n=(int)pm_list_message(child, LB_GETTEXTLEN, (WPARAM)i, 0);
                 if (n < 0) continue;
                 tmp=(char *)HeapAlloc(GetProcessHeap(),0,(SIZE_T)n+1U);
                 if (!tmp) return (O2MRESULT)(LONG)-2;
-                SendMessageA(child, LB_GETTEXT, (WPARAM)i, (LPARAM)tmp);
+                pm_list_message(child, LB_GETTEXT, (WPARAM)i, (LPARAM)tmp);
                 lr=lstrcmpiA(text,tmp);
                 HeapFree(GetProcessHeap(),0,tmp);
                 if ((pos == O2_LIT_SORTASCENDING && lr < 0) ||
@@ -3519,21 +3568,39 @@ static O2MRESULT pm_send_listbox(HWND child, O2USHORT msg,
                     insert_at=i; break;
                 }
             }
-            return (O2MRESULT)SendMessageA(child, LB_INSERTSTRING,
+            return (O2MRESULT)pm_list_message(child, LB_INSERTSTRING,
                                            (WPARAM)insert_at, (LPARAM)text);
         }
-        return (O2MRESULT)SendMessageA(child, LB_INSERTSTRING,
+        return (O2MRESULT)pm_list_message(child, LB_INSERTSTRING,
                                        (WPARAM)(int)pos, (LPARAM)text);
+    case 0x0163U: /* LM_DELETEITEM */
+    case 0x0167U: /* LM_QUERYITEMTEXTLENGTH */
+    case 0x0169U: /* LM_SETITEMHANDLE */
+    case 0x016aU: /* LM_QUERYITEMHANDLE */
+        if (handled) *handled=1;
+        pos=(short)LOWORD((DWORD)mp1);
+        lr=pm_list_message(child,msg==0x163?LB_DELETESTRING:
+            msg==0x167?LB_GETTEXTLEN:msg==0x169?LB_SETITEMDATA:LB_GETITEMDATA,
+            (WPARAM)(int)pos,(LPARAM)mp2);
+        return msg==0x169 ? (O2MRESULT)(lr!=LB_ERR) : (O2MRESULT)lr;
+    case 0x0170U: /* CBM_SHOWLIST */
+    case 0x0172U: /* CBM_ISLISTSHOWING */
+        if (!pm_is_combobox(child)) return 0;
+        if (handled) *handled=1;
+        if (msg==0x170) {
+            SendMessageA(child,CB_SHOWDROPDOWN,mp1!=0,0); return 1;
+        }
+        return (O2MRESULT)SendMessageA(child,CB_GETDROPPEDSTATE,0,0);
     case O2_LM_QUERYITEMTEXT:
         if (handled) *handled=1;
         pos=(short)LOWORD((DWORD)mp1);
         maxchars=(int)HIWORD((DWORD)mp1);
         if (!mp2 || maxchars <= 0) return 0;
-        n=(int)SendMessageA(child, LB_GETTEXTLEN, (WPARAM)(int)pos, 0);
+        n=(int)pm_list_message(child, LB_GETTEXTLEN, (WPARAM)(int)pos, 0);
         if (n < 0) return 0;
         tmp=(char *)HeapAlloc(GetProcessHeap(),0,(SIZE_T)n+1U);
         if (!tmp) return 0;
-        if (SendMessageA(child, LB_GETTEXT, (WPARAM)(int)pos, (LPARAM)tmp) == LB_ERR) {
+        if (pm_list_message(child, LB_GETTEXT, (WPARAM)(int)pos, (LPARAM)tmp) == LB_ERR) {
             HeapFree(GetProcessHeap(),0,tmp); return 0;
         }
         if (n >= maxchars) n=maxchars-1;
@@ -3906,6 +3973,10 @@ O2HWND __cdecl WinCreateWindow(O2HWND parent, const char *className,
         } else {
             style |= SS_LEFT;
         }
+    } else if (publicClass == O2_WC_COMBOBOX) {
+        style |= WS_VSCROLL | CBS_NOINTEGRALHEIGHT;
+        style |= (osStyle & 4UL) ? CBS_DROPDOWNLIST :
+                 (osStyle & 2UL) ? CBS_DROPDOWN : CBS_SIMPLE;
     } else if (publicClass == O2_WC_ENTRYFIELD) {
         style |= WS_BORDER | ES_LEFT | ES_AUTOHSCROLL;
     } else if (publicClass == O2_WC_LISTBOX) {

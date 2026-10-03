@@ -113,7 +113,7 @@ static int gpi_trace_blit_enabled(int width, int height)
 
 /* Keep logical font ownership outside CompatPS: old PMWIN builds share that
    structure, so adding fields there would break their allocation size. */
-struct GpiCompatFont { O2HPS ps; LONG id; HFONT font; HFONT initial; };
+struct GpiCompatFont { O2HPS ps; LONG id; HFONT font; HFONT initial; UINT codepage; };
 static struct GpiCompatFont g_fonts[256];
 static CRITICAL_SECTION g_font_lock;
 void __cdecl OS2GPI_ReleaseFonts(O2HPS hps);
@@ -136,6 +136,46 @@ static struct CompatPS *ps_from(O2HPS hps)
     return p;
 }
 
+
+/* Code page 0 means the OS/2 process code page, not the Windows ACP.
+ * Ask the shared DOS personality when present; its standalone default is 437. */
+static UINT gpi_process_codepage(void)
+{
+    typedef DWORD (__cdecl *QueryCpFn)(DWORD,DWORD *,DWORD *);
+    HMODULE module=GetModuleHandleA("DOSCALLS.dll");
+    FARPROC proc=module?GetProcAddress(module,(LPCSTR)(ULONG_PTR)291):NULL;
+    QueryCpFn query; DWORD cp[3],bytes=0;
+    if(proc) {
+        memcpy(&query,&proc,sizeof(query));
+        if(!query(sizeof(cp),cp,&bytes) && bytes>=4 && IsValidCodePage(cp[0])) return cp[0];
+    }
+    return 437;
+}
+static UINT gpi_text_codepage(struct CompatPS *p)
+{
+    unsigned i; UINT cp=0; HFONT font=(HFONT)GetCurrentObject(p->dc,OBJ_FONT);
+    EnterCriticalSection(&g_font_lock);
+    for(i=0;i<256;++i) if(g_fonts[i].ps==(O2HPS)(DWORD)p && g_fonts[i].font==font) {
+        cp=g_fonts[i].codepage; break;
+    }
+    LeaveCriticalSection(&g_font_lock);
+    return cp?cp:gpi_process_codepage();
+}
+static WCHAR *gpi_wide_text(struct CompatPS *p,const char *text,LONG count,int *length)
+{
+    WCHAR *wide; int n; UINT cp;
+    *length=0;
+    if(!text || count<0) return NULL;
+    cp=gpi_text_codepage(p);
+    n=count?MultiByteToWideChar(cp,0,text,count,NULL,0):0;
+    if(count && !n) return NULL;
+    wide=(WCHAR *)HeapAlloc(GetProcessHeap(),0,((SIZE_T)n+1)*sizeof(WCHAR));
+    if(!wide) return NULL;
+    if(n && MultiByteToWideChar(cp,0,text,count,wide,n)!=n) {
+        HeapFree(GetProcessHeap(),0,wide); return NULL;
+    }
+    wide[n]=0; *length=n; return wide;
+}
 
 static COLORREF gpi_native_color(O2LONG color)
 {
@@ -498,6 +538,7 @@ O2HPS __cdecl GpiCreatePS(O2HAB hab, O2HDC hdc, O2SIZEL *size, O2ULONG options)
     p->default_view[8] = 1L;
     p->line_type = 0;
     p->saved_dc = p->dc ? SaveDC(p->dc) : 0;
+    if (p->dc) SetBkMode(p->dc, TRANSPARENT);
     if (gpi_trace_enabled()) {
         fprintf(stderr,
                 "PMGPI: GpiCreatePS tid=%lu hps=%08lX hdc=%08lX hwnd=%08lX size=(%ld,%ld) opt=%08lX saved=%d\n",
@@ -589,8 +630,10 @@ O2LONG __cdecl GpiQueryFontMetrics(O2HPS hps, O2LONG metricsLength,
 /* 505 */
 O2LONG __cdecl GpiSetBackMix(O2HPS hps, O2LONG mix)
 {
-    (void)hps; (void)mix;
-    return 1;
+    struct CompatPS *p=ps_from(hps);
+    if(!p || !p->dc || (mix!=0 && mix!=1 && mix!=2 && mix!=4 && mix!=5)) return 0;
+    /* Optional OR/XOR backgrounds fall back to LEAVEALONE, per PM contract. */
+    return SetBkMode(p->dc,mix==2?OPAQUE:TRANSPARENT)!=0;
 }
 
 /* 506 */
@@ -1197,54 +1240,30 @@ O2HDC __cdecl DevOpenDC(O2HAB hab, O2LONG type, const char *token,
 }
 
 
-/* 359 */
+/* 359 - OS/2's point is the baseline, not the cell bottom. */
 O2LONG __cdecl GpiCharStringAt(O2HPS hps, O2POINTL *pt, O2LONG count,
                                const char *text)
 {
-    struct CompatPS *p;
-    TEXTMETRICA tm;
-    RECT cr;
-    int y;
-    p = ps_from(hps);
-    if (gpi_trace_enabled()) {
-        fprintf(stderr, "PMGPI: GpiCharStringAt hps=%08lX pt=(%ld,%ld) count=%ld text=%08lX\n",
-                (unsigned long)hps,
-                pt ? (long)pt->x : -9999L, pt ? (long)pt->y : -9999L,
-                (long)count, (unsigned long)(DWORD)text);
-        fflush(stderr);
+    struct CompatPS *p=ps_from(hps);
+    WCHAR *wide; int length,y; UINT align; SIZE extent; BOOL result;
+    if(!p || !p->dc || !pt || !text || count<=0 || count>512) return 0;
+    wide=gpi_wide_text(p,text,count,&length); if(!wide) return 0;
+    y=gpi_surface_height(p)-(int)pt->y;
+    SetTextColor(p->dc,gpi_native_color(p->color));
+    align=SetTextAlign(p->dc,TA_LEFT|TA_BASELINE|TA_NOUPDATECP);
+    result=TextOutW(p->dc,(int)pt->x,y,wide,length);
+    memset(&extent,0,sizeof(extent));
+    if(result) GetTextExtentPoint32W(p->dc,wide,length,&extent);
+    SetTextAlign(p->dc,align);
+    HeapFree(GetProcessHeap(),0,wide);
+    if(gpi_trace_enabled()) {
+        fprintf(stderr,"PMGPI: GpiCharStringAt ps=%08lX baseline=(%ld,%ld) bytes=%ld cp=%u bk=%d result=%d\n",
+            (unsigned long)hps,(long)pt->x,(long)pt->y,(long)count,
+            gpi_text_codepage(p),GetBkMode(p->dc),(int)result);
     }
-    if (!p || !p->dc || !pt || !text || count < 0) {
-        if (gpi_trace_enabled()) {
-            fprintf(stderr, "PMGPI: GpiCharStringAt rejected ps=%p dc=%p\n",
-                    (void *)p, p ? (void *)p->dc : NULL);
-            fflush(stderr);
-        }
-        return 0;
-    }
-    memset(&tm, 0, sizeof(tm));
-    GetTextMetricsA(p->dc, &tm);
-    memset(&cr, 0, sizeof(cr));
-    if (p->hwnd) GetClientRect(p->hwnd, &cr);
-    else cr.bottom = p->bitmap ? p->bitmap->height : 0;
-    y = cr.bottom - (int)pt->y - (int)tm.tmHeight;
-    SetTextColor(p->dc, gpi_native_color(p->color));
-    SetBkMode(p->dc, TRANSPARENT);
-    if (!TextOutA(p->dc, (int)pt->x, y, text, (int)count)) {
-        if (gpi_trace_enabled()) {
-            fprintf(stderr, "PMGPI: GpiCharStringAt TextOutA FAIL err=%lu native=(%ld,%d) color=%ld\n",
-                    (unsigned long)GetLastError(), (long)pt->x, y, (long)p->color);
-            fflush(stderr);
-        }
-        return 0;
-    }
-    if (gpi_trace_enabled()) {
-        fprintf(stderr, "PMGPI: GpiCharStringAt OK native=(%ld,%d) color=%ld\n",
-                (long)pt->x, y, (long)p->color);
-        fflush(stderr);
-    }
-    p->current_x = pt->x;
-    p->current_y = pt->y;
-    return count;
+    if(!result) return 0;
+    p->current_x=pt->x+extent.cx; p->current_y=pt->y;
+    return 1; /* GPI_OK; this is a correlation result, not a byte count. */
 }
 
 /* 370 */
@@ -1327,42 +1346,37 @@ O2LONG __cdecl GpiMove(O2HPS hps, O2POINTL *pt)
     return GpiSetCurrentPosition(hps, pt);
 }
 
-/* 489 */
-O2LONG __cdecl GpiQueryTextBox(O2HPS hps, O2LONG count, const char *text,
-                               O2LONG boxCount, O2POINTL *pts)
+/* 489 - bounds relative to the same baseline used for drawing. */
+O2LONG __cdecl GpiQueryTextBox(O2HPS hps,O2LONG count,const char *text,
+                               O2LONG boxCount,O2POINTL *pts)
 {
-    struct CompatPS *p;
-    SIZE z;
-    TEXTMETRICA tm;
-    if (!text || !pts || boxCount < 5 || count < 0) return 0;
-    p=ps_from(hps); if (!p || !p->dc) return 0;
-    memset(&z,0,sizeof(z)); memset(&tm,0,sizeof(tm));
-    if (!GetTextExtentPoint32A(p->dc,text,(int)count,&z)) return 0;
-    GetTextMetricsA(p->dc,&tm);
-    pts[0].x=0; pts[0].y=tm.tmHeight;
-    pts[1].x=0; pts[1].y=0;
-    pts[2].x=z.cx; pts[2].y=tm.tmHeight;
-    pts[3].x=z.cx; pts[3].y=0;
+    struct CompatPS *p=ps_from(hps); SIZE z; TEXTMETRICW tm;
+    WCHAR *wide; int length; BOOL ok;
+    if(!p || !p->dc || !pts || boxCount<5) return 0;
+    wide=gpi_wide_text(p,text,count,&length); if(!wide) return 0;
+    ok=GetTextExtentPoint32W(p->dc,wide,length,&z) && GetTextMetricsW(p->dc,&tm);
+    HeapFree(GetProcessHeap(),0,wide); if(!ok) return 0;
+    pts[0].x=0; pts[0].y=tm.tmAscent;
+    pts[1].x=0; pts[1].y=-tm.tmDescent;
+    pts[2].x=z.cx; pts[2].y=tm.tmAscent;
+    pts[3].x=z.cx; pts[3].y=-tm.tmDescent;
     pts[4].x=z.cx; pts[4].y=0;
     return 1;
 }
 
-/* 492 */
-O2LONG __cdecl GpiQueryWidthTable(O2HPS hps, O2LONG first, O2LONG count,
-                                  O2LONG *widths)
+/* 492 - single-byte code points use the selected OS/2 code page. */
+O2LONG __cdecl GpiQueryWidthTable(O2HPS hps,O2LONG first,O2LONG count,O2LONG *widths)
 {
-    struct CompatPS *p;
-    int i;
-    int w;
-    if (!widths || count < 0) return 0;
-    p=ps_from(hps); if (!p || !p->dc) return 0;
-    for (i=0; i<(int)count; ++i) {
-        w=0;
-        if (!GetCharWidth32A(p->dc,(UINT)(first+i),(UINT)(first+i),&w)) {
-            SIZE z; char ch=(char)(first+i); memset(&z,0,sizeof(z));
-            GetTextExtentPoint32A(p->dc,&ch,1,&z); w=z.cx;
+    struct CompatPS *p=ps_from(hps); LONG i; WCHAR *wide; int length;
+    char ch; SIZE z;
+    if(!p || !p->dc || !widths || first<0 || first>255 || count<0 || count>256-first) return 0;
+    for(i=0;i<count;++i) {
+        ch=(char)(first+i); wide=gpi_wide_text(p,&ch,1,&length);
+        if(!wide) return 0;
+        if(!GetTextExtentPoint32W(p->dc,wide,length,&z)) {
+            HeapFree(GetProcessHeap(),0,wide); return 0;
         }
-        widths[i]=(O2LONG)w;
+        HeapFree(GetProcessHeap(),0,wide); widths[i]=z.cx;
     }
     return 1;
 }
@@ -1504,6 +1518,7 @@ O2LONG __cdecl GpiAssociate(O2HPS hps, O2HDC hdc)
     p->dc = (HDC)(DWORD)hdc;
     p->hwnd = p->dc ? WindowFromDC(p->dc) : NULL;
     p->saved_dc = p->dc ? SaveDC(p->dc) : 0;
+    if (p->dc) SetBkMode(p->dc, TRANSPARENT);
     if (p->dc && p->bitmap && p->bitmap->native_bitmap)
         SelectObject(p->dc, p->bitmap->native_bitmap);
     return 1;
@@ -1855,65 +1870,72 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
     return TRUE;
 }
 
-/* 368 - create a GDI font associated with this presentation space/local ID. */
+/* 368 - realize before reporting FONT_MATCH. TELNETPM selects only on 2. */
 LONG __cdecl GpiCreateLogFont(O2HPS hps,const char *name,LONG id,const struct O2FATTRS *a)
 {
     struct CompatPS *p=ps_from(hps);
-    unsigned i,slot;
-    HFONT font,initial;
-    LOGFONTA lf;
+    unsigned i,slot; HFONT font,initial,previous; LOGFONTA lf; TEXTMETRICA tm;
+    char realized[LF_FACESIZE]; LONG match; int was_current;
     (void)name;
-    if(!p || !p->dc || !a || a->length<sizeof(*a) || id<=0 || id>254) return 0;
+    if(!p || !p->dc || !a || a->length<sizeof(*a) || id<0 || id>254 ||
+       (a->codepage && !IsValidCodePage(a->codepage))) return 0;
     memset(&lf,0,sizeof(lf));
     lf.lfHeight=a->height; lf.lfWidth=a->width;
     lf.lfWeight=(a->selection&0x20)?FW_BOLD:FW_NORMAL;
     lf.lfItalic=(BYTE)((a->selection&1)!=0);
     lf.lfUnderline=(BYTE)((a->selection&2)!=0);
     lf.lfStrikeOut=(BYTE)((a->selection&0x10)!=0);
-    lf.lfCharSet=(a->codepage==437 || a->codepage==850)?OEM_CHARSET:DEFAULT_CHARSET;
-    lf.lfPitchAndFamily=(a->type&1)?FIXED_PITCH:DEFAULT_PITCH;
+    /* Unicode drawing handles the code page independently of font charset. */
+    lf.lfCharSet=DEFAULT_CHARSET; lf.lfQuality=NONANTIALIASED_QUALITY;
     memcpy(lf.lfFaceName,a->face,LF_FACESIZE-1);
-    /* Common OS/2 font families map to installed Windows families. */
     if(!lstrcmpiA(lf.lfFaceName,"System Monospaced") || !lstrcmpiA(lf.lfFaceName,"Courier"))
         strcpy(lf.lfFaceName,"Courier New");
     else if(!lstrcmpiA(lf.lfFaceName,"Helv") || !lstrcmpiA(lf.lfFaceName,"Helvetica"))
         strcpy(lf.lfFaceName,"Arial");
-    font=CreateFontIndirectA(&lf);
-    if(!font) return 0;
+    font=CreateFontIndirectA(&lf); if(!font) return 0;
     EnterCriticalSection(&g_font_lock);
-    initial=(HFONT)GetCurrentObject(p->dc,OBJ_FONT); slot=256;
+    previous=(HFONT)GetCurrentObject(p->dc,OBJ_FONT); initial=previous; slot=256;
     for(i=0;i<256;++i) {
         if(g_fonts[i].ps==hps) {
             initial=g_fonts[i].initial;
             if(g_fonts[i].id==id) { slot=i; break; }
         } else if(!g_fonts[i].ps && slot==256) slot=i;
     }
-    if(slot==256 || (g_fonts[slot].font &&
-        GetCurrentObject(p->dc,OBJ_FONT)==g_fonts[slot].font)) {
+    if(slot==256 || !SelectObject(p->dc,font)) {
         LeaveCriticalSection(&g_font_lock); DeleteObject(font); return 0;
     }
+    realized[0]=0; memset(&tm,0,sizeof(tm));
+    match=GetTextFaceA(p->dc,sizeof(realized),realized) && GetTextMetricsA(p->dc,&tm) &&
+        lf.lfFaceName[0] && !lstrcmpiA(realized,lf.lfFaceName) &&
+        (!a->height || tm.tmHeight==a->height) && (!a->width || tm.tmAveCharWidth==a->width) &&
+        !!tm.tmItalic==!!lf.lfItalic && !!tm.tmUnderlined==!!lf.lfUnderline &&
+        !!tm.tmStruckOut==!!lf.lfStrikeOut && (tm.tmWeight>=FW_BOLD)==(lf.lfWeight>=FW_BOLD) &&
+        !(a->selection&~0x33U) ? 2 : 1;
+    was_current=(g_fonts[slot].font && previous==g_fonts[slot].font) || (id==0 && previous==initial);
+    if(!was_current) SelectObject(p->dc,previous);
     if(g_fonts[slot].font) DeleteObject(g_fonts[slot].font);
     g_fonts[slot].ps=hps; g_fonts[slot].id=id; g_fonts[slot].font=font;
-    g_fonts[slot].initial=initial;
+    g_fonts[slot].initial=initial; g_fonts[slot].codepage=a->codepage;
     LeaveCriticalSection(&g_font_lock);
-    /* GDI may substitute a face; FONT_DEFAULT makes no exact-match claim. */
-    return 1;
+    if(gpi_trace_enabled()) fprintf(stderr,
+        "PMGPI: GpiCreateLogFont ps=%08lX id=%ld face=%.31s realized=%s cell=%ldx%ld actual=%ldx%ld cp=%u match=%ld\n",
+        (unsigned long)hps,(long)id,lf.lfFaceName,realized,(long)a->width,(long)a->height,
+        (long)tm.tmAveCharWidth,(long)tm.tmHeight,(unsigned)a->codepage,(long)match);
+    return match;
 }
 
 /* 513 */
 LONG __cdecl GpiSetCharSet(O2HPS hps,LONG id)
 {
-    struct CompatPS *p=ps_from(hps);
-    HFONT font;
-    unsigned i;
-    HGDIOBJ previous;
+    struct CompatPS *p=ps_from(hps); HFONT font,initial; unsigned i; HGDIOBJ previous;
     if(!p || !p->dc || id<0) return 0;
     EnterCriticalSection(&g_font_lock);
-    font=id==0?(HFONT)GetStockObject(SYSTEM_FONT):NULL;
+    initial=(HFONT)GetStockObject(SYSTEM_FONT); font=NULL;
     for(i=0;i<256;++i) if(g_fonts[i].ps==hps) {
-        if(id==0) { font=g_fonts[i].initial; break; }
-        if(g_fonts[i].id==id) { font=g_fonts[i].font; break; }
+        initial=g_fonts[i].initial;
+        if(g_fonts[i].id==id) font=g_fonts[i].font;
     }
+    if(!font && id==0) font=initial;
     previous=font?SelectObject(p->dc,font):NULL;
     LeaveCriticalSection(&g_font_lock);
     return previous && previous!=HGDI_ERROR ? 1 : 0;
@@ -1925,14 +1947,16 @@ LONG __cdecl GpiDeleteSetId(O2HPS hps,LONG id)
     struct CompatPS *p=ps_from(hps);
     unsigned i;
     int found;
-    if(!p || !p->dc || (id<=0 && id!=-1)) return 0;
+    if(!p || !p->dc || (id<0 && id!=-1)) return 0;
     EnterCriticalSection(&g_font_lock);
     for(i=0;i<256;++i) if(g_fonts[i].ps==hps && (id==-1 || g_fonts[i].id==id))
-        if(GetCurrentObject(p->dc,OBJ_FONT)==g_fonts[i].font) {
+        if(g_fonts[i].id!=0 && GetCurrentObject(p->dc,OBJ_FONT)==g_fonts[i].font) {
             LeaveCriticalSection(&g_font_lock); return 0;
         }
     found=(id==-1);
     for(i=0;i<256;++i) if(g_fonts[i].ps==hps && (id==-1 || g_fonts[i].id==id)) {
+        if(g_fonts[i].id==0 && GetCurrentObject(p->dc,OBJ_FONT)==g_fonts[i].font)
+            SelectObject(p->dc,g_fonts[i].initial);
         if(!DeleteObject(g_fonts[i].font)) { LeaveCriticalSection(&g_font_lock); return 0; }
         memset(&g_fonts[i],0,sizeof(g_fonts[i])); found=1;
     }
