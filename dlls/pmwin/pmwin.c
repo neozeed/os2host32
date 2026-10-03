@@ -3360,16 +3360,26 @@ O2ULONG __cdecl WinSetWindowPos(O2HWND hwnd, O2HWND behind,
 
     if (flags & O2_SWP_SIZE) {
         style = (DWORD)GetWindowLongA(wh, GWL_STYLE);
-        client_h = cy - WinQuerySysValue(1, O2_SV_CYTITLEBAR) + 2;
-        if (client_h <= 0)
-            client_h = cy;
-        rc.left = 0;
-        rc.top = 0;
-        rc.right = cx;
-        rc.bottom = client_h;
-        AdjustWindowRect(&rc, style, FALSE);
-        outer_w = rc.right - rc.left;
-        outer_h = rc.bottom - rc.top;
+        if (style & WS_CHILD) {
+            /* PM child sizes are complete window extents, as in
+             * WinCreateWindow. No frame/title-bar adjustment belongs here:
+             * it cropped TELNETPM's 24 * 12 pixel terminal to 267 pixels.
+             * This also avoids expanding children that have WS_BORDER. */
+            outer_w = cx;
+            outer_h = cy;
+        } else {
+            /* Retain the existing top-level frame sizing convention. */
+            client_h = cy - WinQuerySysValue(1, O2_SV_CYTITLEBAR) + 2;
+            if (client_h <= 0)
+                client_h = cy;
+            rc.left = 0;
+            rc.top = 0;
+            rc.right = cx;
+            rc.bottom = client_h;
+            AdjustWindowRect(&rc, style, FALSE);
+            outer_w = rc.right - rc.left;
+            outer_h = rc.bottom - rc.top;
+        }
     }
 
     if (flags & O2_SWP_MOVE) {
@@ -3385,6 +3395,8 @@ O2ULONG __cdecl WinSetWindowPos(O2HWND hwnd, O2HWND behind,
 
     pm_trace("WinSetWindowPos", (unsigned long)hwnd,
              (unsigned long)(DWORD)flags, (unsigned long)(DWORD)y);
+    pm_trace("  requested size", (unsigned long)(DWORD)cx,
+             (unsigned long)(DWORD)cy, 0);
     pm_trace("  native pos/size", (unsigned long)(DWORD)win_x,
              (unsigned long)(DWORD)win_y, (unsigned long)(DWORD)outer_h);
 
