@@ -1,11 +1,4 @@
-/*
- * pmshapi.c - first tiny PMSHAPI personality for Milestone 31A.
- *
- * WinAddSwitchEntry is advisory in real OS/2 PM.  A native Win32 top-level
- * window already participates in the Windows task switcher, so accepting the
- * registration is sufficient for the WMCHAR sample while preserving the API
- * boundary for later shell-list work.
- */
+/* PMSHAPI profile personality. Switch-list support is in switchlist.c. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdio.h>
@@ -15,7 +8,7 @@
 #define __cdecl
 #endif
 
-typedef DWORD O2HSWITCH;
+#include "switchlist.h"
 
 #define PMCOMPAT_MAX_PROFILES 32
 struct PMCompatProfile {
@@ -43,6 +36,8 @@ static const char *pmsh_profile_path(DWORD hini, char *fallback, DWORD size)
     for (i = 0; i < PMCOMPAT_MAX_PROFILES; ++i)
         if (g_profiles[i].handle == hini && g_profiles[i].path[0])
             return g_profiles[i].path;
+    if (hini != 0 && hini != 0xffffffffUL && hini != 0xfffffffeUL)
+        return NULL;
     pmsh_default_profile_path(fallback, size);
     return fallback;
 }
@@ -58,14 +53,21 @@ DWORD __cdecl PrfOpenProfile(DWORD hab, const char *fileName)
     (void)hab;
     if (!fileName || !*fileName)
         return 0;
+    if (strlen(fileName) >= MAX_PATH)
+        return 0;
     for (i = 0; i < PMCOMPAT_MAX_PROFILES; ++i) {
         if (g_profiles[i].handle == 0) {
             h = g_next_profile_handle++;
             if (h == 0 || h == 0xffffffffUL || h == 0xfffffffeUL)
                 h = g_next_profile_handle++;
             g_profiles[i].handle = h;
-            strncpy(g_profiles[i].path, fileName, sizeof(g_profiles[i].path)-1);
-            g_profiles[i].path[sizeof(g_profiles[i].path)-1] = 0;
+            /* Resolve now: later working-directory changes must not redirect
+               an open profile, nor should Win32 search the Windows directory. */
+            n = GetFullPathNameA(fileName, MAX_PATH, g_profiles[i].path, NULL);
+            if (!n || n >= MAX_PATH) {
+                memset(&g_profiles[i],0,sizeof(g_profiles[i]));
+                return 0;
+            }
             n = GetEnvironmentVariableA("OS2_PM_TRACE", value, sizeof(value));
             if (n != 0 && n < sizeof(value) && value[0] != '0') {
                 fprintf(stderr, "PMSHAPI: PrfOpenProfile hab=%08lX hini=%08lX file=%s\n",
@@ -79,55 +81,11 @@ DWORD __cdecl PrfOpenProfile(DWORD hab, const char *fileName)
     return 0;
 }
 
-/* 120 */
-O2HSWITCH __cdecl WinAddSwitchEntry(void *switchControl)
-{
-    char value[8];
-    DWORD n;
-    n = GetEnvironmentVariableA("OS2_PM_TRACE", value, sizeof(value));
-    if (n != 0 && n < sizeof(value) && value[0] != '0') {
-        fprintf(stderr, "PMSHAPI: WinAddSwitchEntry swctl=%08lX\n",
-                (unsigned long)(DWORD)switchControl);
-        fflush(stderr);
-    }
-    return 1;
-}
-
-/* 123 - WinChangeSwitchEntry.  Win32 already owns the task-switch entry;
-   accept title/icon/state updates from PM applications. */
-WORD __cdecl WinChangeSwitchEntry(O2HSWITCH hswitch, void *switchControl)
-{
-    char value[8];
-    DWORD n;
-    (void)hswitch; (void)switchControl;
-    n = GetEnvironmentVariableA("OS2_PM_TRACE", value, sizeof(value));
-    if (n != 0 && n < sizeof(value) && value[0] != '0') {
-        fprintf(stderr, "PMSHAPI: WinChangeSwitchEntry hsw=%08lX swctl=%08lX\n",
-                (unsigned long)hswitch, (unsigned long)(DWORD)switchControl);
-        fflush(stderr);
-    }
-    return 0;
-}
-
-/* 129 - WinRemoveSwitchEntry.  The host top-level window is already owned by
-   Win32's task switcher; the HSWITCH returned by WinAddSwitchEntry is a
-   compatibility token, so removal is an advisory successful operation. */
-DWORD __cdecl WinRemoveSwitchEntry(O2HSWITCH hswitch)
-{
-    char value[8];
-    DWORD n;
-    n = GetEnvironmentVariableA("OS2_PM_TRACE", value, sizeof(value));
-    if (n != 0 && n < sizeof(value) && value[0] != '0') {
-        fprintf(stderr, "PMSHAPI: WinRemoveSwitchEntry hsw=%08lX\n",
-                (unsigned long)hswitch);
-        fflush(stderr);
-    }
-    return 0;
-}
-
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
-    (void)instance; (void)reason; (void)reserved;
+    (void)instance; (void)reserved;
+    if (reason == DLL_PROCESS_ATTACH) pmsh_switch_init();
+    if (reason == DLL_PROCESS_DETACH) pmsh_switch_term();
     return TRUE;
 }
 
@@ -155,6 +113,7 @@ BOOL __cdecl PrfQueryProfileData(DWORD hini, const char *app,
     if (!app || !key || !pcb)
         return FALSE;
     path = pmsh_profile_path(hini, fallback, sizeof(fallback));
+    if (!path) return FALSE;
     cap = 65536UL;
     encoded = (char *)HeapAlloc(GetProcessHeap(), 0, cap);
     if (!encoded)
@@ -200,6 +159,7 @@ BOOL __cdecl PrfWriteProfileData(DWORD hini, const char *app,
     if (!app || !key)
         return FALSE;
     path = pmsh_profile_path(hini, fallback, sizeof(fallback));
+    if (!path) return FALSE;
     if (!data && cb == 0)
         return WritePrivateProfileStringA(app, key, NULL, path);
     if (!data || cb > 32760UL)
@@ -229,6 +189,7 @@ SHORT __cdecl PrfQueryProfileInt(DWORD hini, const char *app,
     if (!app || !key)
         return defval;
     path = pmsh_profile_path(hini, fallback, sizeof(fallback));
+    if (!path) return (SHORT)defval;
     return (SHORT)GetPrivateProfileIntA(app, key, (INT)defval, path);
 }
 
@@ -241,5 +202,52 @@ BOOL __cdecl PrfWriteProfileString(DWORD hini, const char *app,
     if (!app || !key)
         return FALSE;
     path = pmsh_profile_path(hini, fallback, sizeof(fallback));
+    if (!path) return FALSE;
     return WritePrivateProfileStringA(app, key, value, path);
+}
+
+/* 103. Win32 profile operations own no persistent open file handle. Flush
+   its cache, then retire our HINI; stale handles must never fall back to USER. */
+BOOL __cdecl PrfCloseProfile(DWORD hini)
+{
+    unsigned i;
+    for (i=0; i<PMCOMPAT_MAX_PROFILES; ++i) {
+        if (hini && g_profiles[i].handle==hini) {
+            /* The documented cache-flush form can return zero even when no
+               data was pending. Its return does not describe HINI validity. */
+            WritePrivateProfileStringA(NULL,NULL,NULL,g_profiles[i].path);
+            memset(&g_profiles[i],0,sizeof(g_profiles[i]));
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* 101. Report decoded byte size for our existing @HEX: binary encoding;
+   plain strings include their NUL, name lists include the final extra NUL. */
+BOOL __cdecl PrfQueryProfileSize(DWORD hini,const char *app,const char *key,DWORD *size)
+{
+    char fallback[MAX_PATH], *buffer;
+    const char *path;
+    DWORD n,i,cap;
+    BOOL ok;
+    if (!size || (!app && key)) return FALSE;
+    *size=0;
+    path=pmsh_profile_path(hini,fallback,sizeof(fallback));
+    if (!path) return FALSE;
+    cap=65536UL;
+    buffer=(char *)HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,cap);
+    if (!buffer) return FALSE;
+    /* A nonempty sentinel distinguishes a missing key from an empty value. */
+    n=GetPrivateProfileStringA(app,key,"\001",buffer,cap,path);
+    ok=TRUE;
+    if (n>=cap-2 || (app && key && n==1 && buffer[0]=='\001')) ok=FALSE;
+    else if (!app || !key) *size=n ? n+1 : 0;
+    else if (n>=5 && memcmp(buffer,"@HEX:",5)==0) {
+        if ((n-5)&1) ok=FALSE;
+        for(i=5;ok && i<n;++i) if(pmsh_hex_value((unsigned char)buffer[i])<0) ok=FALSE;
+        if(ok) *size=(n-5)/2;
+    } else *size=n+1;
+    HeapFree(GetProcessHeap(),0,buffer);
+    return ok;
 }

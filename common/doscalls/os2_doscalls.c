@@ -1467,6 +1467,20 @@ O2APIRET os2_dos_DosSetMem(struct Os2DosSession *session, void *base, O2ULONG si
     return dispatch_call(session, OS2_DOS_CALL_DOSSETMEM, &call_args);
 }
 
+O2APIRET os2_dos_DosGetResource(struct Os2DosSession *session,O2ULONG module,O2ULONG type,O2ULONG id,void **buffer)
+{
+    struct Os2DosArgs_DosGetResource args;
+    args.module=module; args.type=type; args.id=id; args.buffer=buffer;
+    return dispatch_call(session,OS2_DOS_CALL_DOSGETRESOURCE,&args);
+}
+
+O2APIRET os2_dos_DosFreeResource(struct Os2DosSession *session,void *buffer)
+{
+    struct Os2DosArgs_DosFreeResource args;
+    args.buffer=buffer;
+    return dispatch_call(session,OS2_DOS_CALL_DOSFREERESOURCE,&args);
+}
+
 O2APIRET os2_dos_DosQueryMem(struct Os2DosSession *session, void *base, O2ULONG *pcb, O2ULONG *pflags)
 {
     struct Os2DosArgs_DosQueryMem call_args;

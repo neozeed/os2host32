@@ -34,7 +34,7 @@ SESMGR_WIN32_SRC = common/win32/os2_sesmgr_win32.c
 MOU_COMMON_SRC = common/mou/os2_mou.c
 MOU_WIN32_SRC = common/win32/os2_mou_win32.c
 
-.PHONY: all loader whp transformer shell dlls compat diagnostics verify common-check nls-check nls-win32-shim-check nls-static-check nls-table-check catalog-check wiring-check doscalls-check doscalls-veneer-check doscalls-static-check vio-check vio-win32-shim-check vio-static-check queue-check queue-veneer-check queue-win32-shim-check queue-static-check kbd-check kbd-veneer-check kbd-win32-shim-check kbd-static-check sesmgr-check sesmgr-veneer-check sesmgr-win32-shim-check sesmgr-static-check mou-check mou-veneer-check mou-win32-shim-check mou-static-check c386-hack-static-check clean
+.PHONY: all loader whp transformer shell dlls compat diagnostics verify common-check nls-check nls-win32-shim-check nls-static-check nls-table-check catalog-check simcity-pmwin885-check wiring-check doscalls-check doscalls-veneer-check doscalls-static-check vio-check vio-win32-shim-check vio-static-check queue-check queue-veneer-check queue-win32-shim-check queue-static-check kbd-check kbd-veneer-check kbd-win32-shim-check kbd-static-check sesmgr-check sesmgr-veneer-check sesmgr-static-check mou-check mou-veneer-check mou-win32-shim-check mou-static-check c386-hack-static-check clean
 
 all: loader transformer shell dlls
 
@@ -50,11 +50,57 @@ shell: cmd32os2.exe
 compat: dlls
 
 dlls: DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll MOUCALLS.dll NLS.dll \
-      PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll
+      PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll SO32DLL.dll TCP32DLL.dll
 
-os2host32.exe: loader/os2host32.c loader/os2host32.def
+os2host32.exe: loader/os2host32.c loader/os2host32.def loader/mixed_intake.h loader/telnetpm_bridge.h
 	$(MINGW) $(C89FLAGS) -Wl,--disable-dynamicbase,--image-base,0x400000 \
 		-o $@ loader/os2host32.c loader/os2host32.def
+
+# Portable, non-executing mixed LX intake. Also present in os2host32.exe.
+.PHONY: mixed-intake-check
+os2host32-intake: loader/os2host32.c loader/mixed_intake.h loader/telnetpm_bridge.h
+	$(HOSTCC) $(C89FLAGS) -o $@ loader/os2host32.c
+
+mixed-intake-check: os2host32-intake
+	python3 tests/loader/test_mixed_intake.py ./os2host32-intake $(TELNETPM)
+
+.PHONY: telnetpm-bridge-check
+telnetpm-emit: tests/loader/telnetpm_emit.c loader/os2host32.c loader/mixed_intake.h loader/telnetpm_bridge.h
+	$(HOSTCC) $(C89FLAGS) -o $@ tests/loader/telnetpm_emit.c
+
+telnetpm-bridge-check: os2host32-intake telnetpm-emit
+	python3 tests/loader/test_telnetpm_bridge.py ./os2host32-intake ./telnetpm-emit $(TELNETPM)
+
+.PHONY: telnetpm-api-host-check
+telnetpm-api-host-check:
+	$(HOSTCC) $(C89FLAGS) -Itests/pmcompat/win32-stub -o telnetpm-profile-check tests/pmcompat/profile-host-check.c
+	./telnetpm-profile-check
+	$(RM) telnetpm-profile-check
+	$(HOSTCC) $(C89FLAGS) -Itests/pmcompat/win32-stub -o telnetpm-switch-check tests/pmcompat/switchlist-host-check.c
+	./telnetpm-switch-check
+	$(RM) telnetpm-switch-check
+	$(HOSTCC) $(C89FLAGS) -Itests/pmcompat/win32-stub -o telnetpm-accel-check tests/pmcompat/accel-text-host-check.c
+	./telnetpm-accel-check
+	$(RM) telnetpm-accel-check
+	$(HOSTCC) $(C89FLAGS) -Itests/pmcompat/win32-stub -o telnetpm-font-check tests/pmcompat/font-query-host-check.c
+	./telnetpm-font-check
+	$(RM) telnetpm-font-check
+
+telnetpm-api-smoke.exe: tests/pmcompat/telnetpm-api-smoke.c tests/pmcompat/telnetpm-r6-smoke.h dlls/pmshapi/switchlist.h dlls/pmgpi/font_query.h
+	$(MINGW) $(C89FLAGS) -o $@ $< -luser32 -lgdi32
+
+SO32DLL.dll: dlls/so32dll/so32dll.c dlls/so32dll/so32dll.def common/win32/os2_socket_win32.c common/include/os2_net.h
+	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -shared -o $@ dlls/so32dll/so32dll.c common/win32/os2_socket_win32.c dlls/so32dll/so32dll.def -lws2_32 -Wl,--out-implib,libso32dll.a
+
+TCP32DLL.dll: dlls/tcp32dll/tcp32dll.c dlls/tcp32dll/tcp32dll.def common/include/os2_net.h SO32DLL.dll
+	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -shared -o $@ dlls/tcp32dll/tcp32dll.c dlls/tcp32dll/tcp32dll.def -L. -lso32dll -lws2_32
+
+socket-smoke.exe: tests/net/socket-smoke.c common/include/os2_net.h
+	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -o $@ $<
+
+.PHONY: socket-dll-check
+socket-dll-check: SO32DLL.dll TCP32DLL.dll
+	python3 tests/net/test_socket_dlls.py SO32DLL.dll TCP32DLL.dll
 
 le2pe386.exe: transformer/le2pe386.c $(API_CATALOG_SRC) \
                  common/include/os2_api_catalog.h common/api/os2_api_catalog.inc
@@ -134,19 +180,19 @@ diagnostics: nlsinfo.exe
 nlsinfo.exe: tools/nlsinfo.c NLS.dll DOSCALLS.dll
 	$(MINGW) $(C89FLAGS) -o $@ tools/nlsinfo.c libnls.a libdoscalls.a
 
-PMWIN.dll: dlls/pmwin/pmwin.c dlls/pmwin/pmwin.def dlls/pm-common/pmcompat.h
+PMWIN.dll: dlls/pmwin/pmwin.c dlls/pmwin/pmwin.def dlls/pmwin/pm_accel.h dlls/pmwin/pm_text.h dlls/pm-common/pmcompat.h
 	$(MINGW) $(C89FLAGS) -Idlls/pm-common -shared -o $@ \
 		dlls/pmwin/pmwin.c dlls/pmwin/pmwin.def -luser32 -lgdi32 \
 		-Wl,--out-implib,libpmwin.a
 
-PMGPI.dll: dlls/pmgpi/pmgpi.c dlls/pmgpi/pmgpi.def dlls/pm-common/pmcompat.h
+PMGPI.dll: dlls/pmgpi/pmgpi.c dlls/pmgpi/pmgpi.def dlls/pmgpi/font_query.c dlls/pmgpi/font_query.h dlls/pm-common/pmcompat.h
 	$(MINGW) $(C89FLAGS) -Idlls/pm-common -shared -o $@ \
-		dlls/pmgpi/pmgpi.c dlls/pmgpi/pmgpi.def -lgdi32 \
+		dlls/pmgpi/pmgpi.c dlls/pmgpi/font_query.c dlls/pmgpi/pmgpi.def -lgdi32 \
 		-Wl,--out-implib,libpmgpi.a
 
-PMSHAPI.dll: dlls/pmshapi/pmshapi.c dlls/pmshapi/pmshapi.def
-	$(MINGW) $(C89FLAGS) -shared -o $@ dlls/pmshapi/pmshapi.c dlls/pmshapi/pmshapi.def \
-		-Wl,--out-implib,libpmshapi.a
+PMSHAPI.dll: dlls/pmshapi/pmshapi.c dlls/pmshapi/switchlist.c dlls/pmshapi/switchlist.h dlls/pmshapi/pmshapi.def
+	$(MINGW) $(C89FLAGS) -shared -o $@ dlls/pmshapi/pmshapi.c dlls/pmshapi/switchlist.c dlls/pmshapi/pmshapi.def \
+		-luser32 -Wl,--out-implib,libpmshapi.a
 
 PMWP.dll: dlls/pmwp/pmwp.c dlls/pmwp/pmwp.def
 	$(MINGW) $(C89FLAGS) -shared -o $@ dlls/pmwp/pmwp.c dlls/pmwp/pmwp.def \
@@ -200,6 +246,9 @@ nls-static-check:
 
 catalog-check:
 	python3 tools/check_api_catalog.py
+
+simcity-pmwin885-check:
+	python3 tools/check_simcity_pmwin885.py
 
 wiring-check:
 	python3 tools/check_shared_personality.py
@@ -388,11 +437,12 @@ mou-static-check:
 	python3 tools/check_mou_r2.py
 
 clean:
+	$(RM) socket-smoke.exe
 	rm -f os2host32.exe le2pe386.exe cmd32os2.exe nlsinfo.exe personality-core-check nls-core-check nls-win32-shim-check doscalls-core-check doscalls-veneer-check vio-core-check vio-win32-shim-check queue-core-check queue-veneer-check queue-win32-shim-check kbd-core-check kbd-veneer-check kbd-win32-shim-check sesmgr-core-check sesmgr-veneer-check sesmgr-win32-shim-check mou-core-check mou-veneer-check mou-win32-shim-check \
 	      DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll MOUCALLS.dll NLS.dll \
-	      PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll \
+	      PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll SO32DLL.dll TCP32DLL.dll \
 	      libdoscalls.a libkbdcalls.a libviocalls.a libquecalls.a libsesmgr.a libmoucalls.a \
-	      libnls.a libpmwin.a libpmgpi.a libpmshapi.a libpmwp.a libhelpmgr.a
+	      libnls.a libpmwin.a libpmgpi.a libpmshapi.a libpmwp.a libhelpmgr.a libso32dll.a
 
 
 c386-hack-static-check:

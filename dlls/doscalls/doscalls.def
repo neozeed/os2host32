@@ -1,5 +1,7 @@
 LIBRARY DOSCALLS
 EXPORTS
+    DosGetResource    @352 NONAME
+    DosFreeResource   @353 NONAME
     DosQAppType          @163 NONAME
     DosQueryAppType      @323 NONAME
     DosError            @212 NONAME

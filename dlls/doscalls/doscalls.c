@@ -19,6 +19,15 @@ static struct Os2DosSession *dos_session(void)
     return os2_doscalls_win32_session();
 }
 
+O2APIRET __cdecl DosGetResource(O2ULONG module,O2ULONG type,O2ULONG id,void **buffer)
+{
+    return os2_dos_DosGetResource(dos_session(),module,type,id,buffer);
+}
+O2APIRET __cdecl DosFreeResource(void *buffer)
+{
+    return os2_dos_DosFreeResource(dos_session(),buffer);
+}
+
 /*
  * C/386/EMX selector bridge helpers are register-ABI tokens, not normal C
  * calls.  Keep EAX untouched exactly as in the proven pre-R2 implementation.

@@ -261,6 +261,7 @@ typedef struct O2MENUITEM {
 #define O2_RT_DIALOG           4U
 #define O2_RT_STRING           5U
 #define O2_RT_ACCELTABLE       8U
+#define O2_RT_MESSAGE         10U
 #define O2_MIS_TEXT            0x0001U
 #define O2_MIS_BITMAP          0x0002U
 #define O2_MIS_SEPARATOR       0x0004U
@@ -344,10 +345,16 @@ static HWND g_frame_hwnd;
 static int g_native_create_depth;
 static int g_native_show_depth;
 static int g_show_pending;
-#define PM_PENDING_SHOW_MAX 32
-static HWND g_pending_show[PM_PENDING_SHOW_MAX];
-static unsigned g_pending_show_count;
 static PVOID g_trace_veh;
+
+static void pm_release_fonts(O2HPS hps)
+{
+    HMODULE module=GetModuleHandleA("PMGPI.dll");
+    typedef void (__cdecl *ReleaseFontsFn)(O2HPS);
+    ReleaseFontsFn release;
+    release=module?(ReleaseFontsFn)GetProcAddress(module,"OS2GPI_ReleaseFonts"):NULL;
+    if(release) release(hps);
+}
 
 #define PMCOMPAT_MAX_RESOURCES 256
 #define PMCOMPAT_MAX_SYSCOMMANDS 64
@@ -366,6 +373,39 @@ static unsigned g_syscommand_count;
 static HICON g_frame_icon;
 static O2ULONG g_owned_pointers[PMCOMPAT_MAX_OWNED_POINTERS];
 static HWND g_sys_modal_hwnd;
+
+/* OS/2 2.x 32-bit CURSORINFO (40 bytes), distinct from Win32 CURSORINFO. */
+struct PMCompatCursorInfo {
+    O2HWND hwnd;
+    LONG x,y,cx,cy;
+    DWORD fs;
+    O2RECTL clip;
+};
+struct PMCompatThreadState {
+    DWORD error;
+    DWORD queue_accel;
+    struct PMCompatCursorInfo cursor;
+    int visible;
+    char *clipboard_text;
+};
+static DWORD g_pm_thread_tls = TLS_OUT_OF_INDEXES;
+static struct PMCompatThreadState *pm_thread_state(void)
+{
+    struct PMCompatThreadState *s;
+    if (g_pm_thread_tls==TLS_OUT_OF_INDEXES) return NULL;
+    s=(struct PMCompatThreadState *)TlsGetValue(g_pm_thread_tls);
+    if (!s) {
+        s=(struct PMCompatThreadState *)HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(*s));
+        if (s && !TlsSetValue(g_pm_thread_tls,s)) { HeapFree(GetProcessHeap(),0,s); s=NULL; }
+    }
+    return s;
+}
+static O2ULONG pm_api_error(DWORD error)
+{
+    struct PMCompatThreadState *s=pm_thread_state();
+    if(s) s->error=error;
+    return 0;
+}
 
 static int pm_remember_owned_pointer(O2ULONG hptr)
 {
@@ -438,6 +478,7 @@ struct PMCompatWindow {
        WinSubclassWindow.  pm_wndproc is the bridge; native_proc remains the
        control class's original host procedure. */
     WNDPROC native_proc;
+    O2ULONG auto_accel;
 };
 
 #define PMCOMPAT_SCROLL_MAGIC 0x4353324fUL /* O2SC */
@@ -483,15 +524,6 @@ static const char g_dialog_class[] = "OS2HOST32_PM_DIALOG";
 static const char g_update_disabled_prop[] = "OS2HOST32_PM_UPDATE_DISABLED";
 static int g_dialog_class_registered;
 
-#define PMCOMPAT_MAX_ACCELS 64
-struct PMCompatAccel {
-    O2USHORT fs;
-    O2USHORT key;
-    O2USHORT cmd;
-};
-static struct PMCompatAccel g_accels[PMCOMPAT_MAX_ACCELS];
-static unsigned g_accel_count;
-
 static WORD pm_rd16(const unsigned char *p)
 {
     return (WORD)((WORD)p[0] | ((WORD)p[1] << 8));
@@ -507,7 +539,6 @@ void __cdecl OS2PM_ResetResources(void)
 {
     g_resource_count = 0;
     g_syscommand_count = 0;
-    g_accel_count = 0;
 }
 
 void __cdecl OS2PM_UnregisterModuleResources(O2ULONG module)
@@ -578,53 +609,7 @@ static const struct PMCompatResource *pm_find_resource(O2ULONG module,
     return NULL;
 }
 
-static void pm_load_accel_resource(const struct PMCompatResource *rr)
-{
-    WORD count;
-    WORD i;
-    DWORD pos;
-    g_accel_count = 0;
-    if (!rr || rr->size < 4UL)
-        return;
-    count = pm_rd16(rr->data);
-    pos = 4UL;
-    for (i = 0; i < count && g_accel_count < PMCOMPAT_MAX_ACCELS; ++i) {
-        if (pos + 6UL > rr->size)
-            break;
-        g_accels[g_accel_count].fs = pm_rd16(rr->data + pos + 0);
-        g_accels[g_accel_count].key = pm_rd16(rr->data + pos + 2);
-        g_accels[g_accel_count].cmd = pm_rd16(rr->data + pos + 4);
-        ++g_accel_count;
-        pos += 6UL;
-    }
-}
-
-static O2USHORT pm_match_accel(UINT native_msg, WPARAM wParam)
-{
-    unsigned i;
-    O2USHORT ch;
-    int alt, ctrl, shift;
-    alt = (GetKeyState(VK_MENU) & 0x8000) != 0 || native_msg == WM_SYSCHAR;
-    ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-    ch = (O2USHORT)((DWORD)wParam & 0xffffUL);
-    if (ctrl && ch >= 1U && ch <= 26U)
-        ch = (O2USHORT)('a' + ch - 1U);
-    for (i = 0; i < g_accel_count; ++i) {
-        O2USHORT fs = g_accels[i].fs;
-        O2USHORT key = g_accels[i].key;
-        if ((fs & 0x0001U) == 0) /* AF_CHAR only for now */
-            continue;
-        if (((fs & 0x0020U) != 0) != alt) continue;
-        if (((fs & 0x0010U) != 0) != ctrl) continue;
-        if (((fs & 0x0008U) != 0) != shift) continue;
-        if (key >= 'A' && key <= 'Z') key = (O2USHORT)(key - 'A' + 'a');
-        if (ch >= 'A' && ch <= 'Z') ch = (O2USHORT)(ch - 'A' + 'a');
-        if (key == ch)
-            return g_accels[i].cmd;
-    }
-    return 0;
-}
+#include "pm_accel.h"
 
 static void pm_remember_syscommand(O2USHORT id)
 {
@@ -1809,6 +1794,37 @@ static int key_generates_char(WPARAM vk)
     }
 }
 
+static int pm_dispatch_accel(HWND hwnd,UINT msg,WPARAM wParam,LPARAM lParam)
+{
+    WORD flags,ch=0,vk=0,scan; struct PMAccelCommand command;
+    HWND target; char className[128]; unsigned depth=0;
+    if(msg!=WM_KEYDOWN && msg!=WM_SYSKEYDOWN && msg!=WM_CHAR && msg!=WM_SYSCHAR) return 0;
+    flags=key_flags(lParam,0); scan=(WORD)(((DWORD)lParam>>16)&255);
+    if(msg==WM_CHAR || msg==WM_SYSCHAR) {
+        flags|=O2_KC_CHAR; ch=(WORD)wParam;
+        /* Character messages must not repeat a virtual-key match. */
+    } else {
+        vk=os2_vk_from_win(wParam); if(vk) flags|=O2_KC_VIRTUALKEY;
+    }
+    if(msg==WM_SYSKEYDOWN || msg==WM_SYSCHAR) flags|=O2_KC_ALT;
+    if(!pm_accel_match_window(hwnd,flags,ch,vk,scan,&command)) return 0;
+    /* Queue messages can name a native edit/list control. Deliver its
+     * accelerator to the nearest PM client/dialog, never reinterpret an
+     * arbitrary Win32 control's GWL_USERDATA as a PM callback structure. */
+    for(target=command.target;target && depth<64;target=GetParent(target),++depth) {
+        className[0]=0; GetClassNameA(target,className,sizeof(className));
+        if(!lstrcmpiA(className,g_dialog_class)) {
+            struct PMCompatDialog *dlg=(struct PMCompatDialog *)(ULONG_PTR)GetWindowLongA(target,GWL_USERDATA);
+            (void)call_dialog_guest(target,dlg,command.message,command.command,3UL);
+            return 1;
+        }
+        if(pm_find_class_proc(className)) {
+            (void)call_guest(target,command.message,command.command,3UL); return 1;
+        }
+    }
+    return 0;
+}
+
 static LRESULT CALLBACK pm_wndproc(HWND hwnd, UINT msg,
                                    WPARAM wParam, LPARAM lParam)
 {
@@ -1939,6 +1955,7 @@ static LRESULT CALLBACK pm_wndproc(HWND hwnd, UINT msg,
 
     case WM_KEYDOWN:
     case WM_SYSKEYDOWN:
+        if(pm_dispatch_accel(hwnd,msg,wParam,lParam)) return 0;
         if (key_generates_char(wParam))
             break; /* TranslateMessage will supply WM_CHAR/WM_SYSCHAR. */
         ovk = os2_vk_from_win(wParam);
@@ -1969,18 +1986,7 @@ static LRESULT CALLBACK pm_wndproc(HWND hwnd, UINT msg,
 
     case WM_CHAR:
     case WM_SYSCHAR:
-        {
-            O2USHORT acmd;
-            acmd = pm_match_accel(msg, wParam);
-            if (acmd != 0) {
-                pm_trace("accelerator command", (unsigned long)acmd,
-                         (unsigned long)wParam, (unsigned long)msg);
-                (void)call_guest(hwnd, O2_WM_COMMAND,
-                                 (O2MPARAM)(DWORD)acmd,
-                                 (O2MPARAM)3UL);
-                return 0;
-            }
-        }
+        if(pm_dispatch_accel(hwnd,msg,wParam,lParam)) return 0;
         ovk = os2_vk_from_win(MapVirtualKeyA(((DWORD)lParam >> 16) & 0xffUL,
                                              MAPVK_VSC_TO_VK));
         flags = (O2USHORT)(key_flags(lParam, 0) | O2_KC_CHAR);
@@ -2057,9 +2063,11 @@ static LRESULT CALLBACK pm_wndproc(HWND hwnd, UINT msg,
             LRESULT native_result = 0;
             RemovePropA(hwnd, g_update_disabled_prop);
             RemovePropA(hwnd, g_object_parent_prop);
+            RemovePropA(hwnd, pm_accel_property);
             if (native_proc)
                 native_result = CallWindowProcA(native_proc, hwnd, msg, wParam, lParam);
             if (st) {
+                if(st->auto_accel) WinDestroyAccelTable(st->auto_accel);
                 SetWindowLongA(hwnd,GWL_USERDATA,0);
                 HeapFree(GetProcessHeap(),0,st);
             }
@@ -2206,45 +2214,15 @@ static HBITMAP pm_native_bitmap_from_compat(struct CompatBitmap *b)
     return hb;
 }
 
-static int pm_load_string_resource(O2ULONG module, O2USHORT id,
-                                   char *out, int maxchars)
+#include "pm_text.h"
+
+static LONG pm_load_text_resource(DWORD module,WORD type,DWORD id,char *out,LONG capacity)
 {
     const struct PMCompatResource *rr;
-    const unsigned char *b;
-    DWORD pos;
-    O2USHORT bundle;
-    unsigned index, i;
-    unsigned len;
-    if (!out || maxchars <= 0) return 0;
-    out[0]=0;
-
-    /* OS/2 RT_STRING resources are bundles of 16 ids.  The resource
-       payload begins with a codepage WORD followed immediately by 16
-       length-prefixed, NUL-terminated strings; empty/missing slots are
-       represented by a one-byte NUL string.  BIO happened to have an empty
-       id 0, which made an earlier parser accidentally look as if bytes 2/3
-       were a first-id WORD.  OPENDLG has a real id-0 string and exposes that
-       mistake. */
-    bundle = (O2USHORT)((id / 16U) + 1U);
-    index = (unsigned)(id & 15U);
-    rr = pm_find_resource(module, O2_RT_STRING, bundle);
-    if (!rr || rr->size < 3UL) return 0;
-    b=rr->data;
-    pos=2;
-    for (i=0; i<=index; ++i) {
-        if (pos >= rr->size) return 0;
-        len=b[pos++];
-        if (len == 0 || pos+len > rr->size) return 0;
-        if (i==index) {
-            unsigned chars=len;
-            if (chars && b[pos+chars-1]==0) --chars;
-            if ((int)chars >= maxchars) chars=(unsigned)(maxchars-1);
-            memcpy(out,b+pos,chars); out[chars]=0;
-            return (int)chars;
-        }
-        pos += len;
-    }
-    return 0;
+    if(out && capacity>0) out[0]=0;
+    if(id/16>=65535) return 0;
+    rr=pm_find_resource(module,type,(WORD)(id/16+1));
+    return rr?pm_text_copy(rr->data,rr->size,(unsigned)(id&15),out,capacity):0;
 }
 
 /* 701 */
@@ -2375,7 +2353,10 @@ O2HMQ __cdecl WinCreateMsgQueue(O2HAB hab, O2LONG cmsg)
 /* 726 */
 O2ULONG __cdecl WinDestroyMsgQueue(O2HMQ hmq)
 {
-    (void)hmq;
+    struct PMCompatThreadState *s;
+    if(hmq==(O2HMQ)GetCurrentThreadId()) {
+        s=pm_thread_state(); if(s) s->queue_accel=0;
+    }
     return 1;
 }
 
@@ -2392,7 +2373,11 @@ O2ULONG __cdecl WinDestroyWindow(O2HWND hwnd)
 /* 707 */
 O2ULONG __cdecl WinCloseClipbrd(O2HAB hab)
 {
+    struct PMCompatThreadState *s=pm_thread_state();
     (void)hab;
+    if(s && s->clipboard_text) {
+        HeapFree(GetProcessHeap(),0,s->clipboard_text); s->clipboard_text=NULL;
+    }
     return CloseClipboard() ? 1UL : 0UL;
 }
 
@@ -2556,6 +2541,7 @@ O2ULONG __cdecl WinEndPaint(O2HPS hps)
     if (!p)
         return hps ? 1UL : 0UL;
     if (p->flags & PMCOMPAT_PS_END_PAINT) {
+        pm_release_fonts(hps);
         if (p->dc && p->saved_dc)
             RestoreDC(p->dc, p->saved_dc);
         EndPaint(p->hwnd, &p->paint);
@@ -2582,21 +2568,10 @@ O2ULONG __cdecl WinFillRect(O2HPS hps, void *prcl, O2LONG color)
     if (prcl)
         or = (O2RECTL *)prcl;
     else {
-        if (p->bitmap) {
-            full.xLeft = 0; full.yBottom = 0;
-            full.xRight = p->bitmap->width;
-            full.yTop = p->bitmap->height;
-        } else {
-            client_rect_os2(p->hwnd, &full);
-        }
+        client_rect_os2(p->hwnd, &full);
         or = &full;
     }
-    /* A memory PS has no client HWND.  Its selected bitmap, not the
-       desktop/client rectangle, defines the bottom-up coordinate origin. */
-    wr.left = or->xLeft;
-    wr.right = or->xRight;
-    wr.top = pm_ps_height(p) - or->yTop;
-    wr.bottom = pm_ps_height(p) - or->yBottom;
+    rect_os2_to_win(p->hwnd, or, &wr);
     owned = 0;
     switch (color) {
     case O2_SYSCLR_WINDOW:
@@ -2792,7 +2767,15 @@ O2LONG __cdecl WinLoadString(O2HAB hab, O2ULONG module, O2USHORT id,
                              O2LONG maxchars, char *out)
 {
     (void)hab;
-    return (O2LONG)pm_load_string_resource(module,id,out,(int)maxchars);
+    return pm_load_text_resource(module,O2_RT_STRING,id,out,maxchars);
+}
+
+/* 779: RT_MESSAGE shares the packed string-bundle format. */
+O2LONG __cdecl WinLoadMessage(O2HAB hab,O2ULONG module,O2ULONG id,
+                              O2LONG maxchars,char *out)
+{
+    (void)hab;
+    return pm_load_text_resource(module,O2_RT_MESSAGE,id,out,maxchars);
 }
 
 /* 789 */
@@ -3188,6 +3171,7 @@ O2ULONG __cdecl WinReleasePS(O2HPS hps)
     if (!p)
         return 0;
     if (p->flags & PMCOMPAT_PS_RELEASE_DC) {
+        pm_release_fonts(hps);
         if (p->dc && p->saved_dc)
             RestoreDC(p->dc, p->saved_dc);
         ReleaseDC(p->hwnd, p->dc);
@@ -4029,6 +4013,7 @@ O2HWND __cdecl WinCreateStdWindow(O2HWND parent, O2ULONG frameStyle,
     O2ULONG classStyle;
     struct PMCompatWindow *wstate;
     HWND nativeParent;
+    O2ULONG autoAccel=0;
     (void)clientStyle;
 
     if (!g_class_registered || !clientClass)
@@ -4087,15 +4072,8 @@ O2HWND __cdecl WinCreateStdWindow(O2HWND parent, O2ULONG frameStyle,
                      (unsigned long)resources, (unsigned long)rr->size, 0);
         }
     }
-    if ((fcf & O2_FCF_ACCELTABLE) && resources != 0) {
-        g_accel_count = 0;
-        rr = pm_find_resource(module, O2_RT_ACCELTABLE, (O2USHORT)resources);
-        if (rr) {
-            pm_load_accel_resource(rr);
-            pm_trace("resource accel OK", (unsigned long)resources,
-                     (unsigned long)rr->size, (unsigned long)g_accel_count);
-        }
-    }
+    if ((fcf & O2_FCF_ACCELTABLE) && resources != 0)
+        autoAccel=WinLoadAccelTable(1,module,resources);
 
     /*
      * Do not make the native window visible inside CreateWindowA.  With
@@ -4112,8 +4090,9 @@ O2HWND __cdecl WinCreateStdWindow(O2HWND parent, O2ULONG frameStyle,
     createStyle = style & ~WS_VISIBLE;
     SetLastError(0);
     wstate = (struct PMCompatWindow *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*wstate));
-    if (!wstate) return 0;
+    if (!wstate) { if(autoAccel) WinDestroyAccelTable(autoAccel); return 0; }
     wstate->proc = classProc;
+    wstate->auto_accel = autoAccel;
     strncpy(wstate->class_name, clientClass, sizeof(wstate->class_name)-1);
     ++g_native_create_depth;
     hwnd = CreateWindowA(clientClass,
@@ -4126,12 +4105,14 @@ O2HWND __cdecl WinCreateStdWindow(O2HWND parent, O2ULONG frameStyle,
         pm_trace("CreateWindow FAIL", (unsigned long)GetLastError(), 0, 0);
         if (nativeMenu) DestroyMenu(nativeMenu);
         if (nativeIcon) DestroyIcon(nativeIcon);
+        if(autoAccel) WinDestroyAccelTable(autoAccel);
         HeapFree(GetProcessHeap(),0,wstate);
         return 0;
     }
     pm_trace("CreateWindow OK", (unsigned long)(DWORD)hwnd,
              (unsigned long)createStyle, 0);
     if (!nativeParent && !g_frame_hwnd) g_frame_hwnd = hwnd;
+    if(autoAccel) WinSetAccelTable(1,autoAccel,guest_hwnd(hwnd));
     if (nativeIcon) {
         if (g_frame_icon)
             DestroyIcon(g_frame_icon);
@@ -4153,10 +4134,6 @@ O2HWND __cdecl WinCreateStdWindow(O2HWND parent, O2ULONG frameStyle,
          * at the first WinGetMsg, after WinCreateStdWindow has returned and
          * the application has completed its post-create setup.
          */
-        if (g_pending_show_count < PM_PENDING_SHOW_MAX)
-            g_pending_show[g_pending_show_count++] = hwnd;
-        else
-            pm_trace("deferred show list full", (unsigned long)(DWORD)hwnd, 0, 0);
         g_show_pending = 1;
         pm_trace("show deferred", (unsigned long)(DWORD)hwnd,
                  (unsigned long)style, 0);
@@ -4201,6 +4178,7 @@ O2MRESULT __cdecl WinDispatchMsg(O2HAB hab, void *qmsg)
     }
     pm_trace("WinDispatchMsg", (unsigned long)m.message,
              (unsigned long)(DWORD)m.hwnd, 0);
+    if(pm_dispatch_accel(m.hwnd,m.message,m.wParam,m.lParam)) return 0;
     TranslateMessage(&m);
     return (O2MRESULT)DispatchMessageA(&m);
 }
@@ -4311,23 +4289,19 @@ O2ULONG __cdecl WinGetMsg(O2HAB hab, void *qmsg, O2HWND filter,
     pm_trace("WinGetMsg enter", (unsigned long)hab,
              (unsigned long)g_show_pending, 0);
 
-    if (g_show_pending) {
-        unsigned show_index;
+    if (g_show_pending && g_frame_hwnd && IsWindow(g_frame_hwnd)) {
         g_show_pending = 0;
-        for (show_index = 0; show_index < g_pending_show_count; ++show_index) {
-            HWND pending = g_pending_show[show_index];
-            if (!pending || !IsWindow(pending))
-                continue;
-            pm_trace("deferred ShowWindow", (unsigned long)(DWORD)pending, 0, 0);
-            ++g_native_show_depth;
-            shown = ShowWindow(pending, SW_SHOW);
-            --g_native_show_depth;
-            pm_trace("ShowWindow returned", (unsigned long)(DWORD)pending,
-                     (unsigned long)shown, (unsigned long)IsWindowVisible(pending));
-            InvalidateRect(pending, NULL, FALSE);
-            pm_trace("paint queued", (unsigned long)(DWORD)pending, 0, 0);
-        }
-        g_pending_show_count = 0;
+        pm_trace("deferred ShowWindow",
+                 (unsigned long)(DWORD)g_frame_hwnd, 0, 0);
+        ++g_native_show_depth;
+        shown = ShowWindow(g_frame_hwnd, SW_SHOW);
+        --g_native_show_depth;
+        pm_trace("ShowWindow returned",
+                 (unsigned long)(DWORD)g_frame_hwnd,
+                 (unsigned long)shown,
+                 (unsigned long)IsWindowVisible(g_frame_hwnd));
+        InvalidateRect(g_frame_hwnd, NULL, FALSE);
+        pm_trace("paint queued", (unsigned long)(DWORD)g_frame_hwnd, 0, 0);
     }
 
     SetLastError(0);
@@ -4644,6 +4618,7 @@ O2USHORT __cdecl WinDlgBox(O2HWND parent, O2HWND owner,
                 PostQuitMessage((int)m.wParam);
             break;
         }
+        if (pm_dispatch_accel(m.hwnd,m.message,m.wParam,m.lParam)) continue;
         if (!IsDialogMessageA(hwnd, &m)) {
             TranslateMessage(&m);
             DispatchMessageA(&m);
@@ -4850,8 +4825,169 @@ O2PFNWP __cdecl WinSubclassWindow(O2HWND hwnd, O2PFNWP proc)
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
+    struct PMCompatThreadState *s;
     (void)reserved;
-    if (reason == DLL_PROCESS_ATTACH)
+    if (reason == DLL_PROCESS_ATTACH) {
         g_instance = instance;
+        g_pm_thread_tls=TlsAlloc();
+        if(g_pm_thread_tls==TLS_OUT_OF_INDEXES) return FALSE;
+        pm_accel_init();
+    }
+    if (reason==DLL_THREAD_DETACH || reason==DLL_PROCESS_DETACH) {
+        s=(struct PMCompatThreadState *)TlsGetValue(g_pm_thread_tls);
+        if(s) {
+            if(s->clipboard_text) HeapFree(GetProcessHeap(),0,s->clipboard_text);
+            HeapFree(GetProcessHeap(),0,s);
+        }
+        if(reason==DLL_PROCESS_DETACH) { pm_accel_term(); TlsFree(g_pm_thread_tls); }
+    }
     return TRUE;
+}
+
+/* TELNETPM additions: basic state/query APIs and a thread-local PM caret. */
+O2ULONG __cdecl WinGetLastError(O2HAB hab)
+{
+    struct PMCompatThreadState *s=pm_thread_state();
+    DWORD error;
+    (void)hab;
+    if(!s) return 0x203eUL; /* PMERR_INSUFFICIENT_MEMORY */
+    error=s->error; s->error=0; return error;
+}
+
+short __cdecl WinGetKeyState(O2HWND desktop,LONG key)
+{
+    UINT vk;
+    (void)desktop;
+    /* Reuse the inverse of our existing PM WM_CHAR virtual-key mapping. */
+    for(vk=1;vk<256;++vk)
+        if(os2_vk_from_win(vk)==key && key!=0) return GetKeyState((int)vk);
+    if(key==O2_VK_BACKTAB || key==O2_VK_TAB) return GetKeyState(VK_TAB);
+    if(key==O2_VK_NEWLINE) return GetKeyState(VK_RETURN);
+    return 0;
+}
+
+LONG __cdecl WinQueryWindowTextLength(O2HWND hwnd)
+{
+    HWND wh=native_hwnd(hwnd);
+    if(!wh || !IsWindow(wh)) { pm_api_error(0x1001); return 0; }
+    return (LONG)GetWindowTextLengthA(wh);
+}
+
+O2ULONG __cdecl WinSetRect(O2HAB hab,O2RECTL *rect,LONG left,LONG bottom,LONG right,LONG top)
+{
+    (void)hab;
+    if(!rect) return pm_api_error(0x1208);
+    rect->xLeft=left; rect->yBottom=bottom; rect->xRight=right; rect->yTop=top;
+    return 1;
+}
+
+O2ULONG __cdecl WinValidateRect(O2HWND hwnd,const O2RECTL *rect,O2ULONG children)
+{
+    RECT r; HWND wh=native_hwnd(hwnd);
+    if(!wh || !IsWindow(wh)) return pm_api_error(0x1001);
+    if(rect) rect_os2_to_win(wh,rect,&r);
+    return RedrawWindow(wh,rect?&r:NULL,NULL,RDW_VALIDATE|RDW_NOERASE|
+        (children?RDW_ALLCHILDREN:RDW_NOCHILDREN)) ? 1 : 0;
+}
+
+O2ULONG __cdecl WinInvalidateRegion(O2HWND hwnd,O2ULONG region,O2ULONG children)
+{
+    HWND wh=native_hwnd(hwnd);
+    if(!wh || !IsWindow(wh)) return pm_api_error(0x1001);
+    return RedrawWindow(wh,NULL,(HRGN)(ULONG_PTR)region,RDW_INVALIDATE|
+        (children?RDW_ALLCHILDREN:RDW_NOCHILDREN)) ? 1 : 0;
+}
+
+O2ULONG __cdecl WinCreateCursor(O2HWND hwnd,LONG x,LONG y,LONG cx,LONG cy,
+                                DWORD flags,const O2RECTL *clip)
+{
+    struct PMCompatThreadState *s=pm_thread_state();
+    HWND wh=native_hwnd(hwnd);
+    RECT r;
+    DWORD pid;
+    int height;
+    if(!s) return 0;
+    if(!wh || GetWindowThreadProcessId(wh,&pid)!=GetCurrentThreadId()) return pm_api_error(0x1001);
+    /* Native caret supports solid/halftone. Frame and explicit clipping
+       require a separately drawn cursor and are not claimed by this API. */
+    if((flags&~0x8005UL) || clip || cx<0 || cy<0) return pm_api_error(0x1208);
+    if(flags&0x8000UL) {
+        if(s->cursor.hwnd!=hwnd) return pm_api_error(0x1208);
+        height=(int)s->cursor.cy;
+    } else {
+        height=cy ? (int)cy : GetSystemMetrics(SM_CYBORDER);
+        if(!CreateCaret(wh,(flags&1)?(HBITMAP)1:NULL,(int)cx,height)) return 0;
+        memset(&s->cursor,0,sizeof(s->cursor));
+        s->cursor.hwnd=hwnd; s->cursor.cx=cx?cx:GetSystemMetrics(SM_CXBORDER);
+        s->cursor.cy=height; s->cursor.fs=flags; s->visible=0;
+    }
+    if(!GetClientRect(wh,&r) || !SetCaretPos((int)x,r.bottom-(int)y-height)) return 0;
+    s->cursor.x=x; s->cursor.y=y;
+    s->cursor.clip.xRight=r.right; s->cursor.clip.yTop=r.bottom;
+    return 1;
+}
+
+O2ULONG __cdecl WinShowCursor(O2HWND hwnd,O2ULONG show)
+{
+    struct PMCompatThreadState *s=pm_thread_state();
+    BOOL ok;
+    if(!s || !s->cursor.hwnd || (hwnd && hwnd!=s->cursor.hwnd)) return 0;
+    /* PM's boolean visibility is idempotent; Win32's API is counted. */
+    if(s->visible==!!show) return 1;
+    ok=show?ShowCaret(native_hwnd(s->cursor.hwnd)):HideCaret(native_hwnd(s->cursor.hwnd));
+    if(ok) s->visible=!!show;
+    return ok?1:0;
+}
+
+O2ULONG __cdecl WinDestroyCursor(O2HWND hwnd)
+{
+    struct PMCompatThreadState *s=pm_thread_state();
+    if(!s || !s->cursor.hwnd || (hwnd && hwnd!=s->cursor.hwnd)) return 0;
+    if(!DestroyCaret()) return 0;
+    memset(&s->cursor,0,sizeof(s->cursor)); s->visible=0;
+    return 1;
+}
+
+O2ULONG __cdecl WinQueryCursorInfo(O2HWND desktop,struct PMCompatCursorInfo *info)
+{
+    struct PMCompatThreadState *s=pm_thread_state();
+    (void)desktop;
+    if(!s || !info || !s->cursor.hwnd || !IsWindow(native_hwnd(s->cursor.hwnd))) return 0;
+    *info=s->cursor;
+    return 1;
+}
+
+/* Text clipboard access returns a flat, NUL-terminated buffer, not a Win32
+   HGLOBAL. Its lifetime is this thread's current clipboard-open interval. */
+O2ULONG __cdecl WinQueryClipbrdData(O2HAB hab,DWORD format)
+{
+    struct PMCompatThreadState *s=pm_thread_state();
+    HANDLE data;
+    const char *text,*end;
+    SIZE_T bytes,length;
+    (void)hab;
+    if(!s || format!=1) return 0;
+    if(s->clipboard_text) return (O2ULONG)(ULONG_PTR)s->clipboard_text;
+    data=GetClipboardData(CF_TEXT);
+    if(!data) return 0;
+    bytes=GlobalSize(data);
+    text=(const char *)GlobalLock(data);
+    if(!text) return 0;
+    end=(const char *)memchr(text,0,bytes);
+    if(!end) { GlobalUnlock(data); return 0; }
+    length=(SIZE_T)(end-text)+1;
+    s->clipboard_text=(char *)HeapAlloc(GetProcessHeap(),0,length);
+    if(s->clipboard_text) memcpy(s->clipboard_text,text,length);
+    GlobalUnlock(data);
+    return (O2ULONG)(ULONG_PTR)s->clipboard_text;
+}
+
+O2ULONG __cdecl WinQueryClipbrdFmtInfo(O2HAB hab,DWORD format,DWORD *info)
+{
+    (void)hab;
+    if(!info) return pm_api_error(0x1208);
+    *info=0;
+    if(format!=1 || !IsClipboardFormatAvailable(CF_TEXT)) return 0;
+    *info=0x0400; /* CFI_POINTER (OS/2 INCL_32) */
+    return 1;
 }

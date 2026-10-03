@@ -1,5 +1,24 @@
 LIBRARY PMWIN
 EXPORTS
+    WinCopyAccelTable        @709 NONAME
+    WinCreateAccelTable      @713 NONAME
+    WinDestroyAccelTable     @723 NONAME
+    WinLoadAccelTable        @776 NONAME
+    WinLoadMessage           @779 NONAME
+    WinQueryAccelTable       @798 NONAME
+    WinSetAccelTable         @850 NONAME
+    WinCreateCursor        @715 NONAME
+    WinDestroyCursor       @725 NONAME
+    WinGetKeyState          @752 NONAME
+    WinGetLastError         @753 NONAME
+    WinInvalidateRegion    @766 NONAME
+    WinQueryClipbrdData     @806 NONAME
+    WinQueryClipbrdFmtInfo  @807 NONAME
+    WinQueryCursorInfo     @812 NONAME
+    WinQueryWindowTextLength @842 NONAME
+    WinSetRect              @868 NONAME
+    WinShowCursor           @880 NONAME
+    WinValidateRect         @895 NONAME
     WinAlarm               @701 NONAME
     WinBeginEnumWindows    @702 NONAME
     WinCloseClipbrd        @707 NONAME

@@ -85,7 +85,9 @@ enum Os2DosCallId {
     OS2_DOS_CALL_DOSQUERYDBCSENV = 79,
     OS2_DOS_CALL_DOSMAPCASE = 80,
     OS2_DOS_CALL_DOSSETPRIORITY = 81,
-    OS2_DOS_CALL_COUNT = 82
+    OS2_DOS_CALL_DOSGETRESOURCE = 82,
+    OS2_DOS_CALL_DOSFREERESOURCE = 83,
+    OS2_DOS_CALL_COUNT = 84
 };
 
 struct Os2DosArgs_DosSetSigHandler {
@@ -461,6 +463,12 @@ struct Os2DosArgs_DosQueryMem {
     O2ULONG *pcb;
     O2ULONG *pflags;
 };
+
+struct Os2DosArgs_DosGetResource {
+    O2ULONG module, type, id;
+    void **buffer;
+};
+struct Os2DosArgs_DosFreeResource { void *buffer; };
 
 struct Os2DosArgs_DosLoadModule {
     char *objectName;

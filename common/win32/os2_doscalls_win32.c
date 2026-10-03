@@ -3897,6 +3897,51 @@ O2APIRET __cdecl o2win_DosSetMem(void *base, O2ULONG size, O2ULONG flags)
 }
 
 /* 306 - query attributes for a contiguous virtual-memory range. */
+/* Resources published by the loader are borrowed image memory. Return owned
+   copies so DosFreeResource cannot free an LE object or somebody else's heap. */
+static void *o2_resource_buffers[256];
+static O2APIRET o2win_DosGetResource(O2ULONG module,O2ULONG type,O2ULONG id,void **buffer)
+{
+    typedef const void *(__cdecl *QueryFn)(O2ULONG,unsigned short,unsigned short,O2ULONG *);
+    HMODULE pm;
+    QueryFn query;
+    const void *source;
+    void *copy;
+    O2ULONG size;
+    unsigned i;
+    if(!buffer) return O2_ERROR_INVALID_PARAMETER;
+    *buffer=NULL;
+    if(type>65535 || id>65535) return O2_ERROR_INVALID_PARAMETER;
+    pm=GetModuleHandleA("PMWIN.dll");
+    query=pm?(QueryFn)GetProcAddress(pm,"OS2PM_QueryResource"):NULL;
+    size=0;
+    source=query?query(module,(unsigned short)type,(unsigned short)id,&size):NULL;
+    if(!source || !size) return 2; /* not found in the published resource set */
+    copy=HeapAlloc(GetProcessHeap(),0,size);
+    if(!copy) return O2_ERROR_NOT_ENOUGH_MEMORY;
+    memcpy(copy,source,size);
+    EnterCriticalSection(&o2_r2_state_lock);
+    for(i=0;i<256;++i) if(!o2_resource_buffers[i]) break;
+    if(i<256) o2_resource_buffers[i]=copy;
+    LeaveCriticalSection(&o2_r2_state_lock);
+    if(i==256) { HeapFree(GetProcessHeap(),0,copy); return O2_ERROR_NOT_ENOUGH_MEMORY; }
+    *buffer=copy; return O2_NO_ERROR;
+}
+
+static O2APIRET o2win_DosFreeResource(void *buffer)
+{
+    unsigned i;
+    if(!buffer) return O2_ERROR_INVALID_PARAMETER;
+    EnterCriticalSection(&o2_r2_state_lock);
+    for(i=0;i<256;++i) if(o2_resource_buffers[i]==buffer) break;
+    if(i<256) {
+        HeapFree(GetProcessHeap(),0,buffer);
+        o2_resource_buffers[i]=NULL;
+    }
+    LeaveCriticalSection(&o2_r2_state_lock);
+    return i<256 ? O2_NO_ERROR : O2_ERROR_INVALID_PARAMETER;
+}
+
 O2APIRET __cdecl o2win_DosQueryMem(void *base, O2ULONG *pcb, O2ULONG *pflags)
 {
     MEMORY_BASIC_INFORMATION mbi;
@@ -4666,6 +4711,14 @@ static O2APIRET r2_dispatch(void *opaque, unsigned int call_id,
         struct Os2DosArgs_DosQueryMem *a;
         a = (struct Os2DosArgs_DosQueryMem *)call_args;
         return (O2APIRET)o2win_DosQueryMem(a->base, a->pcb, a->pflags);
+    }
+    case OS2_DOS_CALL_DOSGETRESOURCE: {
+        struct Os2DosArgs_DosGetResource *a=(struct Os2DosArgs_DosGetResource *)call_args;
+        return o2win_DosGetResource(a->module,a->type,a->id,a->buffer);
+    }
+    case OS2_DOS_CALL_DOSFREERESOURCE: {
+        struct Os2DosArgs_DosFreeResource *a=(struct Os2DosArgs_DosFreeResource *)call_args;
+        return o2win_DosFreeResource(a->buffer);
     }
     case OS2_DOS_CALL_DOSLOADMODULE: {
         struct Os2DosArgs_DosLoadModule *a;

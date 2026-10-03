@@ -1,5 +1,11 @@
 LIBRARY PMGPI
 EXPORTS
+    GpiQueryFonts             @586 NONAME
+    GpiCreateLogFont          @368 NONAME
+    GpiDeleteSetId            @378 NONAME
+    GpiSetBackColor           @504 NONAME
+    GpiSetCharSet             @513 NONAME
+    OS2GPI_ReleaseFonts
     GpiLoadBitmap             @399 NONAME
     GpiBitBlt                 @355 NONAME
     GpiBox                    @356 NONAME

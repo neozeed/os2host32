@@ -1,0 +1,12 @@
+LIBRARY TCP32DLL
+EXPORTS
+    LSWAP          @3
+    BSWAP          @4
+    INET_ADDR      @5
+    INET_NTOA      @10
+    GETHOSTBYNAME   @11
+    GETHOSTBYADDR   @12
+    GETSERVBYPORT   @23
+    GETSERVBYNAME   @24
+    GETHOSTNAME     @44
+    TCP_H_ERRNO     @51

@@ -244,6 +244,8 @@ O2APIRET os2_dos_DosAllocMem(struct Os2DosSession *, void **, O2ULONG, O2ULONG, 
 O2APIRET os2_dos_DosFreeMem(struct Os2DosSession *, void *);
 O2APIRET os2_dos_DosSetMem(struct Os2DosSession *, void *, O2ULONG, O2ULONG);
 O2APIRET os2_dos_DosQueryMem(struct Os2DosSession *, void *, O2ULONG *, O2ULONG *);
+O2APIRET os2_dos_DosGetResource(struct Os2DosSession *, O2ULONG, O2ULONG, O2ULONG, void **);
+O2APIRET os2_dos_DosFreeResource(struct Os2DosSession *, void *);
 O2APIRET os2_dos_DosLoadModule(struct Os2DosSession *, char *, O2ULONG, const char *, O2ULONG *);
 O2APIRET os2_dos_DosQueryModuleHandle(struct Os2DosSession *, const char *, O2ULONG *);
 O2APIRET os2_dos_DosQueryModuleName(struct Os2DosSession *, O2ULONG, O2ULONG, char *);

@@ -1,0 +1,22 @@
+LIBRARY SO32DLL
+EXPORTS
+    ACCEPT        @1
+    BIND          @2
+    CONNECT       @3
+    GETPEERNAME   @5
+    GETSOCKNAME   @6
+    GETSOCKOPT    @7
+    IOCTL         @8
+    LISTEN        @9
+    RECV          @10
+    RECVFROM      @11
+    SELECT        @12
+    SEND          @13
+    SENDTO        @14
+    SETSOCKOPT    @15
+    SOCKET        @16
+    SOCLOSE       @17
+    SOCK_ERRNO    @20
+    SHUTDOWN      @25
+    SOCK_INIT     @26
+    SET_ERRNO     @35

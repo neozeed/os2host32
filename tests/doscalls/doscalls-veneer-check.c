@@ -10,6 +10,8 @@
     return 1; } } while (0)
 
 extern O2APIRET __cdecl DosSleep(O2ULONG milliseconds);
+extern O2APIRET __cdecl DosGetResource(O2ULONG,O2ULONG,O2ULONG,void **);
+extern O2APIRET __cdecl DosFreeResource(void *);
 extern O2APIRET __cdecl Dos16Sleep(O2ULONG milliseconds);
 extern O2APIRET __cdecl DosDeleteDir(const char *path);
 extern O2APIRET __cdecl O2NlsMapCase(O2ULONG cb, const void *countrycode, void *buffer);
@@ -24,6 +26,8 @@ extern unsigned short __cdecl DosSetVec(unsigned short vector, void *routine,
 struct Fake {
     O2ULONG slept;
     unsigned int dispatch_id;
+    struct Os2DosArgs_DosGetResource resource;
+    void *freed_resource;
 };
 static struct Os2DosSession session;
 static struct Fake fake;
@@ -34,6 +38,10 @@ static O2APIRET dispatch(void *opaque, unsigned int id, void *args)
     (void)args;
     f = (struct Fake *)opaque;
     f->dispatch_id = id;
+    if(id==OS2_DOS_CALL_DOSGETRESOURCE)
+        f->resource=*(struct Os2DosArgs_DosGetResource *)args;
+    if(id==OS2_DOS_CALL_DOSFREERESOURCE)
+        f->freed_resource=((struct Os2DosArgs_DosFreeResource *)args)->buffer;
     return (O2APIRET)(0x7000UL + id);
 }
 static O2APIRET sleep_ms(void *opaque, O2ULONG ms)
@@ -65,12 +73,19 @@ int main(void)
     O2ULONG prev_handler;
     unsigned short prev_action;
     char byte;
+    void *resource;
 
     memset(&fake, 0, sizeof(fake));
     os2_dos_session_init(&session, &fake, &ops);
 
     CHECK(DosSleep(7UL) == O2_NO_ERROR && fake.slept == 7UL);
     CHECK(Dos16Sleep(8UL) == O2_NO_ERROR && fake.slept == 8UL);
+    resource=NULL;
+    CHECK(DosGetResource(1,10,42,&resource)==0x7000UL+OS2_DOS_CALL_DOSGETRESOURCE);
+    CHECK(fake.resource.module==1 && fake.resource.type==10 && fake.resource.id==42);
+    CHECK(fake.resource.buffer==&resource);
+    CHECK(DosFreeResource(&byte)==0x7000UL+OS2_DOS_CALL_DOSFREERESOURCE);
+    CHECK(fake.freed_resource==&byte);
 
     fake.dispatch_id = 0U;
     CHECK(DosDeleteDir("dummy") == 0x7000UL + OS2_DOS_CALL_DOSDELETEDIR);

@@ -982,10 +982,15 @@ static void detect_emx_generic_bridge(struct LxImage *x);
  * subset; the broader scanner exists so mixed images such as OS/2 2.0 CMD.EXE
  * can tell us exactly what execution machinery they require.
  */
-static void scan_fixups(struct LxImage *x)
+/* Optional diagnostic visitor; never changes native execution eligibility. */
+typedef void (*FixupVisitor)(struct LxImage *, U32, U32, U8, U8,
+                             U32, U32, U32, void *);
+
+static void scan_fixups_visit(struct LxImage *x, FixupVisitor visitor,
+                              void *context)
 {
     U32 page, start, endoff, p, end, q, first, target;
-    U32 count, i, idx, dummy_obj, width;
+    U32 count, i, idx, dummy_obj, width, target_off;
     U8 type, flags, kind, st;
     S16 source;
 
@@ -1051,6 +1056,7 @@ static void scan_fixups(struct LxImage *x)
             q = p;
             first = skip_objmod(x, &q, flags, end);
             target = 0;
+            target_off = 0;
 
             if (kind == TGT_INTERNAL) {
                 if (first == 0 || first > x->object_count)
@@ -1058,9 +1064,11 @@ static void scan_fixups(struct LxImage *x)
                 if (st != SRC_SEL16) {
                     if (flags & TGT_OFF32) {
                         if (end - q < 4) fail("truncated internal LX OFF32 target");
+                        target_off = rd32(x->file + q);
                         q += 4;
                     } else {
                         if (end - q < 2) fail("truncated internal LX OFF16 target");
+                        target_off = rd16(x->file + q);
                         q += 2;
                     }
                 }
@@ -1134,6 +1142,9 @@ static void scan_fixups(struct LxImage *x)
                     source = rds16(x->file + p);
                     trace_off = source_object_offset_width(x, page, source, width,
                                                            &dummy_obj);
+                    if (visitor)
+                        visitor(x, dummy_obj, trace_off, type, flags,
+                                first, target, target_off, context);
                     if (getenv("OS2_TRACE_FIXUPS") != NULL &&
                         kind == TGT_EXT_ORD)
                         printf("FIXUPSITE obj=%lu+%08lX %-12s.%lu type=%s%s\n",
@@ -1148,6 +1159,9 @@ static void scan_fixups(struct LxImage *x)
                 U32 trace_off;
                 trace_off = source_object_offset_width(x, page, source, width,
                                                        &dummy_obj);
+                if (visitor)
+                    visitor(x, dummy_obj, trace_off, type, flags,
+                            first, target, target_off, context);
                 if (getenv("OS2_TRACE_FIXUPS") != NULL &&
                     kind == TGT_EXT_ORD)
                     printf("FIXUPSITE obj=%lu+%08lX %-12s.%lu type=%s%s\n",
@@ -1167,6 +1181,11 @@ static void scan_fixups(struct LxImage *x)
 
     detect_c386_far16_bridges(x);
     detect_emx_generic_bridge(x);
+}
+
+static void scan_fixups(struct LxImage *x)
+{
+    scan_fixups_visit(x, NULL, NULL);
 }
 
 /*
@@ -5075,10 +5094,16 @@ static void print_fixup_summary(struct LxImage *x)
     }
 }
 
+#include "mixed_intake.h"
+#include "telnetpm_bridge.h"
+
 static void usage(void)
 {
     fprintf(stderr,
             "usage: os2host32 [--info|--scan|--map|--fixups] program.exe\n"
+            "       os2host32 --mixed-intake program.exe (LX, diagnostic only)\n"
+            "       os2host32 --telnetpm-check program.exe (offline bridge check)\n"
+            "       os2host32 --telnetpm-probe program.exe (experimental native trace)\n"
             "       os2host32 --run [--argv0 name] program.exe [guest arguments ...]\n"
             "       os2host32 --run-quiet [--argv0 name] program.exe [guest arguments ...]\n");
     exit(2);
@@ -5141,6 +5166,27 @@ int main(int argc, char **argv)
     if (strcmp(mode, "--info") == 0) {
         free(x.file);
         return 0;
+    }
+
+    if (strcmp(mode, "--mixed-intake") == 0) {
+        mixed_intake(&x);
+        free(x.file);
+        return 0;
+    }
+
+    if (strcmp(mode, "--telnetpm-check") == 0) {
+        tp_check(&x);
+        free(x.file);
+        return 0;
+    }
+
+    if (strcmp(mode, "--telnetpm-probe") == 0) {
+#ifdef _WIN32
+        tp_probe(&x, name, argc, argv, first_arg);
+#else
+        fail("--telnetpm-probe requires a 32-bit Win32 build");
+#endif
+        return 1;
     }
 
     if (strcmp(mode, "--scan") == 0) {

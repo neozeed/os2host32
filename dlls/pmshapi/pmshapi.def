@@ -1,5 +1,7 @@
 LIBRARY PMSHAPI
 EXPORTS
+    PrfQueryProfileSize     @101 NONAME
+    PrfCloseProfile         @103 NONAME
     PrfOpenProfile          @102 NONAME
     PrfQueryProfileInt      @114 NONAME
     PrfQueryProfileData     @117 NONAME
@@ -7,4 +9,6 @@ EXPORTS
     PrfWriteProfileString   @116 NONAME
     WinAddSwitchEntry      @120 NONAME
     WinChangeSwitchEntry   @123 NONAME
+    WinQuerySwitchEntry    @124 NONAME
+    WinQuerySwitchHandle   @125 NONAME
     WinRemoveSwitchEntry   @129 NONAME
