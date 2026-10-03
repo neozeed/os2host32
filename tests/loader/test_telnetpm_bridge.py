@@ -160,7 +160,23 @@ def main():
             out = run(LOADER, '--telnetpm-check', str(td / 'changed.exe'), status=1)
             assert 'fingerprint mismatch' in out
             checks += 1
-        assert 'guest was NOT executed' in run(LOADER, '--run', SPECIMEN, status=3)
+        for mode in ['--run', '--run-quiet']:
+            for args in [[], ['-p', '2323', '127.0.0.1']]:
+                assert 'TELNETPM native profile requires a 32-bit Win32 build' in run(
+                    LOADER, mode, SPECIMEN, *args, status=1)
+                checks += 1
+            assert 'TELNETPM native profile requires a 32-bit Win32 build' in run(
+                LOADER, mode, '--argv0', 'renamed.exe', SPECIMEN, '-p', '23', status=1)
+            checks += 1
+        assert 'supported via TELNETPM native bridge' in run(LOADER, '--scan', SPECIMEN)
+        renamed = td / 'renamed.exe'
+        renamed.write_bytes(specimen)
+        assert 'TELNETPM native profile requires a 32-bit Win32 build' in run(
+            LOADER, '--run', str(renamed), status=1)
+        assert 'no recognized native bridge' in run(LOADER, '--run', str(td/'changed.exe'), status=3)
+        assert 'requires a 32-bit Win32 build' in run(
+            LOADER, '--telnetpm-probe', '--argv0', 'renamed.exe', SPECIMEN, '-p', '23', status=1)
+        checks += 4
         assert 'not in the current executable subset' in run(LOADER, '--fixups', SPECIMEN, status=3)
         checks += 2
         snapshot = td / 'snapshot'
@@ -225,6 +241,91 @@ def main():
             m.preserved()
             checks += 1
         base = objects[0][0]
+        # Reproduce the exact post-WinGetMsg(FALSE) path. The original guest
+        # loops to initialization, so a second queue creation MUST fail.
+        # Queue ownership itself is tested against production pm_queue.h.
+        class ShutdownMachine(Machine):
+            def __init__(self, queue_result):
+                self.queue_result = queue_result
+                self.apis = []
+                super().__init__(objects, stubs)
+
+            def hook(self, u, addr, size, ctx):
+                if TARGET <= addr < TARGET + 65536:
+                    index = (addr - TARGET)//16
+                    api = imports[index][1:]
+                    self.apis.append(api)
+                    if api == ('PMWIN', 716):
+                        result = self.queue_result
+                    elif api in [('PMWIN', 763), ('PMWIN', 728), ('PMWIN', 888)]:
+                        result = 1
+                    else:
+                        self.action = api
+                        u.emu_stop()
+                        return
+                    sp = u.reg_read(UC_X86_REG_ESP)
+                    u.reg_write(UC_X86_REG_EAX, result)
+                    u.reg_write(UC_X86_REG_EIP, read32(u, sp))
+                    u.reg_write(UC_X86_REG_ESP, sp+4)
+                    return
+                super().hook(u, addr, size, ctx)
+
+        def shutdown_check(queue_result):
+            m = ShutdownMachine(queue_result)
+            u = m.u
+            bp = STACK + 1024
+            u.reg_write(UC_X86_REG_EBP, bp)
+            u.reg_write(UC_X86_REG_ESP, bp-0x24c)
+            u.reg_write(UC_X86_REG_EFLAGS, 0x202)
+            write32(u, bp, 0)
+            write32(u, bp+4, STOP)
+            write32(u, bp-4, 100)
+            data = objects[4][0]
+            for off in [0xf880, 0xb490, 0xf7f4]:
+                write32(u, data+off, 0)
+            write32(u, data+0xc840, 42)
+            m.execute(base+0x47cc)
+            if queue_result:
+                # Old behavior reaches application reinitialization again.
+                assert m.action == ('PMWIN', 781), m.apis
+            else:
+                assert u.reg_read(UC_X86_REG_EIP) == STOP, (m.action, m.apis)
+                assert u.reg_read(UC_X86_REG_EAX) == 0
+                assert u.reg_read(UC_X86_REG_ESP) == bp+8
+                assert m.apis == [('PMWIN', 763), ('PMWIN', 716), ('PMWIN', 728), ('PMWIN', 888)], m.apis
+        for queue_result in [1, 0]:
+            shutdown_check(queue_result)
+            checks += 1
+        # Repeat actual guest shutdown through direct native bindings. Keep
+        # one unresolved import to verify that normal mode still traps it.
+        traced = objects, stubs, imports
+        run(EMITTER, SPECIMEN, str(snapshot), '--direct')
+        blob, cursor = snapshot.read_bytes(), 0
+        objects = [chunk() for _ in range(word())]
+        stubs = chunk()
+        imports = []
+        for idx in range(word()):
+            entry, ordinal = word(), word()
+            name = blob[cursor:cursor+64].split(b'\0')[0].decode()
+            cursor += 64
+            imports.append((entry, name, ordinal))
+            assert entry == TARGET+idx*16 if idx else stubs[0] <= entry < stubs[0]+len(stubs[1])
+        assert cursor == len(blob) and len(imports) == 137
+        for queue_result in [1, 0]:
+            shutdown_check(queue_result)
+            checks += 1
+        m = Machine(objects, stubs)
+        write32(m.u, STACK, STOP)
+        # Stop at the observer as the real observer calls ExitProcess(4).
+        def missing_observer(u, addr, size, ctx):
+            if addr == TRACE:
+                m.action = 'unresolved import trap'
+                u.emu_stop()
+        m.u.hook_add(UC_HOOK_CODE, missing_observer)
+        m.execute(imports[0][0])
+        assert m.called == [(0, STACK)] and m.action == 'unresolved import trap'
+        checks += 1
+        objects, stubs, imports = traced
         # Reproduce the real CRT environment builder and getenv, without
         # substituting getenv or DOSCALLS. Only malloc supplies a test buffer.
         # This separates a missing/case-mismatched entry from an INI problem.

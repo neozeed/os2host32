@@ -1,0 +1,4 @@
+PASS: 30 synthetic mixed-intake tests; native execution gate retained
+PASS: TELNETPM all seven object fingerprints match independent oracle
+PASS: 7779 internal patches; 567 external sites unchanged; input unchanged
+TELNETPM SHA256: 16f34d712cdefb8b3f4fa93b7956fc97429697419deccd80b62b8d838d4960e2

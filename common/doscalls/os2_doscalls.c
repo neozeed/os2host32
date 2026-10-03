@@ -50,6 +50,8 @@ void os2_dos_session_init(struct Os2DosSession *session,
     session->backend_opaque = backend_opaque;
     session->backend = backend;
     session->max_file_handles = 20UL;
+    session->file_modes[0]=0x40;session->file_modes[1]=session->file_modes[2]=0x41;
+    session->file_mode_known[0]=session->file_mode_known[1]=session->file_mode_known[2]=1;
     session->exception_head =
         (struct O2ExceptionRegistrationRecord *)(uintptr_t)0xffffffffUL;
     session->error_flags = 1UL;
@@ -153,6 +155,7 @@ O2HFILE os2_dos_alloc_hfile(struct Os2DosSession *session,
                        i < O2_DOS_MAX_HANDLES; ++i) {
         if (session->file_handles[i] == O2_DOS_NATIVE_INVALID) {
             session->file_handles[i] = native_handle;
+            session->file_mode_known[i]=0;
             result = i;
             break;
         }
@@ -167,6 +170,7 @@ void os2_dos_free_hfile(struct Os2DosSession *session, O2HFILE hfile)
         return;
     state_lock(session);
     session->file_handles[hfile] = O2_DOS_NATIVE_INVALID;
+    session->file_mode_known[hfile]=0;
     state_unlock(session);
 }
 
@@ -1307,19 +1311,27 @@ O2APIRET os2_dos_DosClose(struct Os2DosSession *session, O2HFILE hFile)
 
 O2APIRET os2_dos_DosCreatePipe(struct Os2DosSession *session, O2HFILE *pread, O2HFILE *pwrite, O2ULONG size)
 {
+    O2APIRET rc;
     struct Os2DosArgs_DosCreatePipe call_args;
     call_args.pread = pread;
     call_args.pwrite = pwrite;
     call_args.size = size;
-    return dispatch_call(session, OS2_DOS_CALL_DOSCREATEPIPE, &call_args);
+    rc=dispatch_call(session, OS2_DOS_CALL_DOSCREATEPIPE, &call_args);
+    if(!rc) { os2_dos_remember_mode(session,*pread,0x40);os2_dos_remember_mode(session,*pwrite,0x41); }
+    return rc;
 }
 
 O2APIRET os2_dos_DosDupHandle(struct Os2DosSession *session, O2HFILE oldFile, O2HFILE *pnewFile)
 {
+    O2APIRET rc;O2ULONG mode=0;int known;
     struct Os2DosArgs_DosDupHandle call_args;
     call_args.oldFile = oldFile;
     call_args.pnewFile = pnewFile;
-    return dispatch_call(session, OS2_DOS_CALL_DOSDUPHANDLE, &call_args);
+    known=os2_dos_DosQueryFHState(session,oldFile,&mode)==0;
+    rc=dispatch_call(session, OS2_DOS_CALL_DOSDUPHANDLE, &call_args);
+    if(!rc && known) os2_dos_remember_mode(session,*pnewFile,
+        *pnewFile==oldFile?mode:mode&~0x80UL);
+    return rc;
 }
 
 O2APIRET os2_dos_DosDelete(struct Os2DosSession *session, const char *path, O2ULONG reserved)

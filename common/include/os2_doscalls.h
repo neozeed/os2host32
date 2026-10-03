@@ -78,6 +78,7 @@ struct O2ExceptionRegistrationRecord {
 #define O2_DOS_NATIVE_INVALID ((O2NATIVE)0)
 
 struct Os2DosBackendOps;
+struct Os2DosPlatformOps;
 
 struct Os2DosSubRange {
     O2ULONG off;
@@ -124,6 +125,7 @@ struct Os2DosVectorSlot {
 struct Os2DosSession {
     void *backend_opaque;
     const struct Os2DosBackendOps *backend;
+    const struct Os2DosPlatformOps *platform;
     int initialized;
 
     /* OS/2 HFILE namespace.  0/1/2 are logical standard handles; backend
@@ -131,6 +133,8 @@ struct Os2DosSession {
     O2NATIVE file_handles[O2_DOS_MAX_HANDLES];
     O2NATIVE std_handles[3];
     O2ULONG max_file_handles;
+    O2ULONG file_modes[O2_DOS_MAX_HANDLES];
+    unsigned char file_mode_known[O2_DOS_MAX_HANDLES];
 
     /* OS/2-visible handle namespaces are personality state, not Win32 state. */
     O2NATIVE find_handles[O2_DOS_MAX_FIND_HANDLES];
@@ -157,6 +161,20 @@ void os2_dos_session_init(struct Os2DosSession *session,
                           void *backend_opaque,
                           const struct Os2DosBackendOps *backend);
 void os2_dos_session_destroy(struct Os2DosSession *session);
+
+/* R11: portable policy and wire layouts, with native services below. */
+struct O2DosQword { O2ULONG lo, hi; };
+void os2_dos_remember_mode(struct Os2DosSession *,O2HFILE,O2ULONG);
+O2APIRET os2_dos_DosForceDelete(struct Os2DosSession *,const char *);
+O2APIRET os2_dos_DosCopy(struct Os2DosSession *,const char *,const char *,O2ULONG);
+O2APIRET os2_dos_DosSetMaxFH(struct Os2DosSession *,O2ULONG);
+O2APIRET os2_dos_DosResetBuffer(struct Os2DosSession *,O2HFILE);
+O2APIRET os2_dos_DosQueryFHState(struct Os2DosSession *,O2HFILE,O2ULONG *);
+O2APIRET os2_dos_DosSetFHState(struct Os2DosSession *,O2HFILE,O2ULONG);
+O2APIRET os2_dos_DosQueryFSInfo(struct Os2DosSession *,O2ULONG,O2ULONG,void *,O2ULONG);
+O2APIRET os2_dos_DosTmrQueryFreq(struct Os2DosSession *,O2ULONG *);
+O2APIRET os2_dos_DosTmrQueryTime(struct Os2DosSession *,struct O2DosQword *);
+O2APIRET os2_dos_DosQueryResourceSize(struct Os2DosSession *,O2ULONG,O2ULONG,O2ULONG,O2ULONG *);
 
 /* Internal state helpers used by backends. */
 O2APIRET os2_dos_resolve_hfile(struct Os2DosSession *session, O2HFILE hfile,

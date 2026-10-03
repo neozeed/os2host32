@@ -581,4 +581,20 @@ struct Os2DosBackendOps {
     void (*exception_head_changed)(void *opaque, struct O2ExceptionRegistrationRecord *head);
 };
 
+struct O2DosDiskInfo {
+    O2ULONG sectors_per_unit,total_units,free_units,bytes_per_sector,serial;
+    char label[256];
+};
+/* Host primitives only: OS/2 flags, handles and serialization stay common. */
+struct Os2DosPlatformOps {
+    O2APIRET (*delete_file)(void *,const char *);
+    O2APIRET (*copy_file)(void *,const char *,const char *,int);
+    O2APIRET (*flush_file)(void *,O2NATIVE,int);
+    O2APIRET (*inherit_file)(void *,O2NATIVE,int);
+    O2APIRET (*disk_info)(void *,O2ULONG,struct O2DosDiskInfo *);
+    O2APIRET (*counter)(void *,int,uint64_t *);
+    O2APIRET (*resource_size)(void *,O2ULONG,O2ULONG,O2ULONG,O2ULONG *);
+};
+const struct Os2DosPlatformOps *os2_dos_platform_win32(void);
+
 #endif

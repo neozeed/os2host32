@@ -11,32 +11,27 @@ time and accepts another connection after you disconnect.
 From the package's `runtime` directory:
 
 ```bat
-start-display-server.cmd
+start-display-server.cmd 127.0.0.1 23
 ```
 
-This listens on **127.0.0.1, port 2323**. In TELNETPM connect to that host and
-port. Your December 1993 executable contains this command syntax:
-
-```text
-open 127.0.0.1 2323
-```
+This listens on **127.0.0.1, port 23**. In TELNETPM's connection dialog use
+`127.0.0.1`. Port 23 is the live-tested setup for this TELNETPM GUI. The earlier
+instructions inferred a custom-port workflow from embedded help strings; that
+workflow was not verified and did not work in the user's connection dialog.
+The generic server still defaults to 2323 when no port is supplied, so include
+the explicit `23` argument above.
 
 For the real OS/2 VM, run the server on the Windows host with a reachable bind
 address, for example:
 
 ```bat
-start-display-server.cmd 0.0.0.0 2323
+start-display-server.cmd 0.0.0.0 23
 ```
 
 Connect OS/2 to the **Windows host's reachable IPv4 address**, not 127.0.0.1
-(which means the OS/2 VM itself), on port 2323. Allow this server through the
+(which means the OS/2 VM itself), on port 23. Allow this server through the
 Windows firewall for that connection if prompted. Both clients can use the
-same Windows host address; disconnect one before connecting the other. If your
-connection dialog offers only a hostname, start the server on port 23 instead:
-
-```bat
-start-display-server.cmd 0.0.0.0 23
-```
+same Windows host address; disconnect one before connecting the other.
 
 Select ANSI emulation, 80 columns, 24 rows, and code page 437 in both clients.
 Start with the same nominal font cell size, preferably Terminal 8x12. Screen
@@ -65,6 +60,11 @@ does not, the server shows an ASCII explanation instead of sending high-bit
 bytes in NVT mode. Enable binary negotiation and press R. Other pages work
 without binary mode. Wrong accented letters in place of blocks suggest an
 encoding/font problem; a missing ROW 01 label suggests sizing or scrolling.
+
+The first live R9 run displayed this BINARY explanation. The pixel strips
+therefore have **not** been tested in that run. A working way to enable binary
+output negotiation in this TELNETPM GUI remains to be established; the presence
+of CP437 art on a BBS does not prove that the BINARY option was negotiated.
 
 The strips use ten characters per group, except the final group of nine.
 Compare the same group at the top and middle, including the solid block, to
@@ -97,9 +97,10 @@ At 80x24 with an 8x12 font, the terminal child's full client/paint dimensions
 should be **640x288** (hex **280x120**). A smaller paint rectangle is normal for
 a partial repaint; use the child's `WinQueryWindowRect` or initial full paint.
 The requested-size trace now records the guest's cx/cy alongside native size.
-Please return the two smoke logs, `phase2-r9-run.txt`, and matching screenshots
-of pages 1 and 2 if any clipping remains. A complete font change/resize test is
-still needed on native Windows.
+The supplied `phase2-r9-run.txt` confirms the full 640x288 area. Matching
+screenshots show all 24 numbered rows, the expected erase results, and scrolling
+from 07 through 30. Native smoke logs, font change/resize checks, and the actual
+page 2 pixel strips remain outstanding.
 
 ## Source, fixtures and verification
 

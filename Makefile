@@ -16,8 +16,8 @@ C89FLAGS ?= -std=c89 -O2 -Wall -Wextra -pedantic
 COMMON_CPPFLAGS = -Icommon/include
 API_CATALOG_SRC = common/api/os2_api_catalog.c
 DOSCALLS_CORE_SRC = common/doscalls/os2_doscalls_core.c
-DOSCALLS_SESSION_SRC = common/doscalls/os2_doscalls.c
-DOSCALLS_WIN32_SRC = common/win32/os2_doscalls_win32.c
+DOSCALLS_SESSION_SRC = common/doscalls/os2_doscalls.c common/doscalls/os2_doscalls_platform.c
+DOSCALLS_WIN32_SRC = common/win32/os2_doscalls_win32.c common/win32/os2_dos_platform_win32.c
 WIN32_COMMON_SRC = common/win32/os2_win32_services.c
 NLS_CORE_SRC = common/nls/os2_nls.c
 NLS_API_SRC = common/nls/os2_nls_api.c
@@ -50,7 +50,7 @@ shell: cmd32os2.exe
 compat: dlls
 
 dlls: DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll MOUCALLS.dll NLS.dll \
-      PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll SO32DLL.dll TCP32DLL.dll
+      PMWIN.dll PMGPI.dll PMSHAPI.dll PMWP.dll HELPMGR.dll SO32DLL.dll TCP32DLL.dll PMCTLS.dll MSG.dll
 
 os2host32.exe: loader/os2host32.c loader/os2host32.def loader/mixed_intake.h loader/telnetpm_bridge.h
 	$(MINGW) $(C89FLAGS) -Wl,--disable-dynamicbase,--image-base,0x400000 \
@@ -88,6 +88,46 @@ telnetpm-api-host-check:
 
 telnetpm-api-smoke.exe: tests/pmcompat/telnetpm-api-smoke.c tests/pmcompat/telnetpm-r6-smoke.h dlls/pmshapi/switchlist.h dlls/pmgpi/font_query.h
 	$(MINGW) $(C89FLAGS) -o $@ $< -luser32 -lgdi32
+
+pm-merge-smoke.exe: tests/pmcompat/pm-merge-smoke.c
+	$(MINGW) $(C89FLAGS) -o $@ $< -luser32 -lgdi32
+
+font-render-smoke.exe: tests/pmcompat/font-render-smoke.c
+	$(MINGW) $(C89FLAGS) -o $@ $< -luser32 -lgdi32
+
+window-size-smoke.exe: tests/pmcompat/window-size-smoke.c
+	$(MINGW) $(C89FLAGS) -o $@ $< -luser32 -lgdi32
+
+queue-lifecycle-smoke.exe: tests/pmcompat/queue-lifecycle-smoke.c
+	$(MINGW) $(C89FLAGS) -o $@ $< -luser32
+
+.PHONY: pm-queue-check
+.PHONY: platform-host-check
+platform-smoke.exe: tests/platform/platform-smoke.c
+	$(MINGW) $(C89FLAGS) -o $@ $<
+
+pm-platform-smoke.exe: tests/platform/pm-platform-smoke.c common/include/os2_track.h
+	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -o $@ $< -luser32
+
+platform-host-check:
+	$(HOSTCC) $(C89FLAGS) $(COMMON_CPPFLAGS) -o platform-host-check tests/platform/platform-host-check.c $(DOSCALLS_SESSION_SRC) $(NLS_CORE_SRC) common/msg/os2_msg.c common/pm/os2_track.c
+	./platform-host-check
+	$(RM) platform-host-check
+
+pm-queue-check:
+	$(HOSTCC) $(C89FLAGS) -o pm-queue-check tests/pmcompat/queue-lifecycle-host-check.c
+	./pm-queue-check
+	$(RM) pm-queue-check
+
+telnet-display-server.exe: tests/net/telnet-display-server.c
+	$(MINGW) $(C89FLAGS) -o $@ $< -lws2_32
+
+telnet-display-server: tests/net/telnet-display-server.c
+	$(HOSTCC) $(C89FLAGS) -o $@ $<
+
+.PHONY: telnet-display-check
+telnet-display-check: telnet-display-server
+	python3 tests/net/test_telnet_display.py ./telnet-display-server
 
 SO32DLL.dll: dlls/so32dll/so32dll.c dlls/so32dll/so32dll.def common/win32/os2_socket_win32.c common/include/os2_net.h
 	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -shared -o $@ dlls/so32dll/so32dll.c common/win32/os2_socket_win32.c dlls/so32dll/so32dll.def -lws2_32 -Wl,--out-implib,libso32dll.a
@@ -180,9 +220,15 @@ diagnostics: nlsinfo.exe
 nlsinfo.exe: tools/nlsinfo.c NLS.dll DOSCALLS.dll
 	$(MINGW) $(C89FLAGS) -o $@ tools/nlsinfo.c libnls.a libdoscalls.a
 
-PMWIN.dll: dlls/pmwin/pmwin.c dlls/pmwin/pmwin.def dlls/pmwin/pm_accel.h dlls/pmwin/pm_text.h dlls/pm-common/pmcompat.h
+PMCTLS.dll: dlls/pmctls/pmctls.c dlls/pmctls/pmctls.def
+	$(MINGW) $(C89FLAGS) -shared -o $@ $^ -lcomdlg32 -luser32
+
+MSG.dll: dlls/msg/msg.c dlls/msg/msg.def common/msg/os2_msg.c common/include/os2_msg.h
+	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -shared -o $@ dlls/msg/msg.c common/msg/os2_msg.c dlls/msg/msg.def
+
+PMWIN.dll: dlls/pmwin/pmwin.c dlls/pmwin/pmwin.def dlls/pmwin/pm_accel.h dlls/pmwin/pm_text.h dlls/pmwin/pm_queue.h dlls/pmwin/pm_track.h common/pm/os2_track.c common/include/os2_track.h dlls/pm-common/pmcompat.h
 	$(MINGW) $(C89FLAGS) -Idlls/pm-common -shared -o $@ \
-		dlls/pmwin/pmwin.c dlls/pmwin/pmwin.def -luser32 -lgdi32 \
+		dlls/pmwin/pmwin.c common/pm/os2_track.c $(COMMON_CPPFLAGS) dlls/pmwin/pmwin.def -luser32 -lgdi32 \
 		-Wl,--out-implib,libpmwin.a
 
 PMGPI.dll: dlls/pmgpi/pmgpi.c dlls/pmgpi/pmgpi.def dlls/pmgpi/font_query.c dlls/pmgpi/font_query.h dlls/pm-common/pmcompat.h
@@ -437,6 +483,11 @@ mou-static-check:
 	python3 tools/check_mou_r2.py
 
 clean:
+	$(RM) PMCTLS.dll MSG.dll platform-smoke.exe pm-platform-smoke.exe platform-host-check
+	$(RM) queue-lifecycle-smoke.exe pm-queue-check
+	$(RM) window-size-smoke.exe telnet-display-server.exe telnet-display-server
+	$(RM) pm-merge-smoke.exe
+	$(RM) font-render-smoke.exe
 	$(RM) socket-smoke.exe
 	rm -f os2host32.exe le2pe386.exe cmd32os2.exe nlsinfo.exe personality-core-check nls-core-check nls-win32-shim-check doscalls-core-check doscalls-veneer-check vio-core-check vio-win32-shim-check queue-core-check queue-veneer-check queue-win32-shim-check kbd-core-check kbd-veneer-check kbd-win32-shim-check sesmgr-core-check sesmgr-veneer-check sesmgr-win32-shim-check mou-core-check mou-veneer-check mou-win32-shim-check \
 	      DOSCALLS.dll KBDCALLS.dll VIOCALLS.dll QUECALLS.dll SESMGR.dll MOUCALLS.dll NLS.dll \

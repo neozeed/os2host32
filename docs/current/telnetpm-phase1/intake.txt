@@ -1,0 +1,108 @@
+LX header       : 0x00000080
+File size       : 273544 bytes
+Module flags    : 0x00000300
+Page size/shift : 4096 / 9
+Module pages    : 56
+Entry           : object 1 + 0x0001D5B4
+Stack           : object 5 + 0x00014170
+Data pages      : file+0x00008C00
+Fixup tables    : page=0x000004B5 record=0x00000599
+Objects (7):
+    1: base=00010000 size=00025CC0 flags=00002005 pages=38 @1 [32-bit]
+    2: base=00040000 size=00000023 flags=00001005 pages=1 @39 [16-bit]
+    3: base=00050000 size=00000030 flags=00002005 pages=1 @40 [32-bit]
+    4: base=00060000 size=00000008 flags=00001003 pages=0 @41 [16-bit]
+    5: base=00070000 size=00014170 flags=00002003 pages=12 @41 [32-bit]
+    6: base=00000000 size=00002830 flags=00002039 pages=3 @53 [32-bit]
+    7: base=00000000 size=000000F8 flags=00002029 pages=1 @56 [32-bit]
+Resources (18):
+    1: type=1 id=100 size=3192 object=6 +00000000
+    2: type=1 id=999 size=3192 object=6 +00000C78
+    3: type=3 id=100 size=632 object=6 +000018F0
+    4: type=4 id=200 size=168 object=6 +00001B68
+    5: type=4 id=250 size=735 object=6 +00001C10
+    6: type=4 id=300 size=210 object=6 +00001EF0
+    7: type=5 id=3 size=228 object=6 +00001FC4
+    8: type=8 id=250 size=10 object=7 +00000000
+    9: type=8 id=300 size=10 object=7 +0000000C
+   10: type=10 id=11 size=530 object=6 +000020A8
+   11: type=10 id=12 size=566 object=6 +000022BC
+   12: type=10 id=13 size=687 object=6 +000024F4
+   13: type=10 id=14 size=128 object=6 +000027A4
+   14: type=11 id=1 size=11 object=6 +00002824
+   15: type=18 id=1000 size=26 object=7 +00000018
+   16: type=19 id=2000 size=136 object=7 +00000034
+   17: type=19 id=3000 size=36 object=7 +000000BC
+   18: type=19 id=4000 size=24 object=7 +000000E0
+Import modules (10):
+    1: so32dll
+    2: tcp32dll
+    3: DOSCALLS
+    4: PMGPI
+    5: PMWIN
+    6: PMSHAPI
+    7: HELPMGR
+    8: PMCTLS
+    9: NLS
+   10: MSG
+MIXED INTAKE phase 1: offline model; NO guest execution, NO DLL loading.
+Model bases/selectors are diagnostic tokens, NOT native CPU selectors.
+Alias selector bases equal object model bases; default32 bases are zero.
+INTAKE OBJECT 1 model=01000000 size=00025CC0 default=32 selector=0100 alias16=0108 selector-base=00000000
+INTAKE OBJECT 2 model=01030000 size=00000023 default=16 selector=0110 alias16=0118 selector-base=01030000
+INTAKE PAGE object=2 page=0 file=00039E00 copied=35
+INTAKE RAW object=2 first=35 bytes: 66 EA 7C B4 00 00 00 00 CB 00 8B EC 03 E9 8B F4 83 EE 08 8C D1 8E D9 8E C1 FF 1C 66 EA 78 CF 02 00 00 00
+INTAKE OBJECT 3 model=01040000 size=00000030 default=32 selector=0120 alias16=0128 selector-base=00000000
+INTAKE PAGE object=3 page=0 file=0003A000 copied=48
+INTAKE RAW object=3 first=48 bytes: FF 4D 53 47 53 45 47 33 32 00 01 80 00 00 2C 00 00 00 8D 05 00 00 05 00 50 55 8B EC 8B 45 04 87 45 08 89 45 04 5D E9 00 00 00 00 FF 00 00 FF FF
+INTAKE OBJECT 4 model=01050000 size=00000008 default=16 selector=0130 alias16=0138 selector-base=01050000
+INTAKE RAW object=4 first=8 bytes: 00 00 00 00 00 00 00 00
+INTAKE OBJECT 5 model=01060000 size=00014170 default=32 selector=0140 alias16=0148 selector-base=00000000
+INTAKE OBJECT 6 model=01080000 size=00002830 default=32 selector=0150 alias16=0158 selector-base=00000000
+INTAKE OBJECT 7 model=01090000 size=000000F8 default=32 selector=0160 alias16=0168 selector-base=00000000
+INTAKE DEFERRED obj=1+00009C1D DOSCALLS.111 (unresolved, unchanged)
+INTAKE FIXUP obj=1+0000BC85 SEL16+ALIAS -> obj=1+00000000
+INTAKE CONTEXT obj=1+0000BC7D: 01 00 50 6A 0C 68 7C B4 00 00 6A 01 E8 86 12 01 00 83 C4 50 C7 05 DC EB
+INTAKE PATCH model bytes: 08 01
+INTAKE FIXUP obj=1+0000BCC5 SEL16+ALIAS -> obj=1+00000000
+INTAKE CONTEXT obj=1+0000BCBD: 01 00 50 6A 0C 68 7C B4 00 00 6A 01 E8 46 12 01 00 83 C4 50 C7 05 DC EB
+INTAKE PATCH model bytes: 08 01
+INTAKE FIXUP obj=1+0000B4A4 SEL16 -> obj=1+00000000
+INTAKE CONTEXT obj=1+0000B49C: 4E 0A 66 51 16 55 55 B8 00 00 50 66 68 B0 B4 01 00 66 CB FC 66 BD 00 00
+INTAKE PATCH model bytes: 00 01
+INTAKE FIXUP obj=1+0000B4B2 SEL16 -> obj=5+00000000
+INTAKE CONTEXT obj=1+0000B4AA: B4 01 00 66 CB FC 66 BD 00 00 66 8E DD 66 8E C5 66 8C D0 C1 E0 10 66 8B
+INTAKE PATCH model bytes: 40 01
+INTAKE DEFERRED obj=1+0001BC6B DOSCALLS.110 (unresolved, unchanged)
+INTAKE DEFERRED obj=1+0001CF61 DOSCALLS.425 (unresolved, unchanged)
+INTAKE FIXUP obj=1+0001CF72 SEL16+ALIAS -> obj=2+00000000
+INTAKE CONTEXT obj=1+0001CF6A: 0F B2 24 24 66 EA 0A 00 00 00 90 87 DB 90 25 FF FF 00 00 C1 E2 10 0B C2
+INTAKE FAR-JMP obj=1+0001CF6E (32-bit default) -> obj=2+0000000A (16-bit alias); static edge, NOT executed
+INTAKE PATCH model bytes: 18 01
+INTAKE FIXUP obj=1+0001D4EE REL32 -> obj=3+00000012
+INTAKE CONTEXT obj=1+0001D4E6: 24 FF 75 20 51 52 50 E8 32 2B 00 00 8B E5 5F 5E 5B 5D C3 90 00 00 55 8B
+INTAKE PATCH model bytes: 20 2B 02 00
+INTAKE DEFERRED obj=1+00024701 DOSCALLS.425 (unresolved, unchanged)
+INTAKE DEFERRED obj=1+000246F9 DOSCALLS.426 (unresolved, unchanged)
+INTAKE FIXUP obj=2+00000006 SEL16+ALIAS -> obj=1+00000000
+INTAKE CONTEXT obj=2+00000000: 66 EA 7C B4 00 00 00 00 CB 00 8B EC 03 E9 8B F4 83 EE 08 8C D1 8E D9 8E
+INTAKE FAR-JMP obj=2+00000000 (16-bit default) -> obj=1+0000B47C (16-bit alias); static edge, NOT executed
+INTAKE PATCH model bytes: 08 01
+INTAKE FIXUP obj=2+0000001D PTR16:32 -> obj=1+0001CF78
+INTAKE CONTEXT obj=2+00000015: 8E D9 8E C1 FF 1C 66 EA 78 CF 02 00 00 00
+INTAKE FAR-JMP obj=2+0000001B (16-bit default) -> obj=1+0001CF78 (32-bit default); static edge, NOT executed
+INTAKE PATCH model bytes: 78 CF 01 01 00 01
+INTAKE DEFERRED obj=3+00000027 MSG.6 (unresolved, unchanged)
+INTAKE FIXUP obj=3+00000014 OFF32 -> obj=3+00000000
+INTAKE CONTEXT obj=3+0000000C: 00 00 2C 00 00 00 8D 05 00 00 05 00 50 55 8B EC 8B 45 04 87 45 08 89 45
+INTAKE PATCH model bytes: 00 00 04 01
+INTAKE MODEL object=1 fnv1a=AADE3DC5
+INTAKE MODEL object=2 fnv1a=F8278DBC
+INTAKE MODEL object=3 fnv1a=EEF528B8
+INTAKE MODEL object=4 fnv1a=9BE17165
+INTAKE MODEL object=5 fnv1a=145FBC8B
+INTAKE MODEL object=6 fnv1a=33FB4597
+INTAKE MODEL object=7 fnv1a=7D9BBBBA
+INTAKE PASS internal-sites=7779 external-deferred=567 nonflat-sites=7 alias-sites=4 far-jump-edges=3
+Static edges do NOT prove runtime reachability. Native --run gate unchanged.
+Guest was NOT executed; no socket/UI shims installed.

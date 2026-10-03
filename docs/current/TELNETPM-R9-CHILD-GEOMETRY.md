@@ -51,8 +51,33 @@ to compensate for the geometry fault.
 See `verification/` in the package for the actual build and test results.
 The server's POSIX build and loopback behavior can be executed here. The
 Windows server and window-size regression are cross-built PE32/i386 binaries.
-Native Windows GUI smoke tests and live R9 TELNETPM/SimCity runs are pending;
-no Windows or Wine runtime is available in the build environment.
+No Windows or Wine runtime is available in the build environment. The user's
+first live R9 TELNETPM results are recorded below. Native smoke executables,
+font changes/resizing, and the R9 SimCity regression remain unverified.
+
+### First live R9 proof (2026-10-03)
+
+The supplied `phase2-r9-run.txt` contains 6,887 lines. The terminal child is
+requested at 640x288, receives WM_SIZE at 640x288, and its initial full paint
+is 640x288. All 94 font realization traces report Terminal 8x12, actual 8x12,
+match 2. There are 360 text-draw traces and no executed UNIMPLEMENTED trap or
+exception. Two existing resource-icon load failures remain. The log ends in
+Ctrl+C, so this is not evidence of clean application shutdown.
+
+The supplied test screenshots show:
+
+| Page | Live result |
+| --- | --- |
+| 1, numbered rows | All ROW 01..24 visible, including TOP and BOTTOM. Missing-height regression resolved in this run. |
+| 2, CP437 strips | Not executed: the server displayed the BINARY-negotiation explanation. Fine pixel comparison remains open. |
+| 3, colors | Foreground/background samples and normal/bold/underline/reverse lines render. The green underline appearance may be client policy; no original-OS/2 comparison establishes its correctness yet. |
+| 4, erasure | Empty brackets, KEEP results, blank erased rows and numeric overwrite match the expected character grid visually. |
+| 5, scrolling | Top SCROLL 07 through bottom SCROLL 30, with expected-final-row 01..24. |
+
+The user also reports improved BBS appearance after reconnecting. The working
+connection used standard port 23; use that port in this TELNETPM GUI workflow.
+These results confirm the child-height repair, not yet pixel-perfect CP437
+rendering or every PM API path.
 
 Run `runtime/run-window-size-smoke.cmd`, `run-font-render-smoke.cmd`, and
 `run-pm-merge-smoke.cmd`, then compare TELNETPM against the fixed server.
@@ -69,7 +94,8 @@ an earlier TCP/IP overlay. Build the active native targets with GNU make and
 32-bit MinGW GCC; Python is needed only for host verification scripts.
 
 Milestone: R8 achieved visible terminal text, working font selection and a
-live BBS connection. R9 corrects a demonstrated child-size truncation and adds
-a repeatable display target. Acceptance is all 24 rows and equal top/middle/
-bottom strip heights at 8x12, correct erase/scroll screens, and no SimCity
-regression. This is not a declaration that every PM rendering issue is fixed.
+live BBS connection. R9 now has live proof of the full 24-row terminal area,
+expected erasure, and correct 24-row scrolling against a repeatable target.
+Remaining acceptance checks are equal top/middle/bottom CP437 strip heights,
+font changes/resizing, native smoke logs, and no SimCity regression. This is
+not a declaration that every PM rendering issue is fixed.

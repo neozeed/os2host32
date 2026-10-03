@@ -1,5 +1,15 @@
 LIBRARY DOSCALLS
 EXPORTS
+    DosForceDelete @110 NONAME
+    DosCopy @258 NONAME
+    DosSetMaxFH @209 NONAME
+    DosResetBuffer @254 NONAME
+    DosQueryFHState @276 NONAME
+    DosSetFHState @221 NONAME
+    DosQueryFSInfo @278 NONAME
+    DosTmrQueryFreq @362 NONAME
+    DosTmrQueryTime @363 NONAME
+    DosQueryResourceSize @572 NONAME
     DosGetResource    @352 NONAME
     DosFreeResource   @353 NONAME
     DosQAppType          @163 NONAME

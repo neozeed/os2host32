@@ -1,0 +1,38 @@
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o personality-core-check tests/common/personality-core-check.c \
+	common/doscalls/os2_doscalls_core.c common/api/os2_api_catalog.c
+./personality-core-check
+PASS: shared DOSCALLS personality core and ordinal catalogue
+rm -f personality-core-check
+python3 tools/gen_nls_tables.py --check
+PASS: built-in CP437/CP850 case tables are reproducible
+cc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include \
+	-o nls-core-check tests/nls/nls-core-check.c \
+	common/nls/os2_nls.c common/nls/os2_nls_api.c common/doscalls/os2_doscalls_core.c
+./nls-core-check
+PASS: OS/2 NLS core, process state, extended case maps and guest ABI
+rm -f nls-core-check
+cc -std=c89 -O2 -Wall -Wextra -pedantic \
+	-Itests/nls/win32-stub -Icommon/include \
+	-o nls-win32-shim-check tests/nls/nls-win32-shim-check.c \
+	tests/nls/win32-stub/win32_nls_stub.c \
+	common/nls/os2_nls.c common/win32/os2_nls_win32.c
+./nls-win32-shim-check
+nls-win32-shim-check: PASS
+rm -f nls-win32-shim-check
+python3 tools/check_nls_r2.py
+Traceback (most recent call last):
+  File "/workspace/scratch/35c93bee0c25/os2host32/tools/check_nls_r2.py", line 24, in <module>
+    whp = text("whp/src/whp_os2_v2_hi.c")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/35c93bee0c25/os2host32/tools/check_nls_r2.py", line 10, in text
+    return (root / path).read_text(encoding="utf-8", errors="replace")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/pathlib.py", line 1027, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/pathlib.py", line 1013, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/workspace/scratch/35c93bee0c25/os2host32/whp/src/whp_os2_v2_hi.c'
+make: *** [Makefile:207: nls-static-check] Error 1

@@ -1,0 +1,1 @@
+TELNETPM phase2: 271 checks PASS (production x86 bytes under Unicorn; no Windows runtime claim)

@@ -1,0 +1,23 @@
+cc -std=c89 -O2 -Wall -Wextra -pedantic -o os2host32-intake loader/os2host32.c
+loader/os2host32.c: In function ‘main’:
+loader/os2host32.c:5118:9: warning: variable ‘first_arg’ set but not used [-Wunused-but-set-variable]
+ 5118 |     int first_arg;
+      |         ^~~~~~~~~
+loader/os2host32.c:5117:17: warning: variable ‘arg0_override’ set but not used [-Wunused-but-set-variable]
+ 5117 |     const char *arg0_override;
+      |                 ^~~~~~~~~~~~~
+loader/os2host32.c: At top level:
+loader/os2host32.c:252:38: warning: ‘emx_far16_apis’ defined but not used [-Wunused-const-variable=]
+  252 | static const struct C386Far16ApiDesc emx_far16_apis[] = {
+      |                                      ^~~~~~~~~~~~~~
+cc -std=c89 -O2 -Wall -Wextra -pedantic -o telnetpm-emit tests/loader/telnetpm_emit.c
+In file included from tests/loader/telnetpm_emit.c:3:
+tests/loader/../../loader/os2host32.c: In function ‘os2host_original_main’:
+tests/loader/../../loader/os2host32.c:5118:9: warning: variable ‘first_arg’ set but not used [-Wunused-but-set-variable]
+ 5118 |     int first_arg;
+      |         ^~~~~~~~~
+tests/loader/../../loader/os2host32.c:5117:17: warning: variable ‘arg0_override’ set but not used [-Wunused-but-set-variable]
+ 5117 |     const char *arg0_override;
+      |                 ^~~~~~~~~~~~~
+python3 tests/loader/test_telnetpm_bridge.py ./os2host32-intake ./telnetpm-emit ../upload/telnetpm.exe
+TELNETPM phase2: 271 checks PASS (production x86 bytes under Unicorn; no Windows runtime claim)

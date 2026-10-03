@@ -2907,6 +2907,9 @@ O2APIRET __cdecl o2win_DosOpen(const char *path, O2HFILE *phFile, O2ULONG *pActi
     existed = (exists_attr != 0xffffffffUL);
 
     flags = win32_attrs_from_o2(attr);
+    if(openMode&0x4000UL) flags|=FILE_FLAG_WRITE_THROUGH;
+    if((openMode&0x300UL)==0x100UL) flags|=FILE_FLAG_SEQUENTIAL_SCAN;
+    if((openMode&0x300UL)==0x200UL) flags|=FILE_FLAG_RANDOM_ACCESS;
     h = CreateFileA(path, access, share, NULL, creation, flags, NULL);
     if (h == INVALID_HANDLE_VALUE) {
         O2APIRET eopen;
@@ -2924,6 +2927,9 @@ O2APIRET __cdecl o2win_DosOpen(const char *path, O2HFILE *phFile, O2ULONG *pActi
         return eopen;
     }
 
+    if(!SetHandleInformation(h,HANDLE_FLAG_INHERIT,(openMode&0x80UL)?0:HANDLE_FLAG_INHERIT)) {
+        O2APIRET er=(O2APIRET)GetLastError();CloseHandle(h);return er;
+    }
     oh = alloc_os2_handle(h);
     if (oh == (O2HFILE)0xffffffffUL) {
         CloseHandle(h);
@@ -2960,6 +2966,7 @@ O2APIRET __cdecl o2win_DosOpen(const char *path, O2HFILE *phFile, O2ULONG *pActi
     }
 
     *phFile = oh;
+    os2_dos_remember_mode(o2_r2_session,oh,openMode);
     if (emx_self_trace_enabled()) {
         DWORD sz;
         sz = GetFileSize(h, NULL);
@@ -4782,6 +4789,7 @@ void os2_doscalls_win32_session_init(struct Os2DosSession *session)
     if (session == NULL)
         return;
     os2_dos_session_init(session, NULL, &r2_backend_ops);
+    session->platform=os2_dos_platform_win32();
     os2_nls_win32_init_session(&session->nls);
     o2_r2_session = session;
 }

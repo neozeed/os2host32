@@ -1,0 +1,158 @@
+ordinal	api	status	notes
+110	DosForceDelete	added-R11	Permanent native file deletion; read-only denial is preserved
+111	DosKillThread	deferred	Thread/process registry and lifecycle; scheduler critical sections; no TerminateThread shortcut
+209	DosSetMaxFH	added-R11	Increase guest handle limit up to the existing 256-entry table
+210	DOS32SETVERIFY	next-medium	Process verify policy must affect actual file writes; not just a stored boolean
+211	DOS32ERRCLASS	next-small	Portable error/name rules; module metadata plus native procedure lookup
+212	DosError	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+218	DosSetFileInfo	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+219	DosSetPathInfo	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+220	DosSetDefaultDisk	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+221	DosSetFHState	added-R11	Change inheritance; reject unsupported changes to caching/locality policy
+222	DOS32SETFSINFO	next-medium	Volume/device/filesystem queries; OS/2 wire structures and host error translation
+223	DosQueryPathInfo	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+224	DosQueryHType	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+225	DOS32QUERYVERIFY	next-medium	Process verify policy must affect actual file writes; not just a stored boolean
+226	DosDeleteDir	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+227	DosScanEnv	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+228	DosSearchPath	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+229	DosSleep	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+230	DosGetDateTime	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+231	DOS32DEVCONFIG	next-medium	Volume/device/filesystem queries; OS/2 wire structures and host error translation
+232	DosEnterCritSec	existing-partial	Existing success stub; does not suspend other guest threads
+233	DOS32EXITCRITSEC	deferred	Thread/process registry and lifecycle; scheduler critical sections; no TerminateThread shortcut
+234	DosExit	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+235	DOS32KILLPROCESS	deferred	Thread/process registry and lifecycle; scheduler critical sections; no TerminateThread shortcut
+236	DosSetPriority	existing-partial	Existing current-thread priority approximation; process/tree scope is incomplete
+237	DOS32RESUMETHREAD	deferred	Thread/process registry and lifecycle; scheduler critical sections; no TerminateThread shortcut
+238	DOS32SUSPENDTHREAD	deferred	Thread/process registry and lifecycle; scheduler critical sections; no TerminateThread shortcut
+239	DosCreatePipe	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+240	DOS32CALLNPIPE	next-medium	Win32 named pipes; OS/2 names, message mode, handle modes and wait semantics
+241	DOS32CONNECTNPIPE	next-medium	Win32 named pipes; OS/2 names, message mode, handle modes and wait semantics
+242	DOS32DISCONNECTNPIPE	next-medium	Win32 named pipes; OS/2 names, message mode, handle modes and wait semantics
+243	DOS32CREATENPIPE	next-medium	Win32 named pipes; OS/2 names, message mode, handle modes and wait semantics
+244	DOS32PEEKNPIPE	next-medium	Win32 named pipes; OS/2 names, message mode, handle modes and wait semantics
+245	DOS32QUERYNPHSTATE	next-medium	Win32 named pipes; OS/2 names, message mode, handle modes and wait semantics
+246	DOS32RAWREADNPIPE	deferred	Raw pipe/pipe semaphore integration requires a pipe object model
+247	DOS32RAWWRITENPIPE	deferred	Raw pipe/pipe semaphore integration requires a pipe object model
+248	DOS32QUERYNPIPEINFO	next-medium	Win32 named pipes; OS/2 names, message mode, handle modes and wait semantics
+249	DOS32QUERYNPIPESEMSTATE	deferred	Raw pipe/pipe semaphore integration requires a pipe object model
+250	DOS32SETNPHSTATE	next-medium	Win32 named pipes; OS/2 names, message mode, handle modes and wait semantics
+251	DOS32SETNPIPESEM	deferred	Raw pipe/pipe semaphore integration requires a pipe object model
+252	DOS32TRANSACTNPIPE	next-medium	Win32 named pipes; OS/2 names, message mode, handle modes and wait semantics
+253	DOS32WAITNPIPE	next-medium	Win32 named pipes; OS/2 names, message mode, handle modes and wait semantics
+254	DosResetBuffer	added-R11	Flush files; all-handles mode skips read-only handles and pipes
+255	DosSetCurrentDir	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+256	DosSetFilePtr	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+257	DosClose	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+258	DosCopy	added-R11	Copy with replace/no-replace; append and fail-on-EA options return 50
+259	DosDelete	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+260	DosDupHandle	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+261	DOS32EDITNAME	next-small	Portable error/name rules; module metadata plus native procedure lookup
+262	DOS32SETFILELOCKS	next-medium	LockFileEx/UnlockFileEx; range layout, timeout, cancellation and rollback
+263	DosFindClose	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+264	DosFindFirst	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+265	DosFindNext	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+269	DOS32FSATTACH	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+270	DosCreateDir	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+271	DosMove	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+272	DosSetFileSize	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+273	DosOpen	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+274	DosQueryCurrentDir	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+275	DosQueryCurrentDisk	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+276	DosQueryFHState	added-R11	Query tracked open mode; unknown external handle modes return 50
+277	DOS32QUERYFSATTACH	next-medium	Volume/device/filesystem queries; OS/2 wire structures and host error translation
+278	DosQueryFSInfo	added-R11	Allocation and volume information, levels 1/2; labels capped at 11 bytes
+279	DosQueryFileInfo	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+280	DosWaitChild	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+281	DosRead	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+282	DosWrite	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+283	DosExecPgm	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+284	DosDevIOCtl	existing-partial	Only existing specimen-specific device-control categories are implemented
+285	DOS32FSCTL	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+286	DosBeep	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+287	DOS32PHYSICALDISK	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+288	DOS32SETCP	deferred	Coordinate process, console and device code pages with the existing NLS personality
+289	DosSetProcessCp	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+290	DOS32STOPTIMER	next-medium	Waitable/timer-queue timers must post OS/2 semaphores and synchronize stop/free
+291	DosQueryCp	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+292	DOS32SETDATETIME	deferred	Host clock mutation needs OS/2 timezone and privilege/error semantics
+296	DosExitList	existing-partial	Existing validation-only exit-list stub; callbacks are not run
+297	DOS32ALLOCPROTECTEDMEM	deferred	Shared/protected mappings need ownership, names, address agreement and cross-process lifetime
+299	DosAllocMem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+300	DOS32ALLOCSHAREDMEM	deferred	Shared/protected mappings need ownership, names, address agreement and cross-process lifetime
+301	DOS32GETNAMEDSHAREDMEM	deferred	Shared/protected mappings need ownership, names, address agreement and cross-process lifetime
+302	DOS32GETSHAREDMEM	deferred	Shared/protected mappings need ownership, names, address agreement and cross-process lifetime
+303	DOS32GIVESHAREDMEM	deferred	Shared/protected mappings need ownership, names, address agreement and cross-process lifetime
+304	DosFreeMem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+305	DosSetMem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+306	DosQueryMem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+308	DOS32OPENVDD	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+309	DOS32REQUESTVDD	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+310	DOS32CLOSEVDD	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+311	DosCreateThread	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+312	DosGetInfoBlocks	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+316	DOS32DYNAMICTRACE	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+317	DOS32DEBUG	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+318	DosLoadModule	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+319	DosQueryModuleHandle	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+320	DosQueryModuleName	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+321	DosQueryProcAddr	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+322	DosFreeModule	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+323	DosQueryAppType	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+324	DosCreateEventSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+325	DosOpenEventSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+326	DosCloseEventSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+327	DosResetEventSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+328	DosPostEventSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+329	DosWaitEventSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+330	DosQueryEventSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+331	DosCreateMutexSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+332	DosOpenMutexSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+333	DosCloseMutexSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+334	DosRequestMutexSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+335	DosReleaseMutexSem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+336	DOS32QUERYMUTEXSEM	next-medium	Mutex ownership accounting and muxwait object registry; wait-any/all plus close races
+337	DOS32CREATEMUXWAITSEM	next-medium	Mutex ownership accounting and muxwait object registry; wait-any/all plus close races
+338	DOS32OPENMUXWAITSEM	next-medium	Mutex ownership accounting and muxwait object registry; wait-any/all plus close races
+339	DOS32CLOSEMUXWAITSEM	next-medium	Mutex ownership accounting and muxwait object registry; wait-any/all plus close races
+340	DOS32WAITMUXWAITSEM	next-medium	Mutex ownership accounting and muxwait object registry; wait-any/all plus close races
+341	DOS32ADDMUXWAITSEM	next-medium	Mutex ownership accounting and muxwait object registry; wait-any/all plus close races
+342	DOS32DELETEMUXWAITSEM	next-medium	Mutex ownership accounting and muxwait object registry; wait-any/all plus close races
+343	DOS32QUERYMUXWAITSEM	next-medium	Mutex ownership accounting and muxwait object registry; wait-any/all plus close races
+344	DosSubSetMem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+345	DosSubAllocMem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+346	DosSubFreeMem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+347	DosSubUnsetMem	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+348	DosQuerySysInfo	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+349	DOS32WAITTHREAD	deferred	Thread/process registry and lifecycle; scheduler critical sections; no TerminateThread shortcut
+350	DOS32ASYNCTIMER	next-medium	Waitable/timer-queue timers must post OS/2 semaphores and synchronize stop/free
+351	DOS32STARTTIMER	next-medium	Waitable/timer-queue timers must post OS/2 semaphores and synchronize stop/free
+352	DosGetResource	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+353	DosFreeResource	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+354	DosSetExceptionHandler	existing-partial	Registers an exception-chain record; not a complete exception dispatcher
+355	DosUnsetExceptionHandler	existing-partial	Removes an exception-chain record; not a complete unwind engine
+356	DOS32RAISEEXCEPTION	deferred	OS/2 exception context, callback dispatch, unwind and signal delivery
+357	DOS32UNWINDEXCEPTION	deferred	OS/2 exception context, callback dispatch, unwind and signal delivery
+362	DosTmrQueryFreq	added-R11	QueryPerformanceFrequency; reports actual host counter frequency
+363	DosTmrQueryTime	added-R11	QueryPerformanceCounter; OS/2 low/high 32-bit QWORD layout
+371	DOS32FILEIO	deferred	Compound file operations, EA enumeration or executable-header ownership/layout
+372	DOS32ENUMATTRIBUTE	deferred	Compound file operations, EA enumeration or executable-header ownership/layout
+373	DOS32QUERYDOSPROPERTY	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+374	DOS32SETDOSPROPERTY	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+377	DOS32PROFILE	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+378	DosSetSignalExceptionFocus	existing-partial	Tracks signal focus count; no complete signal-delivery engine
+379	DOS32SENDSIGNALEXCEPTION	deferred	OS/2 exception context, callback dispatch, unwind and signal delivery
+380	DOS32ENTERMUSTCOMPLETE	deferred	Thread/process registry and lifecycle; scheduler critical sections; no TerminateThread shortcut
+381	DOS32EXITMUSTCOMPLETE	deferred	Thread/process registry and lifecycle; scheduler critical sections; no TerminateThread shortcut
+382	DosSetRelMaxFH	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+395	DosQueryCtryInfo	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+396	DosQueryDBCSEnv	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+397	DosMapCase	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+418	DosAcknowledgeSignalException	existing-partial	Existing signal bookkeeping; no complete signal-delivery engine
+425	DosFlatToSel	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+426	DosSelToFlat	existing-export	Existing R10 export retained; export presence does not certify complete semantics
+572	DosQueryResourceSize	added-R11	Size of loader-published borrowed resources via the existing PMWIN bridge
+580	DOS32INITIALIZEPORTHOLE	deferred	Driver/VDM/debugger/privileged subsystem semantics are not a direct Win32 API alias
+582	DOS32QUERYHEADERINFO	deferred	Compound file operations, EA enumeration or executable-header ownership/layout
+586	DOS32QUERYPROCTYPE	next-small	Portable error/name rules; module metadata plus native procedure lookup

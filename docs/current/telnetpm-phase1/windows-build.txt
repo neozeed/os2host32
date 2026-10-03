@@ -1,0 +1,33 @@
+i686-w64-mingw32-gcc -std=c89 -O2 -Wall -Wextra -pedantic -Wl,--disable-dynamicbase,--image-base,0x400000 \
+	-o os2host32.exe loader/os2host32.c loader/os2host32.def
+loader/os2host32.c: In function ‘run_guest’:
+loader/os2host32.c:2527:13: warning: ISO C forbids conversion of object pointer to function pointer type [-Wpedantic]
+ 2527 |     start = (void (__cdecl *)(void))stub;
+      |             ^
+loader/os2host32.c: In function ‘publish_guest_pm_resources’:
+loader/os2host32.c:2915:13: warning: cast between incompatible function types from ‘FARPROC’ {aka ‘int (__attribute__((stdcall)) *)()’} to ‘void (__attribute__((cdecl)) *)(U32)’ {aka ‘void (__attribute__((cdecl)) *)(unsigned int)’} [-Wcast-function-type]
+ 2915 |     unregfn=(PFNUNREGISTER)GetProcAddress(pmwin,"OS2PM_UnregisterModuleResources");
+      |             ^
+loader/os2host32.c: In function ‘unpublish_guest_pm_resources’:
+loader/os2host32.c:2943:13: warning: cast between incompatible function types from ‘FARPROC’ {aka ‘int (__attribute__((stdcall)) *)()’} to ‘void (__attribute__((cdecl)) *)(U32)’ {aka ‘void (__attribute__((cdecl)) *)(unsigned int)’} [-Wcast-function-type]
+ 2943 |     unregfn=(PFNUNREGISTER)GetProcAddress(pmwin,"OS2PM_UnregisterModuleResources");
+      |             ^
+loader/os2host32.c: In function ‘call_guest_dll_entry’:
+loader/os2host32.c:3011:16: warning: ISO C forbids conversion of object pointer to function pointer type [-Wpedantic]
+ 3011 |     callstub = (U32 (__cdecl *)(void))stub;
+      |                ^
+loader/os2host32.c: In function ‘publish_main_pm_resources’:
+loader/os2host32.c:3606:15: warning: cast between incompatible function types from ‘FARPROC’ {aka ‘int (__attribute__((stdcall)) *)()’} to ‘void (__attribute__((cdecl)) *)(U32)’ {aka ‘void (__attribute__((cdecl)) *)(unsigned int)’} [-Wcast-function-type]
+ 3606 |     unregfn = (PFNUNREGISTER)GetProcAddress(pmwin, "OS2PM_UnregisterModuleResources");
+      |               ^
+loader/os2host32.c: At top level:
+loader/os2host32.c:969:12: warning: ‘source_object_offset’ defined but not used [-Wunused-function]
+  969 | static U32 source_object_offset(struct LxImage *x, U32 page, S16 source,
+      |            ^~~~~~~~~~~~~~~~~~~~
+loader/os2host32.c: In function ‘map_objects’:
+loader/os2host32.c:2012:16: warning: ‘packed_cursor’ may be used uninitialized [-Wmaybe-uninitialized]
+ 2012 |             if (span == 0)
+      |                ^
+loader/os2host32.c:1901:9: note: ‘packed_cursor’ was declared here
+ 1901 |     U32 packed_cursor;
+      |         ^~~~~~~~~~~~~

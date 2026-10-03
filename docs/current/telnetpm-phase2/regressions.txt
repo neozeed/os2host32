@@ -1,0 +1,13 @@
+python3 tests/loader/test_mixed_intake.py ./os2host32-intake ../upload/telnetpm.exe
+PASS: 30 synthetic mixed-intake tests; native execution gate retained
+PASS: TELNETPM all seven object fingerprints match independent oracle
+PASS: 7779 internal patches; 567 external sites unchanged; input unchanged
+TELNETPM SHA256: 16f34d712cdefb8b3f4fa93b7956fc97429697419deccd80b62b8d838d4960e2
+python3 tools/check_api_catalog.py
+PASS: 287 catalogue entries cover 285 ordinal DLL exports
+python3 tools/check_c386_hack_bridge.py
+c386-hack-bridge-check: PASS (far16 coverage, switch relocation, signal.asm Pascal32 adapters)
+python3 tools/check_simcity_pmwin885.py
+SIMCITY PMWIN.885 static contract PASS
+  PMWIN.885 = WinStopTimer(HAB, HWND, USHORT)
+  implementation = Win32 KillTimer(window, timer-id)

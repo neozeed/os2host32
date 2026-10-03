@@ -257,7 +257,7 @@ def main():
                       'obj=2+0000001B', 'obj=1+0001CF78',
                       'nonflat-sites=7 alias-sites=4 far-jump-edges=3']:
             assert token in out, token
-        run(specimen, '--run', 3, 'guest was NOT executed')
+        run(specimen, '--run', 1, 'TELNETPM native profile requires a 32-bit Win32 build')
         run(specimen, '--fixups', 3, 'not in the current executable subset')
         assert specimen.read_bytes() == b
         print('PASS: TELNETPM all seven object fingerprints match independent oracle')

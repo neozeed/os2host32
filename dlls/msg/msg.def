@@ -1,0 +1,4 @@
+LIBRARY MSG
+EXPORTS
+    DosInsertMessage @4 NONAME
+    DosTrueGetMessage @6 NONAME

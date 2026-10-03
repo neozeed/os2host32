@@ -1,5 +1,6 @@
 LIBRARY PMWIN
 EXPORTS
+    WinTrackRect @890 NONAME
     WinCopyAccelTable        @709 NONAME
     WinCreateAccelTable      @713 NONAME
     WinDestroyAccelTable     @723 NONAME

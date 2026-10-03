@@ -19,6 +19,36 @@ static struct Os2DosSession *dos_session(void)
     return os2_doscalls_win32_session();
 }
 
+O2APIRET __cdecl DosForceDelete(const char *path)
+{ return os2_dos_DosForceDelete(dos_session(),path); }
+
+O2APIRET __cdecl DosCopy(const char *from,const char *to,O2ULONG flags)
+{ return os2_dos_DosCopy(dos_session(),from,to,flags); }
+
+O2APIRET __cdecl DosSetMaxFH(O2ULONG count)
+{ return os2_dos_DosSetMaxFH(dos_session(),count); }
+
+O2APIRET __cdecl DosResetBuffer(O2HFILE file)
+{ return os2_dos_DosResetBuffer(dos_session(),file); }
+
+O2APIRET __cdecl DosQueryFHState(O2HFILE file,O2ULONG *mode)
+{ return os2_dos_DosQueryFHState(dos_session(),file,mode); }
+
+O2APIRET __cdecl DosSetFHState(O2HFILE file,O2ULONG mode)
+{ return os2_dos_DosSetFHState(dos_session(),file,mode); }
+
+O2APIRET __cdecl DosQueryFSInfo(O2ULONG disk,O2ULONG level,void *buf,O2ULONG cb)
+{ return os2_dos_DosQueryFSInfo(dos_session(),disk,level,buf,cb); }
+
+O2APIRET __cdecl DosTmrQueryFreq(O2ULONG *freq)
+{ return os2_dos_DosTmrQueryFreq(dos_session(),freq); }
+
+O2APIRET __cdecl DosTmrQueryTime(struct O2DosQword *time)
+{ return os2_dos_DosTmrQueryTime(dos_session(),time); }
+
+O2APIRET __cdecl DosQueryResourceSize(O2ULONG module,O2ULONG type,O2ULONG id,O2ULONG *size)
+{ return os2_dos_DosQueryResourceSize(dos_session(),module,type,id,size); }
+
 O2APIRET __cdecl DosGetResource(O2ULONG module,O2ULONG type,O2ULONG id,void **buffer)
 {
     return os2_dos_DosGetResource(dos_session(),module,type,id,buffer);

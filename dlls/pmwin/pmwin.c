@@ -2355,6 +2355,7 @@ static void pm_fill_qmsg(O2QMSG *q, const MSG *m)
 }
 
 #include "pm_queue.h"
+#include "pm_track.h"
 
 /* 728 */
 O2ULONG __cdecl WinDestroyWindow(O2HWND hwnd)
