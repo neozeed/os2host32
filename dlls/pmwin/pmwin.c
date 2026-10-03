@@ -387,6 +387,7 @@ struct PMCompatCursorInfo {
 struct PMCompatThreadState {
     DWORD error;
     DWORD queue_accel;
+    int queue_active;
     struct PMCompatCursorInfo cursor;
     int visible;
     char *clipboard_text;
@@ -2353,31 +2354,7 @@ static void pm_fill_qmsg(O2QMSG *q, const MSG *m)
         q->ptl.y = cr.bottom - q->ptl.y;
 }
 
-/* 716 */
-O2HMQ __cdecl WinCreateMsgQueue(O2HAB hab, O2LONG cmsg)
-{
-    MSG m;
-    DWORD tid;
-    (void)hab; (void)cmsg;
-    /* Force USER32 to create this thread's message queue, then use the
-       Win32 thread id as our compact HMQ token.  WinPostQueueMsg can then
-       target a real PM worker queue without host-global state. */
-    PeekMessageA(&m, NULL, WM_USER, WM_USER, PM_NOREMOVE);
-    tid = GetCurrentThreadId();
-    pm_trace("WinCreateMsgQueue", (unsigned long)hab,
-             (unsigned long)cmsg, (unsigned long)tid);
-    return (O2HMQ)tid;
-}
-
-/* 726 */
-O2ULONG __cdecl WinDestroyMsgQueue(O2HMQ hmq)
-{
-    struct PMCompatThreadState *s;
-    if(hmq==(O2HMQ)GetCurrentThreadId()) {
-        s=pm_thread_state(); if(s) s->queue_accel=0;
-    }
-    return 1;
-}
+#include "pm_queue.h"
 
 /* 728 */
 O2ULONG __cdecl WinDestroyWindow(O2HWND hwnd)
@@ -3474,13 +3451,6 @@ O2ULONG __cdecl WinStopTimer(O2HAB hab, O2HWND hwnd, O2ULONG idTimer)
     pm_trace(r ? "WinStopTimer OK" : "WinStopTimer FAIL",
              (unsigned long)hwnd, (unsigned long)idTimer, 0);
     return r ? 1UL : 0UL;
-}
-
-/* 888 */
-O2ULONG __cdecl WinTerminate(O2HAB hab)
-{
-    (void)hab;
-    return 1;
 }
 
 /* 892 */

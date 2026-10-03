@@ -5016,6 +5016,8 @@ static void apply_fixups(struct LxImage *x)
 }
 #endif
 
+static int tp_match(struct LxImage *x);
+
 static void print_fixup_summary(struct LxImage *x)
 {
     U32 i;
@@ -5089,6 +5091,9 @@ static void print_fixup_summary(struct LxImage *x)
     } else if (x->emx_bridge_complete) {
         printf("M30 EMX bridge   : recognized exact generic 32/16 thunk profile\n");
         printf("Direct host path: supported via native EMX generic bridge\n");
+    } else if (tp_match(x)) {
+        printf("Native profile  : TELNETPM-1993 (exact image verified)\n");
+        printf("Direct host path: supported via TELNETPM native bridge\n");
     } else {
         printf("Direct host path: needs additional execution machinery\n");
     }
@@ -5103,7 +5108,7 @@ static void usage(void)
             "usage: os2host32 [--info|--scan|--map|--fixups] program.exe\n"
             "       os2host32 --mixed-intake program.exe (LX, diagnostic only)\n"
             "       os2host32 --telnetpm-check program.exe (offline bridge check)\n"
-            "       os2host32 --telnetpm-probe program.exe (experimental native trace)\n"
+            "       os2host32 --telnetpm-probe [--argv0 name] program.exe [guest arguments ...] (trace)\n"
             "       os2host32 --run [--argv0 name] program.exe [guest arguments ...]\n"
             "       os2host32 --run-quiet [--argv0 name] program.exe [guest arguments ...]\n");
     exit(2);
@@ -5124,13 +5129,13 @@ int main(int argc, char **argv)
         name = argv[1];
     } else if (argc >= 3) {
         mode = argv[1];
-        if ((strcmp(mode, "--run") == 0 ||
+        if ((strcmp(mode, "--run") == 0 || strcmp(mode, "--telnetpm-probe") == 0 ||
              strcmp(mode, "--run-quiet") == 0) &&
             strcmp(argv[2], "--argv0") == 0 && argc < 5) {
             usage();
             return 2;
         }
-        if ((strcmp(mode, "--run") == 0 ||
+        if ((strcmp(mode, "--run") == 0 || strcmp(mode, "--telnetpm-probe") == 0 ||
              strcmp(mode, "--run-quiet") == 0) &&
             argc >= 5 && strcmp(argv[2], "--argv0") == 0) {
             arg0_override = argv[3];
@@ -5140,6 +5145,7 @@ int main(int argc, char **argv)
             name = argv[2];
         }
         if (strcmp(mode, "--run") != 0 &&
+            strcmp(mode, "--telnetpm-probe") != 0 &&
             strcmp(mode, "--run-quiet") != 0 && argc != 3) {
             usage();
             return 2;
@@ -5182,7 +5188,7 @@ int main(int argc, char **argv)
 
     if (strcmp(mode, "--telnetpm-probe") == 0) {
 #ifdef _WIN32
-        tp_probe(&x, name, argc, argv, first_arg);
+        tp_run(&x, name, arg0_override, argc, argv, first_arg, 1);
 #else
         fail("--telnetpm-probe requires a 32-bit Win32 build");
 #endif
@@ -5260,6 +5266,16 @@ int main(int argc, char **argv)
 
     if (strcmp(mode, "--run") == 0 ||
         strcmp(mode, "--run-quiet") == 0) {
+        if (tp_match(&x)) {
+#ifdef _WIN32
+            const char *trace = getenv("OS2_TELNETPM_TRACE");
+            tp_run(&x, name, arg0_override, argc, argv, first_arg,
+                   trace && *trace && strcmp(trace, "0") != 0);
+#else
+            fail("TELNETPM native profile requires a 32-bit Win32 build; guest was NOT executed");
+#endif
+            return 1;
+        }
         scan_fixups(&x);
         if (!g_quiet)
             print_fixup_summary(&x);

@@ -1,4 +1,4 @@
-/* TELNETPM phase 2. Exact-specimen, opt-in native diagnostic bridge.
+/* TELNETPM-1993 exact-image native compatibility profile.
  * No CPU selectors, 16-bit execution, socket emulation or success stubs.
  * Included after mixed_intake.h; all emitters also build on non-Windows hosts.
  */
@@ -141,6 +141,11 @@ static U32 tp_import_stub(struct TpBridge *b, U32 index, U32 target)
     return entry;
 }
 
+static U32 tp_bind_import(struct TpBridge *b,U32 index,U32 target,int trace)
+{
+    return (target && !trace)?target:tp_import_stub(b,index,target);
+}
+
 /* PUSHAD layout: EDI,ESI,EBP,savedESP,EBX,EDX,ECX,EAX,EFLAGS,return.
  * The C observer operates on that saved context. No real FS writes occur.
  */
@@ -273,7 +278,7 @@ static void tp_install(struct LxImage *x,struct TpBridge *b)
     if(b->fs_sites!=101) fail("TELNETPM FS inventory changed");
     /* The tiny 16-bit executable object can never be entered by this bridge. */
     memset(b->bytes[1],0xcc,x->objects[1].size);
-    printf("TELNETPM BRIDGE: internal=%lu external=%lu nonflat=%lu FS-shadow=%lu stubs=%lu bytes\n",
+    if(!g_quiet) printf("TELNETPM BRIDGE: internal=%lu external=%lu nonflat=%lu FS-shadow=%lu stubs=%lu bytes\n",
         (unsigned long)b->internal,(unsigned long)b->external,(unsigned long)b->nonflat,
         (unsigned long)b->fs_sites,(unsigned long)b->used);
 }
@@ -290,7 +295,7 @@ static void tp_check(struct LxImage *x)
     b.stub=(U8 *)calloc(TP_STUB_CAP,1);
     if(!b.stub) fail("out of memory for TELNETPM model");
     b.stub_base=0x02000000; b.trace_fn=0x03000000; b.fs_fn=0x03000010; b.reject_fn=0x03000020;
-    for(i=0;i<x->import_count;++i) b.imports[i]=tp_import_stub(&b,i,0x04000000+i*16);
+    for(i=0;i<x->import_count;++i) b.imports[i]=tp_bind_import(&b,i,0x04000000+i*16,1);
     tp_install(x,&b);
     for(i=0;i<x->object_count;++i) free(m.bytes[i]);
     free(b.stub);
@@ -310,6 +315,7 @@ static struct LxImage *tp_image;
 static U32 tp_native[MAX_IMPORTS];
 static U32 (__cdecl *tp_getinfo)(void **,void **);
 static U32 tp_startup_env;
+static int tp_trace_enabled;
 
 /* Diagnostics never fabricate ETC.
  * Read through Win32 so a bad guest pointer is reported, not dereferenced.
@@ -448,7 +454,7 @@ static U32 __cdecl tp_get_info(void **ptib,void **ppib)
         memcpy(t->tib,source,sizeof(t->tib));
         memcpy(t->tib2,(void *)(ULONG_PTR)t->tib[3],sizeof(t->tib2));
         memcpy(t->pib,pib,sizeof(t->pib));
-        {
+        if(tp_trace_enabled) {
             U32 fields[7];
             if(tp_peek((U32)(ULONG_PTR)pib,fields,sizeof(fields))) {
                 fprintf(stderr,"TP ENV DOSCALLS.312 PIB=%08lX cmd=%08lX env=%08lX\n",
@@ -461,7 +467,7 @@ static U32 __cdecl tp_get_info(void **ptib,void **ppib)
     if(rc) return rc;
     if(!tp_startup_env) fail("TELNETPM startup environment was not initialized");
     t->pib[4]=tp_startup_env;
-    tp_env_report("guest canonical PIB",t->pib[4]);
+    if(tp_trace_enabled) tp_env_report("guest canonical PIB",t->pib[4]);
     t->tib[0]=t->head; t->tib[3]=(U32)(ULONG_PTR)t->tib2;
     *ptib=t->tib; *ppib=t->pib;
     return 0;
@@ -483,6 +489,7 @@ static void __cdecl tp_import_observe(U32 index,U32 *stack)
 {
     struct ImportOrd *im;
     if(index>=tp_image->import_count) fail("TELNETPM invalid import trace index");
+    if(tp_native[index] && !tp_trace_enabled) return;
     im=&tp_image->imports[index];
     fprintf(stderr,"TP CALL %s.%lu from ",tp_image->modules[im->module].name,(unsigned long)im->ordinal);
     tp_location(stack[0]); fprintf(stderr," ESP=%08lX%s\n",(unsigned long)(ULONG_PTR)stack,
@@ -492,20 +499,20 @@ static void __cdecl tp_import_observe(U32 index,U32 *stack)
         tp_crt_env_report();
     fflush(stderr);
     if(!tp_native[index]) {
-        fprintf(stderr,"TELNETPM PROBE STOP: reached unavailable import; no result was fabricated.\n");
+        fprintf(stderr,"TELNETPM STOP: reached unavailable import; no result was fabricated.\n");
         fflush(stderr); ExitProcess(4);
     }
 }
 static void __cdecl tp_thunk_reject(U32 *stack)
 {
-    fprintf(stderr,"TELNETPM PROBE STOP: unsupported authentication thunk mode=%lu target=%08lX frame=%lu from ",
+    fprintf(stderr,"TELNETPM STOP: unsupported authentication thunk mode=%lu target=%08lX frame=%lu from ",
         (unsigned long)stack[1],(unsigned long)stack[2],(unsigned long)stack[3]);
     tp_location(stack[0]); fprintf(stderr,"\nNo 16-bit target was executed.\n");
     fflush(stderr); ExitProcess(5);
 }
 static void __cdecl tp_returned(U32 rc)
 {
-    fprintf(stderr,"TELNETPM PROBE: process entry returned %lu\n",(unsigned long)rc);
+    if(tp_trace_enabled) fprintf(stderr,"TELNETPM: process entry returned %lu\n",(unsigned long)rc);
     fflush(stderr); ExitProcess(rc);
 }
 
@@ -521,7 +528,7 @@ static U32 tp_resolve(struct LxImage *x,U32 index)
         sprintf(dll,"%s.dll",x->modules[m].name);
         x->modules[m].handle=LoadLibraryA(dll);
         x->modules[m].kind=x->modules[m].handle?IMPORT_KIND_HOST:IMPORT_KIND_TRAP;
-        printf("TP MODULE %s: %s\n",dll,x->modules[m].handle?"native DLL loaded":"unavailable; calls will stop");
+        if(tp_trace_enabled) printf("TP MODULE %s: %s\n",dll,x->modules[m].handle?"native DLL loaded":"unavailable; calls will stop");
     }
     proc=x->modules[m].handle?GetProcAddress(x->modules[m].handle,(LPCSTR)(ULONG_PTR)ord):0;
     addr=proc?(U32)(ULONG_PTR)proc:0;
@@ -536,15 +543,15 @@ static U32 tp_resolve(struct LxImage *x,U32 index)
     return addr;
 }
 
-static void tp_enter(struct LxImage *x,const char *name,int argc,char **argv,int first_arg)
+static void tp_enter(struct LxImage *x,const char *name,const char *arg0_override,
+                     int argc,char **argv,int first_arg)
 {
     struct TpBridge b;
     U32 env,cmd,pgm,ret,entry,stack;
     void (__cdecl *start)(void);
     memset(&b,0,sizeof(b));
-    (void)build_os2_startup_area(name,0,argc,argv,first_arg,&env,&cmd,&pgm);
-    fprintf(stderr,"TELNETPM PHASE2 R2: canonical guest ETC environment.\n");
-    {
+    (void)build_os2_startup_area(name,arg0_override,argc,argv,first_arg,&env,&cmd,&pgm);
+    if(tp_trace_enabled) {
         char value[256];
         DWORD len;
         SetLastError(0);
@@ -552,7 +559,7 @@ static void tp_enter(struct LxImage *x,const char *name,int argc,char **argv,int
         fprintf(stderr,"TP ENV Win32 ETC length=%lu error=%lu\n",
             (unsigned long)len,(unsigned long)GetLastError());
     }
-    tp_env_report("entry snapshot",env);
+    if(tp_trace_enabled) tp_env_report("entry snapshot",env);
     {
         int changed;
         /* pgm immediately follows the owned environment in this allocation.
@@ -560,8 +567,10 @@ static void tp_enter(struct LxImage *x,const char *name,int argc,char **argv,int
         changed=tp_canonical_etc((char *)(ULONG_PTR)env,pgm-env);
         if(changed<0) fail("TELNETPM startup environment is unterminated");
         tp_startup_env=env;
-        fprintf(stderr,"TP ENV canonicalized ETC names=%d; values preserved\n",changed);
-        tp_env_report("canonical entry snapshot",env);
+        if(tp_trace_enabled) {
+            fprintf(stderr,"TP ENV canonicalized ETC names=%d; values preserved\n",changed);
+            tp_env_report("canonical entry snapshot",env);
+        }
     }
     b.stub=(U8 *)VirtualAlloc(0,4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
     if(!b.stub) fail("TELNETPM cannot allocate entry stub");
@@ -582,19 +591,22 @@ static void tp_enter(struct LxImage *x,const char *name,int argc,char **argv,int
     }
     FlushInstructionCache(GetCurrentProcess(),b.stub,b.used);
     SetUnhandledExceptionFilter(guest_exception_filter);
-    printf("TELNETPM PROBE: entering original entry; native socket adapters enabled; native FS preserved.\n");
+    if(!g_quiet) printf("TELNETPM: entering original entry; native socket adapters enabled; native FS preserved.\n");
     fflush(stdout); fflush(stderr);
     start=(void (__cdecl *)(void))(ULONG_PTR)entry; start();
     fail("TELNETPM entry unexpectedly returned to host");
 }
 
-static void tp_probe(struct LxImage *x,const char *name,int argc,char **argv,int first_arg)
+static void tp_run(struct LxImage *x,const char *name,const char *arg0_override,
+                   int argc,char **argv,int first_arg,int trace)
 {
     struct TpBridge b;
     U32 i,missing;
     DWORD oldp;
     if(!tp_match(x)) fail("TELNETPM fingerprint mismatch; guest was NOT executed");
-    printf("TELNETPM PHASE2: exact SHA-256 matched; experimental native probe.\n");
+    tp_trace_enabled=trace;
+    if(!g_quiet) printf("TELNETPM-1993: exact SHA-256 matched; native compatibility profile%s.\n",
+                        trace?" (trace enabled)":"");
     scan_fixups(x); map_objects(x);
     memset(&b,0,sizeof(b)); tp_image=x;
     tp_tls=TlsAlloc();
@@ -613,8 +625,10 @@ static void tp_probe(struct LxImage *x,const char *name,int argc,char **argv,int
     for(i=0;i<x->import_count;++i) {
         tp_native[i]=tp_resolve(x,i);
         if(!tp_native[i]) ++missing;
-        b.imports[i]=tp_import_stub(&b,i,tp_native[i]);
-        printf("TP IMPORT %s.%lu: %s\n",x->modules[x->imports[i].module].name,
+        /* Normal launches call resolved APIs directly. Missing APIs retain
+         * the diagnostic trap; --telnetpm-probe wraps every call as before. */
+        b.imports[i]=tp_bind_import(&b,i,tp_native[i],trace);
+        if(trace) printf("TP IMPORT %s.%lu: %s\n",x->modules[x->imports[i].module].name,
             (unsigned long)x->imports[i].ordinal,tp_native[i]?"native":"stop on call");
     }
     tp_install(x,&b);
@@ -626,7 +640,7 @@ static void tp_probe(struct LxImage *x,const char *name,int argc,char **argv,int
     if(!VirtualProtect(b.bytes[1],x->objects[1].size,PAGE_NOACCESS,&oldp) ||
        !VirtualProtect(b.stub,TP_STUB_CAP,PAGE_EXECUTE_READ,&oldp)) fail("TELNETPM bridge protection failed");
     FlushInstructionCache(GetCurrentProcess(),0,0);
-    printf("TELNETPM PROBE: %lu imports deferred to fail-stop traps.\n",(unsigned long)missing);
-    tp_enter(x,name,argc,argv,first_arg);
+    if(!g_quiet) printf("TELNETPM: %lu imports deferred to fail-stop traps.\n",(unsigned long)missing);
+    tp_enter(x,name,arg0_override,argc,argv,first_arg);
 }
 #endif
