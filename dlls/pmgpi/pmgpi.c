@@ -95,6 +95,20 @@ static int gpi_trace_enabled(void)
     return n != 0 && n < sizeof(value) && value[0] != '0';
 }
 
+/* A tile-map repaint contains thousands of otherwise identical 16x16 blits.
+ * Keep PM tracing useful without turning a few seconds of Micropolis into a
+ * multi-hundred-megabyte stderr file. Non-tile blits remain fully traced. */
+static int gpi_trace_blit_enabled(int width, int height)
+{
+    static unsigned long tile_blits;
+    if (!gpi_trace_enabled())
+        return 0;
+    if (width != 16 || height != 16)
+        return 1;
+    ++tile_blits;
+    return tile_blits <= 16UL || (tile_blits % 10000UL) == 0UL;
+}
+
 #include "font_query.h"
 
 /* Keep logical font ownership outside CompatPS: old PMWIN builds share that
@@ -315,10 +329,23 @@ O2LONG __cdecl GpiBitBlt(O2HPS target, O2HPS source, O2LONG count,
     int x0, x1, y0, y1;
     DWORD nativeRop;
     BOOL ok;
+    int trace;
+    int trace_width;
+    int trace_height;
     (void)bbo;
     dst = ps_from(target);
     src = ps_from(source);
-    if (gpi_trace_enabled()) {
+    trace = 0;
+    if (points && count >= 2) {
+        trace_width = (int)(points[1].x - points[0].x);
+        trace_height = (int)(points[1].y - points[0].y);
+        if (trace_width < 0) trace_width = -trace_width;
+        if (trace_height < 0) trace_height = -trace_height;
+        trace = gpi_trace_blit_enabled(trace_width, trace_height);
+    } else {
+        trace = gpi_trace_enabled();
+    }
+    if (trace) {
         fprintf(stderr, "PMGPI: GpiBitBlt ENTER tid=%lu dst=%08lX[%ldx%ldx%u] src=%08lX[%ldx%ldx%u] count=%ld rop=%08lX p0=(%ld,%ld) p1=(%ld,%ld)\n",
                 (unsigned long)GetCurrentThreadId(),
                 (unsigned long)target,
@@ -356,7 +383,7 @@ O2LONG __cdecl GpiBitBlt(O2HPS target, O2HPS source, O2LONG count,
             return 0;
         SetLastError(0);
         ok = PatBlt(dst->dc, dx, dy, dw, dh, nativeRop);
-        if (gpi_trace_enabled()) {
+        if (trace) {
             fprintf(stderr,
                     "PMGPI: GpiBitBlt PAT %s tid=%lu dst=(%d,%d %dx%d) rop=%08lX err=%lu\n",
                     ok ? "OK" : "FAIL", (unsigned long)GetCurrentThreadId(),
@@ -389,7 +416,7 @@ O2LONG __cdecl GpiBitBlt(O2HPS target, O2HPS source, O2LONG count,
     SetLastError(0);
     ok = StretchBlt(dst->dc, dx, dy, dw, dh,
                     src->dc, sx, sy, sw, sh, nativeRop);
-    if (gpi_trace_enabled()) {
+    if (trace) {
         fprintf(stderr,
                 "PMGPI: GpiBitBlt %s tid=%lu dst=(%d,%d %dx%d) src=(%d,%d %dx%d) rop=%08lX err=%lu\n",
                 ok ? "OK" : "FAIL", (unsigned long)GetCurrentThreadId(),
@@ -415,41 +442,18 @@ O2LONG __cdecl GpiBox(O2HPS hps, O2LONG control, O2POINTL *corner,
     x2 = corner->x;
     y2 = corner->y;
 
-    if (p->bitmap) {
-        struct CompatBitmap *b = p->bitmap;
-        O2LONG left = x1 < x2 ? x1 : x2;
-        O2LONG right = x1 > x2 ? x1 : x2;
-        O2LONG bottom = y1 < y2 ? y1 : y2;
-        O2LONG top = y1 > y2 ? y1 : y2;
-        O2LONG x, y;
-        if (left < 0) left = 0;
-        if (bottom < 0) bottom = 0;
-        if (right >= b->width) right = b->width - 1;
-        if (top >= b->height) top = b->height - 1;
-        if (control == 1L || control == 3L) {
-            for (y = bottom; y <= top; ++y)
-                for (x = left; x <= right; ++x)
-                    b->bits[y * b->stride + x] = (O2BYTE)(p->color & 0xff);
-        }
-        p->current_x = corner->x;
-        p->current_y = corner->y;
-        return 1;
-    }
-
+    /* Both memory and window PSs own a native DC.  Drawing through that DC
+       respects 1/4/8/24/32-bit DIB formats and actually renders outlines.
+       The former byte-per-pixel path corrupted 32-bit buffers and silently
+       did nothing for DRO_OUTLINE. */
     if (p->dc) {
-        RECT client;
         RECT r;
         LONG h;
         HBRUSH br;
         HPEN pen;
         HGDIOBJ oldPen;
         HGDIOBJ oldBrush;
-        memset(&client, 0, sizeof(client));
-        if (p->hwnd)
-            GetClientRect(p->hwnd, &client);
-        else
-            GetClipBox(p->dc, &client);
-        h = client.bottom - client.top;
+        h = gpi_surface_height(p);
         r.left = (x1 < x2 ? x1 : x2);
         r.right = (x1 > x2 ? x1 : x2) + 1;
         r.top = h - (y1 > y2 ? y1 : y2) - 1;
@@ -627,6 +631,12 @@ O2HBITMAP __cdecl GpiSetBitmap(O2HPS hps, O2HBITMAP hbm)
                 }
                 return 0;
             }
+            /* A DIB section is initially created with a neutral palette.
+             * Apply the OS/2 palette retained with the compatibility bitmap
+             * once its native bitmap is selected into the memory PS. */
+            if (next->bitcount <= 8)
+                SetDIBColorTable(p->dc, 0, (UINT)(1UL << next->bitcount),
+                                 next->palette);
         } else if (p->saved_dc) {
             /* Restoring and immediately re-saving the PS state is the safest
              * way to detach a selected DIB section from a memory DC. */
@@ -737,7 +747,7 @@ O2HBITMAP __cdecl GpiCreateBitmap(O2HPS hps, O2BITMAPINFOHEADER2 *hdr,
     BITMAPINFO *bi;
     void *dibBits;
     int i;
-    (void)hps; (void)options; (void)info;
+    (void)hps; (void)options;
     if (!hdr)
         return 0;
     raw = (const O2BYTE *)hdr;
@@ -827,6 +837,10 @@ O2HBITMAP __cdecl GpiCreateBitmap(O2HPS hps, O2BITMAPINFOHEADER2 *hdr,
     b->bits = (O2BYTE *)dibBits;
     if (initialBits)
         memcpy(b->bits, initialBits, (size_t)bytes);
+    /* CBM_INIT callers provide a BITMAPINFO/BITMAPINFO2 alongside the pixel
+     * data.  Retain that colour table now; GpiSetBitmap publishes it to the
+     * selected native memory DC before any GpiBitBlt reads the source. */
+    gpi_apply_bitmap_palette(NULL, b, info);
     if (gpi_trace_enabled()) {
         fprintf(stderr, "PMGPI: GpiCreateBitmap OK hbm=%08lX stride=%ld bytes=%ld native=%p\n",
                 (unsigned long)(DWORD)b, (long)stride, (long)bytes, (void *)b->native_bitmap);
