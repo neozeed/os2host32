@@ -1,0 +1,9 @@
+tests/fixtures/hello-soft386.le 9216
+tests/fixtures/hello-soft386.lx 9216
+tests/fixtures/hi-surface-soft386.le 9216
+tests/fixtures/internal-soft386.le 9216
+tests/fixtures/internal-soft386.lx 9216
+tests/fixtures/memory-soft386.le 9216
+tests/fixtures/native-file-soft386.le 9216
+tests/fixtures/sync-soft386.le 9216
+tests/fixtures/thread-soft386.le 9216

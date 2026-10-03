@@ -1,0 +1,9 @@
+/soft386_os2
+/soft386_os2.exe
+/soft386_os2-clang
+/tests/__pycache__/
+/tests/fixtures/*.le
+/tests/fixtures/*.lx
+/tests/fixtures/*soft386.exe
+/bridge-check
+/system-bridge-check

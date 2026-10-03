@@ -1,0 +1,629 @@
+clang -I tiny386 -I src -I ../common/include -O2 -g -std=gnu99 -Wall -Wextra -Wno-unused-function -Wno-misleading-indentation src/soft386_os2.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c tiny386/i386.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c  -o soft386_os2
+tiny386/i386.c:354:39: warning: comparison of integers of different signs: 's32' (aka 'int') and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  354 |                         return (((s32) cpu->cc.dst) >> 31) != cpu->cc.dst2;
+      |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~  ^  ~~~~~~~~~~~~
+tiny386/i386.c:650:23: warning: comparison of integers of different signs: 'uword' (aka 'unsigned int') and 'int' [-Wsign-compare]
+  650 |                 if ((laddr & 0xfff) > 0x1000 - size) {
+      |                      ~~~~~~~~~~~~~  ^ ~~~~~~~~~~~~~
+tiny386/i386.c:663:50: warning: unused parameter 'rwm' [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                  ^
+tiny386/i386.c:663:70: warning: unused parameter 'addr' [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                                      ^
+tiny386/i386.c:663:80: warning: unused parameter 'size' [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                                                ^
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:171:60: warning: unused variable 'reg' [-Wunused-variable]
+  171 | I(C(0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf), _, 0, ESC)
+      | ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:3442:8: note: expanded from macro 'ESC'
+ 3442 |                         int reg = modrm & 7; \
+      |                             ^~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:171:60: warning: unused variable 'op' [-Wunused-variable]
+  171 | I(C(0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf), _, 0, ESC)
+      | ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:3434:7: note: expanded from macro 'ESC'
+ 3434 |                 int op = b1 - 0xd8; \
+      |                     ^~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:171:60: warning: unused variable 'group' [-Wunused-variable]
+  171 | I(C(0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf), _, 0, ESC)
+      | ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:3435:7: note: expanded from macro 'ESC'
+ 3435 |                 int group = (modrm >> 3) & 7; \
+      |                     ^~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:90:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   90 | I(C(0x6c), _,      0, INSb)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2925:16: note: expanded from macro 'INSb'
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~~~~
+tiny386/i386.c:2922:17: note: expanded from macro 'INS_helper'
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2888:14: note: expanded from macro 'INS_helper2'
+ 2888 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:90:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   90 | I(C(0x6c), _,      0, INSb)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2925:16: note: expanded from macro 'INSb'
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~~~~
+tiny386/i386.c:2922:47: note: expanded from macro 'INS_helper'
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2888:14: note: expanded from macro 'INS_helper2'
+ 2888 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:91:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   91 | I(C(0x6d), _,      0, INS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2926:29: note: expanded from macro 'INS'
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~~~~~
+tiny386/i386.c:2922:17: note: expanded from macro 'INS_helper'
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2888:14: note: expanded from macro 'INS_helper2'
+ 2888 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:91:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   91 | I(C(0x6d), _,      0, INS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2926:29: note: expanded from macro 'INS'
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~~~~~
+tiny386/i386.c:2922:47: note: expanded from macro 'INS_helper'
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2888:14: note: expanded from macro 'INS_helper2'
+ 2888 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:91:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   91 | I(C(0x6d), _,      0, INS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2926:53: note: expanded from macro 'INS'
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~~~~~
+tiny386/i386.c:2922:17: note: expanded from macro 'INS_helper'
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2888:14: note: expanded from macro 'INS_helper2'
+ 2888 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:91:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   91 | I(C(0x6d), _,      0, INS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2926:53: note: expanded from macro 'INS'
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~~~~~
+tiny386/i386.c:2922:47: note: expanded from macro 'INS_helper'
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2888:14: note: expanded from macro 'INS_helper2'
+ 2888 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:92:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2993:17: note: expanded from macro 'OUTSb'
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~~~~
+tiny386/i386.c:2987:4: note: expanded from macro 'OUTS_helper'
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2951:14: note: expanded from macro 'OUTS_helper2'
+ 2951 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:92:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2993:17: note: expanded from macro 'OUTSb'
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~~~~
+tiny386/i386.c:2989:4: note: expanded from macro 'OUTS_helper'
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2951:14: note: expanded from macro 'OUTS_helper2'
+ 2951 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:93:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2994:30: note: expanded from macro 'OUTS'
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~~~~~
+tiny386/i386.c:2987:4: note: expanded from macro 'OUTS_helper'
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2951:14: note: expanded from macro 'OUTS_helper2'
+ 2951 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:93:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2994:30: note: expanded from macro 'OUTS'
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~~~~~
+tiny386/i386.c:2989:4: note: expanded from macro 'OUTS_helper'
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2951:14: note: expanded from macro 'OUTS_helper2'
+ 2951 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:93:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2994:55: note: expanded from macro 'OUTS'
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~~~~~
+tiny386/i386.c:2987:4: note: expanded from macro 'OUTS_helper'
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2951:14: note: expanded from macro 'OUTS_helper2'
+ 2951 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:93:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2994:55: note: expanded from macro 'OUTS'
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~~~~~
+tiny386/i386.c:2989:4: note: expanded from macro 'OUTS_helper'
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2951:14: note: expanded from macro 'OUTS_helper2'
+ 2951 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:130:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2857:17: note: expanded from macro 'MOVSb'
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~~~~
+tiny386/i386.c:2812:17: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2776:14: note: expanded from macro 'MOVS_helper2'
+ 2776 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:130:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2857:17: note: expanded from macro 'MOVSb'
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~~~~
+tiny386/i386.c:2812:17: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2778:14: note: expanded from macro 'MOVS_helper2'
+ 2778 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:130:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2857:17: note: expanded from macro 'MOVSb'
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~~~~
+tiny386/i386.c:2812:48: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2776:14: note: expanded from macro 'MOVS_helper2'
+ 2776 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:130:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2857:17: note: expanded from macro 'MOVSb'
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~~~~
+tiny386/i386.c:2812:48: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2778:14: note: expanded from macro 'MOVS_helper2'
+ 2778 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:131:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2862:30: note: expanded from macro 'MOVS'
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~~~~~
+tiny386/i386.c:2812:17: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2776:14: note: expanded from macro 'MOVS_helper2'
+ 2776 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:131:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2862:30: note: expanded from macro 'MOVS'
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~~~~~
+tiny386/i386.c:2812:17: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2778:14: note: expanded from macro 'MOVS_helper2'
+ 2778 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:131:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2862:30: note: expanded from macro 'MOVS'
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~~~~~
+tiny386/i386.c:2812:48: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2776:14: note: expanded from macro 'MOVS_helper2'
+ 2776 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:131:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2862:30: note: expanded from macro 'MOVS'
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~~~~~
+tiny386/i386.c:2812:48: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2778:14: note: expanded from macro 'MOVS_helper2'
+ 2778 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:131:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2862:55: note: expanded from macro 'MOVS'
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~~~~~
+tiny386/i386.c:2812:17: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2776:14: note: expanded from macro 'MOVS_helper2'
+ 2776 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:131:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2862:55: note: expanded from macro 'MOVS'
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~~~~~
+tiny386/i386.c:2812:17: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2778:14: note: expanded from macro 'MOVS_helper2'
+ 2778 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:131:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2862:55: note: expanded from macro 'MOVS'
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~~~~~
+tiny386/i386.c:2812:48: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2776:14: note: expanded from macro 'MOVS_helper2'
+ 2776 |                 if (counts < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:131:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2862:55: note: expanded from macro 'MOVS'
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~~~~~
+tiny386/i386.c:2812:48: note: expanded from macro 'MOVS_helper'
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2778:14: note: expanded from macro 'MOVS_helper2'
+ 2778 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:136:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  136 | I(C(0xaa), _,      0, STOSb)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2854:17: note: expanded from macro 'STOSb'
+ 2854 | #define STOSb() STOS_helper(8)
+      |                 ^~~~~~~~~~~~~~
+tiny386/i386.c:2687:17: note: expanded from macro 'STOS_helper'
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2669:14: note: expanded from macro 'STOS_helper2'
+ 2669 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:136:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  136 | I(C(0xaa), _,      0, STOSb)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2854:17: note: expanded from macro 'STOSb'
+ 2854 | #define STOSb() STOS_helper(8)
+      |                 ^~~~~~~~~~~~~~
+tiny386/i386.c:2687:48: note: expanded from macro 'STOS_helper'
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2669:14: note: expanded from macro 'STOS_helper2'
+ 2669 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:137:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  137 | I(C(0xab), _,      0, STOS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2859:30: note: expanded from macro 'STOS'
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                              ^~~~~~~~~~~~~~~
+tiny386/i386.c:2687:17: note: expanded from macro 'STOS_helper'
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2669:14: note: expanded from macro 'STOS_helper2'
+ 2669 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:137:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  137 | I(C(0xab), _,      0, STOS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2859:30: note: expanded from macro 'STOS'
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                              ^~~~~~~~~~~~~~~
+tiny386/i386.c:2687:48: note: expanded from macro 'STOS_helper'
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2669:14: note: expanded from macro 'STOS_helper2'
+ 2669 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:137:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  137 | I(C(0xab), _,      0, STOS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2859:55: note: expanded from macro 'STOS'
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                                                       ^~~~~~~~~~~~~~~
+tiny386/i386.c:2687:17: note: expanded from macro 'STOS_helper'
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2669:14: note: expanded from macro 'STOS_helper2'
+ 2669 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+In file included from tiny386/i386.c:4078:
+tiny386/i386ins.def:137:23: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+  137 | I(C(0xab), _,      0, STOS)
+      | ~~~~~~~~~~~~~~~~~~~~~~^~~~~
+tiny386/i386.c:4077:52: note: expanded from macro 'I'
+ 4077 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ~~~~~~~~~~^~~~
+tiny386/i386.c:1186:22: note: expanded from macro '_'
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~~~
+tiny386/i386.c:2859:55: note: expanded from macro 'STOS'
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                                                       ^~~~~~~~~~~~~~~
+tiny386/i386.c:2687:48: note: expanded from macro 'STOS_helper'
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~~~~~~~~~~
+tiny386/i386.c:2669:14: note: expanded from macro 'STOS_helper2'
+ 2669 |                 if (countd < count) \
+      |                     ~~~~~~ ^ ~~~~~
+tiny386/i386.c:4658:14: warning: comparison of integers of different signs: 'int' and 'uword' (aka 'unsigned int') [-Wsign-compare]
+ 4658 |         if (off + 7 > cpu->idt.limit) {
+      |             ~~~~~~~ ^ ~~~~~~~~~~~~~~
+39 warnings generated.

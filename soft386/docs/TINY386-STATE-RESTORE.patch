@@ -1,0 +1,88 @@
+--- brainjar-r1/i386.h
++++ soft386-r0/i386.h
+@@ -23,6 +23,11 @@
+ 
+ typedef struct CPUI386 CPUI386;
+ 
++enum CPUI386_SegmentIndex {
++	CPUI386_SEG_ES = 0, CPUI386_SEG_CS, CPUI386_SEG_SS, CPUI386_SEG_DS,
++	CPUI386_SEG_FS, CPUI386_SEG_GS, CPUI386_SEG_LDT, CPUI386_SEG_TR
++};
++
+ typedef struct {
+ 	void *pic;
+ 	int (*pic_read_irq)(void *);
+@@ -51,6 +56,7 @@
+ 	u32 gpr[8];
+ 	u32 seg[8];
+ 	u32 ip;
++	u32 next_ip;
+ 	u32 flags;
+ 	u32 gdt_base, gdt_limit;
+ 	u32 idt_base, idt_limit;
+@@ -60,6 +66,7 @@
+ } CPUI386_State;
+ 
+ void cpui386_get_state(CPUI386 *cpu, CPUI386_State *state);
++int cpui386_set_state(CPUI386 *cpu, const CPUI386_State *state);
+ int cpui386_get_excno(CPUI386 *cpu);
+ 
+ CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb);
+--- brainjar-r1/i386.c
++++ soft386-r0/i386.c
+@@ -5467,6 +5467,7 @@
+ 	for (int i = 0; i < 8; i++)
+ 		state->seg[i] = cpu->seg[i].sel;
+ 	state->ip = cpu->ip;
++	state->next_ip = cpu->next_ip;
+ 	state->flags = cpu->flags;
+ 	state->gdt_base = cpu->gdt.base;
+ 	state->gdt_limit = cpu->gdt.limit;
+@@ -5478,6 +5479,47 @@
+ 	state->efer = GET_LM_EFER(cpu);
+ }
+ 
++int cpui386_set_state(CPUI386 *cpu, const CPUI386_State *state)
++{
++	int segs[] = { SEG_ES, SEG_SS, SEG_DS, SEG_FS, SEG_GS, SEG_CS };
++	if (!cpu || !state)
++		return 0;
++
++	for (int i = 0; i < 8; ++i)
++		REGi(i) = state->gpr[i];
++	cpu->flags = state->flags;
++	cpu->cc.mask = 0;
++	cpu->gdt.base = state->gdt_base;
++	cpu->gdt.limit = state->gdt_limit;
++	cpu->idt.base = state->idt_base;
++	cpu->idt.limit = state->idt_limit;
++	cpu->cr0 = state->cr0;
++	cpu->cr2 = state->cr2;
++	cpu->cr3 = state->cr3;
++#ifdef AMD64_ENABLE_LEG32
++	SET_LM_EFER(cpu, state->efer);
++#else
++	(void)state->efer;
++#endif
++	tlb_clear(cpu);
++
++	for (int i = 0; i < 6; ++i) {
++		int seg = segs[i];
++		if (!set_seg(cpu, seg, (int)state->seg[seg]))
++			return 0;
++	}
++	cpu->seg[SEG_LDT].sel = (u16)state->seg[SEG_LDT];
++	cpu->seg[SEG_TR].sel = (u16)state->seg[SEG_TR];
++	cpu->ip = state->ip;
++	cpu->next_ip = state->next_ip;
++	cpu->ifetch.laddr = -1;
++	cpu->ifetch.paddr = 0;
++	cpu->halt = false;
++	cpu->excno = 0;
++	cpu->excerr = 0;
++	return 1;
++}
++
+ int cpui386_get_excno(CPUI386 *cpu)
+ {
+ 	return cpu->excno;

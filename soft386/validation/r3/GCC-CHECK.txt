@@ -1,0 +1,20 @@
+python3 tests/mkfixtures.py tests/fixtures
+tests/fixtures/hello-soft386.le 9216
+tests/fixtures/hello-soft386.lx 9216
+tests/fixtures/hi-surface-soft386.le 9216
+tests/fixtures/internal-soft386.le 9216
+tests/fixtures/internal-soft386.lx 9216
+tests/fixtures/memory-soft386.le 9216
+tests/fixtures/native-file-soft386.le 9216
+tests/fixtures/nls-alias-soft386.le 9216
+tests/fixtures/nls-module-soft386.le 9216
+tests/fixtures/pipe-consumer-soft386.exe 9216
+tests/fixtures/pipe-producer-soft386.exe 9216
+tests/fixtures/sync-soft386.le 9216
+tests/fixtures/system-modules-soft386.le 9216
+tests/fixtures/thread-soft386.le 9216
+cc -I src -O2 -g -std=gnu99 -Wall -Wextra -Werror tests/bridge-check.c src/soft386_doscalls_bridge.c -o bridge-check
+cc -I src -O2 -g -std=gnu99 -Wall -Wextra -Werror tests/system-bridge-check.c src/soft386_system_bridge.c -o system-bridge-check
+python3 tests/test_r3.py ./soft386_os2 ./bridge-check ./system-bridge-check
+Soft386 R2C regression: PASS
+Soft386 R3 regression: PASS

@@ -1,0 +1,20 @@
+soft386: resolve DOSCALLS.311  -> 000F0000 (1 site)
+soft386: resolve DOSCALLS.349  -> 000F0008 (1 site)
+soft386: resolve DOSCALLS.282  -> 000F0010 (2 sites)
+soft386: resolve DOSCALLS.234  -> 000F0018 (1 site)
+Soft386 OS/2 R0 - Tiny386 + 32-bit LE/LX + DOSCALLS gate + saved-context threads
+soft386: input=soft386/tests/fixtures/thread-soft386.le type=LE entry=00010000 initial_ESP=00023FEC objects=2 imports=4 FS=0018
+---------------- guest begins ----------------
+soft386: DOSCALLS.311 ESP=00023FD4 args=00020180,00010053,12345678,00000000,00004000
+soft386: create TID 2 EIP=00010053 stack=01000000..01004000 ESP=01003FF8 state=RUNNABLE
+soft386: DOSCALLS.349 ESP=00023FE0 args=00020180,00000000,00000000,00000000,00000000
+soft386: TID 1 waits for TID 2
+soft386: scheduler -> TID 2 EIP=00010053 ESP=01003FF8 FS=0020
+soft386: DOSCALLS.282 ESP=01003FE4 args=00000001,00020000,0000001B,00020184,000F7FF0
+soft386: TID 2 exited
+soft386: wake TID 1 after TID 2 completion
+soft386: scheduler -> TID 1 EIP=000F000F ESP=00023FE0 FS=0018
+soft386: DOSCALLS.282 ESP=00023FD8 args=00000001,00020080,0000002A,00020184,00000000
+soft386: DOSCALLS.234 ESP=00023FE0 args=00000001,00000000,00000000,00000000,00000000
+---------------- guest ended -----------------
+soft386: rc=0 cycles=43

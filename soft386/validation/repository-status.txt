@@ -1,0 +1,8 @@
+baseline=7cb53dd91b1bfa6fb61bc028866167c6b8401290
+git diff --check:
+warning: in the working copy of 'Makefile', LF will be replaced by CRLF the next time Git touches it
+status:
+ M DIRECTORY_LAYOUT.md
+ M Makefile
+ M README.md
+?? soft386/

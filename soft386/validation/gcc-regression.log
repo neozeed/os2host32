@@ -1,0 +1,10 @@
+make: Entering directory '/mnt/data/os2host32-soft386-r0-work/soft386'
+python3 tests/mkfixtures.py tests/fixtures
+tests/fixtures/hello-soft386.le 9216
+tests/fixtures/hello-soft386.lx 9216
+tests/fixtures/hi-surface-soft386.le 9216
+tests/fixtures/internal-soft386.le 9216
+tests/fixtures/internal-soft386.lx 9216
+tests/fixtures/thread-soft386.le 9216
+make: Leaving directory '/mnt/data/os2host32-soft386-r0-work/soft386'
+Soft386 R0 regression: PASS

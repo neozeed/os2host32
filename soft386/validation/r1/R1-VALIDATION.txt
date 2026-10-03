@@ -1,0 +1,55 @@
+Soft386 OS/2 R1 validation
+==========================
+
+Baseline repository HEAD: 7cb53dd91b1bfa6fb61bc028866167c6b8401290
+Architecture: Tiny386 software CPU + jar-owned OS/2 kernel state + marshalled native DOSCALLS service bridge.
+
+Portable validation performed on Linux:
+
+  GCC clean build: PASS
+  GCC full R1 regression: PASS
+  Clang clean build: PASS
+  Clang full R1 regression: PASS
+  generated fixture byte reproducibility: PASS
+  fake-provider DOSCALLS marshalling: PASS
+  native-file LE loader intake/check: PASS
+
+Executable guest proofs:
+
+  LE/LX basic execution: PASS
+  LE/LX internal OFF32 relocation: PASS
+  historical hi.exe eight-ordinal surface fixture: PASS
+  saved-context virtual thread / FS restoration: PASS
+  jar-owned event + mutex semaphore blocking/wakeup: PASS
+  jar-owned DosAllocMem/SetMem/QueryMem/FreeMem state: PASS
+
+Representative results:
+
+  memory-soft386.le:
+    "soft386: jar memory semantics PASS"
+    rc=0 cycles=85
+
+  sync-soft386.le:
+    "soft386: jar mutex/event worker PASS"
+    "soft386: jar semaphore main resumed PASS"
+    rc=0 cycles=111
+
+  bridge-check:
+    "Soft386 DOSCALLS bridge marshalling: PASS"
+
+The bridge-check also asserts that guest-kernel memory/thread/module/sync
+ordinals are NOT eligible for native DOSCALLS delegation.
+
+Win32 boundary:
+
+  The Win32 LoadLibrary/GetProcAddress-by-ordinal path is compiled into R1 but
+  cannot be executed on this Linux validation host.  The Windows live test is
+  therefore intentionally pending.  tests/fixtures/native-file-soft386.le is
+  the end-to-end Win32 test for DosOpen/Write/SetFilePtr/Read/Close/Delete.
+
+Prior live proof retained from R0/R0A:
+
+  historical hi.exe SHA256
+    3e0383860d8e76262b3c954bb95ae8e8e3c7887deddfbfd7705c4b8c580441c7
+  executed untouched under Soft386 on Windows, printed "hi!", propagated
+  DosExit result 4, and ended after 6633 Tiny386 cycles.

@@ -1,0 +1,2 @@
+038d8dec9f13e44747acf761685359a88ec674e8a89f19a0bfc1d4490c9817e0  tests/fixtures/fpu-soft386.le
+d59619d1bf6d0738f3a8f351d6054245e508413bcc711c7ccce4c4878a64bed5  tests/fixtures/fpu-thread-soft386.le

@@ -1,0 +1,13 @@
+{
+  "milestone": "Soft386 OS/2 R2",
+  "date": "2026-10-03",
+  "status": "build_and_portable_regression_pass_windows_live_pending",
+  "scope": "32-bit LE/LX only",
+  "gcc_check": "PASS",
+  "clang_check": "PASS",
+  "system_modules": ["DOSCALLS", "VIOCALLS", "KBDCALLS", "SESMGR", "NLS"],
+  "existing_native_dll_sources_modified": false,
+  "c386_helper_strategy": "validate known migration helper and lower to 32-bit hostcall; do not execute 16-bit guest code",
+  "jar_owned": ["guest memory", "threads", "TIB/PIB", "scheduler waits", "event semaphores", "mutex semaphores", "process exit", "NLS state"],
+  "windows_acceptance_pending": ["real CMD32 --check/run", "real NLSINFO --check/run", "actual VIO/KBD/SESMGR LoadLibrary bridge"]
+}

@@ -1,0 +1,5 @@
+soft386: resolve DOSCALLS.282  -> 000F0000 (1 site)
+soft386: resolve DOSCALLS.234  -> 000F0008 (1 site)
+soft386 CHECK: LX pages=2 objects=2 entry=00010000 stack=00024000 imports=2
+  DOSCALLS.282 -> 000F0000 (1 sites)
+  DOSCALLS.234 -> 000F0008 (1 sites)

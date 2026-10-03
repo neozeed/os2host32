@@ -1,0 +1,2 @@
+rm -f soft386_os2 soft386_os2.exe bridge-check
+rm -f tests/fixtures/*.le tests/fixtures/*.lx

@@ -1,0 +1,12 @@
+python3 tests/mkfixtures.py tests/fixtures
+tests/fixtures/hello-soft386.le 9216
+tests/fixtures/hello-soft386.lx 9216
+tests/fixtures/hi-surface-soft386.le 9216
+tests/fixtures/internal-soft386.le 9216
+tests/fixtures/internal-soft386.lx 9216
+tests/fixtures/memory-soft386.le 9216
+tests/fixtures/native-file-soft386.le 9216
+tests/fixtures/sync-soft386.le 9216
+tests/fixtures/thread-soft386.le 9216
+python3 tests/test_r1.py ./soft386_os2 ./bridge-check
+Soft386 R1 regression: PASS
