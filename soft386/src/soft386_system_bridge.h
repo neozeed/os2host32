@@ -39,6 +39,8 @@ uint32_t soft386_c386_desc_count(void);
 #define SOFT386_SYS_SES 0x04u
 #define SOFT386_SYS_ALL (SOFT386_SYS_VIO|SOFT386_SYS_KBD|SOFT386_SYS_SES)
 
+/* Zero initialize the bridge before first open. Subsequent opens add lazy
+ * dependencies without unloading already active personalities. */
 int soft386_system_bridge_open_mask(struct Soft386SystemBridge *bridge, uint32_t mask,
                                const char *vio_path, int vio_required,
                                const char *kbd_path, int kbd_required,

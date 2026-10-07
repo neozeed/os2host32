@@ -3,8 +3,8 @@
  *
  * R0 deliberately follows the proven WHP V2 guest ABI: untouched 32-bit
  * LE/LX code, synthetic ordinal veneers, OUT 0xF0,EAX host calls, and one
- * virtual CPU with multiple saved guest thread contexts.  No real mode and
- * no 16-bit thunking are part of this milestone.
+ * virtual CPU with multiple saved guest thread contexts. Mixed-mode support
+ * is restricted to reviewed adaptations; general 16-bit apps remain deferred.
  */
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
@@ -14,6 +14,9 @@
 #include "os2_doscalls_core.h"
 #include "soft386_doscalls_bridge.h"
 #include "soft386_system_bridge.h"
+#include "soft386_pm_bridge.h"
+#include "soft386_queue_bridge.h"
+#include "soft386_net_bridge.h"
 
 #if defined(_WIN64)
 #error "Soft386 native personality bridges require a 32-bit i386/i686 Windows build; use RosBE/i386 or i686-w64-mingw32-gcc"
@@ -78,8 +81,21 @@
 #define HC_SESMGR           0x05000000u
 #define HC_NLS              0x06000000u
 #define HC_C386_CONSOLE     0x07000000u
+#define HC_PMWIN            0x08000000u
+#define HC_PMGPI            0x09000000u
+#define HC_PMCTLS           0x0A000000u
+#define HC_MSG              0x0B000000u
+#define HC_PMSHAPI          0x0C000000u
+#define HC_HELPMGR          0x0D000000u
+#define HC_PMWP             0x0E000000u
+#define HC_QUECALLS         0x0F000000u
+#define HC_PM_OLDPROC       0x10000000u
+#define HC_SO32DLL          0x11000000u
+#define HC_TCP32DLL         0x12000000u
 #define HC_RUNTIME_THREAD_RETURN 1u
+#define HC_RUNTIME_CALLBACK_RETURN 2u
 #define GUEST_THREAD_EXIT_STUB 0x000F7FF0u
+#define GUEST_CALLBACK_RETURN_STUB 0x000F7FE0u
 
 #define MAX_OBJECTS         32u
 #define MAX_PAGES           65535u
@@ -186,6 +202,7 @@ struct BridgeFix { uint32_t obj,off,first,target,type,kind,used; };
 struct LeImage {
     struct BridgeFix bridge_fix[256];
     uint32_t nbridge_fix;
+    int telnet_profile;
     uint8_t *file;
     uint32_t file_size;
     uint32_t le;
@@ -210,6 +227,7 @@ struct LeImage {
     uint32_t num_impmods;
     uint32_t impproc_off;
     uint32_t data_pages_off;
+    uint32_t iterated_pages_off;
     uint32_t nonresident_name_off;
     uint32_t nonresident_name_len;
     struct LeObject objects[MAX_OBJECTS];
@@ -227,9 +245,22 @@ struct LeImage {
 
 
 struct GuestAlloc { uint32_t base, size, flags; int used; };
+struct GuestModule {
+    struct LeImage image;
+    char name[256], path[4096];
+    uint32_t handle, refs, init_order;
+    int state, pinned, term_called;
+};
+struct GuestCallback {
+    struct GuestCallback *previous;
+    uint32_t tid, entry_sp, argc, result;
+    int done;
+    unsigned cpu_trace_id, cpu_trace_steps, cpu_trace_limit;
+};
 enum GuestThreadState {
     THREAD_FREE=0, THREAD_RUNNABLE, THREAD_RUNNING, THREAD_WAIT_THREAD,
-    THREAD_SLEEP, THREAD_WAIT_EVENT, THREAD_WAIT_MUTEX, THREAD_SUSPENDED, THREAD_DEAD
+    THREAD_SLEEP, THREAD_WAIT_EVENT, THREAD_WAIT_MUTEX, THREAD_SUSPENDED, THREAD_DEAD,
+    THREAD_HOSTCALL, THREAD_WAIT_PM, THREAD_WAIT_QUEUE
 };
 struct GuestThread {
     uint32_t tid; enum GuestThreadState state;
@@ -237,6 +268,8 @@ struct GuestThread {
     uint32_t wait_event;
     uint64_t wait_deadline_ms, wait_order; int owns_stack;
     CPUI386_State regs; int regs_valid;
+    uint32_t callback_depth;
+    uint32_t priority_class; int32_t priority_delta;
 };
 struct GuestEventSem {
     int used; uint32_t generation, refs, post_count;
@@ -258,11 +291,26 @@ struct Runtime {
     struct HostStub stubs[MAX_IMPORTS];
     uint32_t module_next, stub_next, next_tid;
     int current_thread, switch_requested, current_thread_exited;
-    int process_exited; uint32_t process_rc;
+    int modal_pump_active, modal_owner; unsigned modal_budget;
+    int process_exited, process_forced; uint32_t process_rc; const char *process_reason;
     int pending_hostcall; uint32_t pending_api;
     long max_cycles; int trace_hc, trace_sched, quiet;
     struct Soft386NativeDoscalls native_dos;
     struct Soft386SystemBridge native_sys;
+    struct Soft386PmBridge pm;
+    struct Soft386QueueBridge queue;
+    struct Soft386NetBridge net;
+    uint32_t net_arenas[MAX_THREADS][3], signal_focus[MAX_THREADS];
+    struct {uint32_t entry,priority,serial;} exitlist[64];
+    uint32_t exit_serial;int exit_processing;struct GuestCallback *exit_frame;
+    struct GuestModule *modules[MAX_MODULES];
+    struct LeImage *main_image;
+    char main_path[4096];
+    uint32_t init_serial;
+    struct GuestCallback *callback_top;
+    unsigned timer_trace_count;
+    uint32_t watch_addr; unsigned watch_len;
+    int retry_hostcall;
     struct Os2NlsState nls_state;
     int native_dos_required;
     int native_dos_disabled;
@@ -273,12 +321,20 @@ struct Runtime {
     const char *guest_argv0;
 };
 
+static int invoke_guest(void *, uint32_t, uint32_t, const uint32_t *, uint32_t, uint32_t *);
+static int run_guest_until(struct Runtime *,struct GuestCallback *);
+static int pm_modal_scheduler_yield(void *);
+static int pm_thread_hostcall(void *,uint32_t);
+static int initialize_modules(struct Runtime *);
+static const char *loader_path;
+
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((noreturn))
 #endif
 static void fatal(const char *what)
 {
-    fprintf(stderr, "soft386: %s\n", what);
+    if (loader_path) fprintf(stderr, "soft386: loading %s: %s\n", loader_path, what);
+    else fprintf(stderr, "soft386: %s\n", what);
     exit(1);
 }
 
@@ -370,8 +426,13 @@ static void parse_header(struct LeImage *x)
     if (!file_range(x, x->le, 0xc4u))
         fatal("LE header is outside file");
     if (x->file[x->le] != 'L' ||
-        (x->file[x->le + 1] != 'E' && x->file[x->le + 1] != 'X'))
+        (x->file[x->le + 1] != 'E' && x->file[x->le + 1] != 'X')) {
+        fprintf(stderr, "soft386: image size=%u header=%08X signature=%02X %02X %02X %02X\n",
+                x->file_size, x->le, x->file[x->le], x->file[x->le+1], x->file[x->le+2], x->file[x->le+3]);
+        if (!memcmp(x->file+x->le,"PE\0\0",4))
+            fatal("native PE image cannot be loaded as a guest DLL/executable; a system service needs an explicit Soft386 bridge");
         fatal("input is not an LE/LX executable");
+    }
     x->is_lx = x->file[x->le + 1] == 'X';
     if (x->file[x->le + 2] != 0 || x->file[x->le + 3] != 0)
         fatal("big-endian LE is unsupported");
@@ -402,6 +463,7 @@ static void parse_header(struct LeImage *x)
     x->num_impmods      = rd32(x->file + h + 0x74);
     x->impproc_off      = h + rd32(x->file + h + 0x78);
     x->data_pages_off   = rd32(x->file + h + 0x80);
+    x->iterated_pages_off = rd32(x->file + h + 0x4c);
     x->nonresident_name_off = rd32(x->file + h + 0x88);
     x->nonresident_name_len = rd32(x->file + h + 0x8c);
 
@@ -428,13 +490,34 @@ static void parse_header(struct LeImage *x)
     }
 }
 
+/* Same bounded LX record format as the native loader. The section offset is
+ * file-relative, and each map offset is shifted by the LX page shift. */
+static void expand_iterated_page(struct LeImage *x, uint8_t *dst, uint32_t room,
+                                 uint32_t src, uint32_t encoded)
+{
+    uint32_t in=0,out=0,repeats,length,i;
+    if (!file_range(x,src,encoded)) fatal("LX iterated data extends past EOF");
+    while (out<room) {
+        if (encoded-in<4) fatal("truncated LX iterated record");
+        repeats=rd16(x->file+src+in);length=rd16(x->file+src+in+2);in+=4;
+        if (!repeats||!length||length>encoded-in||repeats>(room-out)/length)
+            fatal("invalid LX iterated expansion");
+        for(i=0;i<repeats;i++){memcpy(dst+out,x->file+src+in,length);out+=length;}
+        in+=length;
+    }
+    if(in!=encoded)fatal("trailing LX iterated data");
+}
+
+ #include "soft386_telnet_match.h"
+
 static void parse_objects(struct LeImage *x, struct Runtime *rt, int is_main)
 {
     uint32_t i, j, off, phys, src, room, actual, last_map;
-    uint32_t min_addr, max_end, span, module_base;
+    uint32_t min_addr, max_end, span, module_base, resource_next;
     uint8_t *m;
     uint16_t pflags;
 
+    x->telnet_profile = is_main && tp_match(x);
     last_map = 0;
     min_addr = 0xffffffffu;
     max_end = 0;
@@ -450,7 +533,7 @@ static void parse_objects(struct LeImage *x, struct Runtime *rt, int is_main)
         o->mapsize  = rd32(x->file + off + 16);
         o->reserved = rd32(x->file + off + 20);
 
-        if (!(o->flags & OBJ_BIG) && (!(o->flags & OBJ_EXEC) || o->size > 65536u))
+        if (!x->telnet_profile && !(o->flags & (OBJ_BIG | 8u)) && (!(o->flags & OBJ_EXEC) || o->size > 65536u))
             fatal("only bounded C/386 migration code objects are supported");
         if (o->size != 0) {
             if (o->addr > 0xffffffffu - o->size)
@@ -487,10 +570,18 @@ static void parse_objects(struct LeImage *x, struct Runtime *rt, int is_main)
         for (i = 0; i < x->num_objects; ++i) {
             struct LeObject *o = &x->objects[i];
             o->mapped_addr = o->addr;
+            /* Resource objects can have zero/overlapping preferred addresses.
+             * Their immutable host copies are registered separately. */
+            if (o->flags & 8u) {
+                uint32_t bytes=align_up(o->size,0x1000u);
+                if (bytes<o->size || rt->module_next>GUEST_MODULE_LIMIT || bytes>GUEST_MODULE_LIMIT-rt->module_next)
+                    fatal("resource arena exhausted");
+                o->mapped_addr=rt->module_next; rt->module_next+=bytes;
+            }
             if (o->size != 0 &&
                 (o->mapped_addr >= RAM_SIZE || o->size > RAM_SIZE - o->mapped_addr))
                 fatal("main LE/LX object lies outside guest RAM");
-            if (o->size &&
+            if (o->size && !(o->flags & 8u) &&
                 ((o->addr < GUEST_GDT + GUEST_GDT_BYTES && o->addr + o->size > GUEST_GDT) ||
                  (o->addr < GUEST_INFO_LIMIT && o->addr + o->size > GUEST_STARTUP) ||
                  (o->addr < GUEST_STUB_LIMIT && o->addr + o->size > GUEST_STUB_BASE) ||
@@ -498,26 +589,39 @@ static void parse_objects(struct LeImage *x, struct Runtime *rt, int is_main)
                 fatal("main object overlaps reserved V2 runtime memory");
             for (j = 0; j < i; ++j) {
                 struct LeObject *prev = &x->objects[j];
-                if (o->size && prev->size && o->addr < prev->addr + prev->size &&
-                    prev->addr < o->addr + o->size)
+                if (o->size && prev->size && o->mapped_addr < prev->mapped_addr + prev->size &&
+                    prev->mapped_addr < o->mapped_addr + o->size)
                     fatal("overlapping main objects");
             }
         }
     } else {
+        if (max_end-min_addr>GUEST_MODULE_LIMIT-GUEST_MODULE_BASE) fatal("DLL object span too large");
         span = align_up(max_end - min_addr, 0x10000u);
         module_base = align_up(rt->module_next, 0x10000u);
         if (span == 0)
             span = 0x10000u;
         if (module_base >= GUEST_MODULE_LIMIT || span > GUEST_MODULE_LIMIT - module_base)
             fatal("guest DLL arena exhausted");
+        resource_next=module_base+span;
         for (i = 0; i < x->num_objects; ++i) {
             struct LeObject *o = &x->objects[i];
             o->mapped_addr = module_base + (o->addr - min_addr);
+            /* Resource-only DLLs commonly give every object preferred VA 0.
+             * Each still needs its own guest bytes and resource offsets. */
+            if(o->flags&8u){uint32_t bytes=align_up(o->size,0x1000u);
+                if(bytes<o->size||resource_next>GUEST_MODULE_LIMIT||bytes>GUEST_MODULE_LIMIT-resource_next)
+                    fatal("DLL resource arena exhausted");
+                o->mapped_addr=resource_next;resource_next+=bytes;
+            }
             if (o->size != 0 &&
                 (o->mapped_addr >= RAM_SIZE || o->size > RAM_SIZE - o->mapped_addr))
                 fatal("guest DLL object lies outside guest RAM");
+            for(j=0;j<i;j++){struct LeObject *p=&x->objects[j];
+                if(o->size&&p->size&&o->mapped_addr<p->mapped_addr+p->size&&p->mapped_addr<o->mapped_addr+o->size)
+                    fatal("overlapping DLL objects");
+            }
         }
-        rt->module_next = module_base + span;
+        rt->module_next = resource_next;
     }
 
     if (last_map == 0 || last_map > MAX_PAGES)
@@ -540,10 +644,11 @@ static void parse_objects(struct LeImage *x, struct Runtime *rt, int is_main)
             phys = i + 1u; /* LX fixups index logical module pages. */
             pflags = rd16(m + 6);
             x->pages[i].data_size = rd16(m + 4);
-            if (x->pages[i].data_size > x->page_size)
+            if (pflags==0 && x->pages[i].data_size > x->page_size)
                 fatal("LX page data exceeds page size");
-            if (pflags == 0 && x->pages[i].data_size != 0) {
-                offset = (uint64_t)x->data_pages_off +
+            if ((pflags == 0 || pflags == 1) && x->pages[i].data_size != 0) {
+                if(pflags==1&&!x->iterated_pages_off)fatal("LX iterated page has no data section");
+                offset = (uint64_t)(pflags==1?x->iterated_pages_off:x->data_pages_off) +
                          ((uint64_t)rd32(m) << x->last_page_size);
                 if (offset > 0xffffffffu ||
                     !file_range(x, (uint32_t)offset, x->pages[i].data_size))
@@ -559,8 +664,9 @@ static void parse_objects(struct LeImage *x, struct Runtime *rt, int is_main)
         if (pflags == 0) {
             if (phys == 0 || phys > x->num_pages)
                 fatal("bad LE/LX page number");
-        } else if (pflags != 3) {
-            fatal("V2 supports enumerated/zero LE/LX pages only");
+        } else if (pflags != 3 && !(x->is_lx&&pflags==1)) {
+            fprintf(stderr,"soft386: %s page %u has unsupported encoding %u\n",x->is_lx?"LX":"LE",i+1,pflags);
+            fatal("unsupported page encoding (normal, zero and LX iterated pages are supported)");
         }
     }
 
@@ -592,6 +698,10 @@ static void parse_objects(struct LeImage *x, struct Runtime *rt, int is_main)
                 room = 0;
             else if (room > o->size - j * x->page_size)
                 room = o->size - j * x->page_size;
+            if(x->is_lx&&lp->flags==1){
+                expand_iterated_page(x,rt->ram+o->mapped_addr+j*x->page_size,room,lp->data_offset,lp->data_size);
+                continue;
+            }
             actual = room;
             if (x->is_lx && actual > lp->data_size)
                 actual = lp->data_size;
@@ -770,7 +880,7 @@ static void scan_fixups(struct LeImage *x)
             target = 0;
 
             if (kind == TGT_INTERNAL) {
-                if (st != SRC_OFF32 && st != SRC_SEL16 && st != SRC_PTR32)
+                if (st != SRC_OFF32 && st != SRC_REL32 && st != SRC_SEL16 && st != SRC_PTR32)
                     fatal("unsupported internal fixup kind");
                 if (first == 0 || first > x->num_objects)
                     fatal("internal fixup has invalid object");
@@ -788,7 +898,7 @@ static void scan_fixups(struct LeImage *x)
                 ++x->internal_records;
                 x->internal_sites += count;
             } else if (kind == TGT_EXT_ORD) {
-                if (st != SRC_REL32 && st != SRC_PTR16)
+                if (st != SRC_REL32 && st != SRC_OFF32 && st != SRC_PTR16)
                     fatal("unsupported ordinal fixup kind");
                 if (st == SRC_PTR16 && (flags & TGT_ADDITIVE)) fatal("additive far16 import unsupported");
                 if (first == 0 || first > x->num_impmods)
@@ -813,8 +923,8 @@ static void scan_fixups(struct LeImage *x)
                 x->imports[idx].sites += count;
                 x->external_sites += count;
             } else if (kind == TGT_EXT_NAME) {
-                if (st != SRC_REL32)
-                    fatal("external named fixup is not REL32");
+                if (st != SRC_REL32 && st != SRC_OFF32)
+                    fatal("external named fixup is not OFF32/REL32");
                 if (first == 0 || first > x->num_impmods)
                     fatal("external named fixup has invalid module");
                 if (flags & TGT_OFF32) {
@@ -874,7 +984,7 @@ static void scan_fixups(struct LeImage *x)
 static void apply_fixups(struct LeImage *x, uint8_t *ram)
 {
     uint32_t physical, start, endoff, p, end, q, first, target, target_off;
-    uint32_t count, i, src_obj_index, source_off, src_va, dst_va, idx;
+    uint32_t count, i, src_obj_index, source_off, src_va, dst_va, idx, addend;
     uint8_t type, flags, kind;
     int16_t source;
 
@@ -900,7 +1010,7 @@ static void apply_fixups(struct LeImage *x, uint8_t *ram)
             first = skip_objmod(x, &q, flags, end);
             kind = flags & TGT_MASK;
             target = 0;
-            target_off = 0;
+            target_off = 0; addend = 0;
 
             if (kind == TGT_INTERNAL) {
                 target = first;
@@ -919,16 +1029,20 @@ static void apply_fixups(struct LeImage *x, uint8_t *ram)
                 } else {
                     target = rd16(x->file + q); q += 2;
                 }
-                if (flags & TGT_ADDITIVE)
+                if (flags & TGT_ADDITIVE) {
+                    addend=(flags&TGT_ADD32)?rd32(x->file+q):rd16(x->file+q);
                     q += (flags & TGT_ADD32) ? 4u : 2u;
+                }
             } else if (kind == TGT_EXT_NAME) {
                 if (flags & TGT_OFF32) {
                     target = rd32(x->file + q); q += 4;
                 } else {
                     target = rd16(x->file + q); q += 2;
                 }
-                if (flags & TGT_ADDITIVE)
+                if (flags & TGT_ADDITIVE) {
+                    addend=(flags&TGT_ADD32)?rd32(x->file+q):rd16(x->file+q);
                     q += (flags & TGT_ADD32) ? 4u : 2u;
+                }
             } else {
                 fatal("unsupported fixup reached apply pass");
             }
@@ -946,19 +1060,19 @@ static void apply_fixups(struct LeImage *x, uint8_t *ram)
                 if (kind == TGT_INTERNAL) {
                     /* Preserve LINK386's 32-bit biased-offset arithmetic. */
                     dst_va = x->objects[target - 1u].mapped_addr + target_off;
-                    wr32(ram + src_va, dst_va);
+                    wr32(ram + src_va, dst_va - ((type&SRC_MASK)==SRC_REL32 ? src_va+4u : 0));
                 } else if (kind == TGT_EXT_ORD) {
                     idx = import_index(x, first - 1u, target);
                     dst_va = x->imports[idx].address;
                     if (dst_va == 0)
                         fatal("unresolved ordinal import reached fixup pass");
-                    wr32(ram + src_va, dst_va - (src_va + 4u));
+                    wr32(ram + src_va, dst_va + addend - ((type&SRC_MASK)==SRC_REL32 ? src_va+4u : 0));
                 } else {
                     idx = name_import_index(x, first - 1u, target);
                     dst_va = x->name_imports[idx].address;
                     if (dst_va == 0)
                         fatal("unresolved named import reached fixup pass");
-                    wr32(ram + src_va, dst_va - (src_va + 4u));
+                    wr32(ram + src_va, dst_va + addend - ((type&SRC_MASK)==SRC_REL32 ? src_va+4u : 0));
                 }
             }
         }
@@ -1384,7 +1498,7 @@ static uint32_t hostcall_stub(struct Runtime *rt, uint32_t module, uint32_t ordi
     /* C/386 register-ABI token: preserve EAX and simply return. */
     if (module == HC_DOSCALLS && ordinal == 425u) {
         va = rt->stub_next++;
-        if (va >= GUEST_STUB_LIMIT) fatal("stub overflow");
+        if (va >= GUEST_CALLBACK_RETURN_STUB) fatal("stub overflow");
         rt->ram[va] = 0xC3;
         return va;
     }
@@ -1394,7 +1508,7 @@ static uint32_t hostcall_stub(struct Runtime *rt, uint32_t module, uint32_t ordi
     for (i = 0; i < MAX_IMPORTS; ++i) if (!rt->stubs[i].address) break;
     if (i == MAX_IMPORTS) fatal("too many synthetic import veneers");
     va = align_up(rt->stub_next, 8u);
-    if (va + 8u > GUEST_STUB_LIMIT) fatal("synthetic import veneer overflow");
+    if (va + 8u > GUEST_CALLBACK_RETURN_STUB) fatal("synthetic import veneer overflow");
     s = rt->ram + va;
     s[0] = 0xB8; wr32(s + 1, id); /* mov eax,imm32 */
     s[5] = 0xE7; s[6] = (uint8_t)HOSTCALL_PORT; /* out imm8,eax */
@@ -1405,12 +1519,15 @@ static uint32_t hostcall_stub(struct Runtime *rt, uint32_t module, uint32_t ordi
     return va;
 }
 
+ #include "soft386_telnet_profile.h"
+
 static void install_c386_helpers(struct LeImage *x, struct Runtime *rt)
 {
     uint32_t i,j,k,n=0,covered[MAX_OBJECTS]={0};
     struct {uint32_t obj,off,desc;} helpers[128];
     static const uint8_t pro[]={0x55,0x8b,0xec,0x83,0xec,4,0x53,0x57,0x56,6};
     static const uint8_t lss[]={0x66,0x0f,0xb2,0x24,0x24};
+    if(x->telnet_profile){install_telnet_profile(x,rt);return;}
     for(i=0;i<x->nbridge_fix;i++) {
         struct BridgeFix *e=&x->bridge_fix[i],*ret=NULL,*alias=NULL,*stack=NULL;
         uint32_t base,sel,lo,helper=0xffffffffu;uint8_t *code,*thunk;int d;
@@ -1483,26 +1600,7 @@ static uint32_t image_system_mask(const struct LeImage *x)
     return mask;
 }
 
-static void resolve_imports(struct Runtime *rt, struct LeImage *x)
-{
-    uint32_t i,module;
-    if (x->nname_imports) fatal("R2 does not support named imports");
-    for (i = 0; i < x->nimports; ++i) {
-        const char *mod = x->modules[x->imports[i].module].name;
-        if (_stricmp(mod,"DOSCALLS")==0) module=HC_DOSCALLS;
-        else if (_stricmp(mod,"VIOCALLS")==0) module=HC_VIOCALLS;
-        else if (_stricmp(mod,"KBDCALLS")==0) module=HC_KBDCALLS;
-        else if (_stricmp(mod,"SESMGR")==0) module=HC_SESMGR;
-        else if (_stricmp(mod,"NLS")==0) module=HC_NLS;
-        else {
-            fprintf(stderr,"soft386: unsupported import module %s.%u\n",mod,x->imports[i].ordinal);
-            fatal("R2 system-module import is not supported");
-        }
-        x->imports[i].address=hostcall_stub(rt,module,x->imports[i].ordinal);
-        if(!rt->quiet||rt->trace_hc)
-            fprintf(stderr,"soft386: resolve %s.%-4u -> %08X (%u site%s)\n",mod,x->imports[i].ordinal,x->imports[i].address,x->imports[i].sites,x->imports[i].sites==1?"":"s");
-    }
-}
+#include "soft386_modules.h"
 
 static uint32_t env_block_size(void)
 {
@@ -1607,6 +1705,7 @@ static void publish_child_bootstrap(struct Runtime *rt,const char *argv0)
     self[0]=0;
 #ifdef _WIN32
     {
+        (void)argv0;
         DWORD n=GetModuleFileNameA(NULL,self,(DWORD)sizeof(self));
         if(!n||n>=sizeof(self))self[0]=0;
     }
@@ -1620,6 +1719,14 @@ static void publish_child_bootstrap(struct Runtime *rt,const char *argv0)
     publish_path_env("SOFT386_VIOCALLS_DLL",rt->native_vio_path);
     publish_path_env("SOFT386_KBDCALLS_DLL",rt->native_kbd_path);
     publish_path_env("SOFT386_SESMGR_DLL",rt->native_ses_path);
+    publish_path_env("SOFT386_PMWIN_DLL",rt->pm.paths[0]);
+    publish_path_env("SOFT386_PMGPI_DLL",rt->pm.paths[1]);
+    publish_path_env("SOFT386_PMCTLS_DLL",rt->pm.paths[2]);
+    publish_path_env("SOFT386_MSG_DLL",rt->pm.paths[3]);
+    publish_path_env("SOFT386_PMSHAPI_DLL",rt->pm.paths[4]);
+    publish_path_env("SOFT386_HELPMGR_DLL",rt->pm.paths[5]);
+    publish_path_env("SOFT386_QUECALLS_DLL",rt->queue.path);
+    publish_path_env("SOFT386_SO32DLL_DLL",rt->net.paths[0]);publish_path_env("SOFT386_TCP32DLL_DLL",rt->net.paths[1]);
     host_set_env("SOFT386_NO_DOSCALLS",rt->native_dos_disabled?"1":NULL);
     host_set_env("SOFT386_NO_SYSTEM_DLLS",rt->native_sys_disabled?"1":NULL);
 }
@@ -1656,6 +1763,7 @@ static void init_thread_info(struct Runtime *rt, uint32_t slot)
     struct GuestThread *t = &rt->threads[slot];
     uint32_t base = info_tib_address(slot), selector = (3u + slot) * 8u;
     uint8_t *p = rt->ram + base, *d = rt->ram + GUEST_GDT + selector;
+    rt->signal_focus[slot]=0;
     memset(p, 0, 0x100u);
     wr32(p, 0xffffffffu); wr32(p+4, t->stack_base); wr32(p+8, t->stack_base+t->stack_size);
     wr32(p+12, base+0x40u); wr32(p+16, 20u); wr32(p+20, t->tid);
@@ -1897,11 +2005,11 @@ static void finish_guest_thread(struct Runtime *rt)
     if(rt->trace_hc||rt->trace_sched)fprintf(stderr,"soft386: TID %u exited\n",t->tid);
     mutex_owner_exit(rt,t->tid);
     t->state=THREAD_DEAD; wake_thread_waiters(rt,t->tid);
-    if (t->owns_stack) { struct GuestAlloc *ga=find_alloc(rt,t->stack_base); if (ga) ga->used=0; t->owns_stack=0; }
+    if (t->owns_stack && !t->callback_depth) { struct GuestAlloc *ga=find_alloc(rt,t->stack_base); if (ga) ga->used=0; t->owns_stack=0; }
     rt->current_thread_exited=1; rt->switch_requested=1;
     for(i=0;i<MAX_THREADS;++i)
         if(rt->threads[i].state!=THREAD_FREE && rt->threads[i].state!=THREAD_DEAD) break;
-    if(i==MAX_THREADS){rt->process_exited=1;rt->process_rc=0;}
+    if(i==MAX_THREADS){rt->process_exited=1;rt->process_rc=0;rt->process_reason="last guest thread returned";}
 }
 
 static uint32_t create_guest_thread(struct Runtime *rt, uint32_t ptid, uint32_t entry,
@@ -1912,7 +2020,7 @@ static uint32_t create_guest_thread(struct Runtime *rt, uint32_t ptid, uint32_t 
     if (!ptid || !entry || !stack_size || !guest_range(ptid,4) || !guest_range(entry,1) || (flags & ~1u))
         return OS2_ERROR_INVALID_PARAMETER;
     for(i=0;i<MAX_THREADS;++i)
-        if(rt->threads[i].state==THREAD_FREE || rt->threads[i].state==THREAD_DEAD) break;
+        if(!rt->threads[i].callback_depth && (rt->threads[i].state==THREAD_FREE || rt->threads[i].state==THREAD_DEAD)) break;
     if(i==MAX_THREADS) return OS2_ERROR_NOT_ENOUGH_MEMORY;
     stack_bytes=align_up(stack_size,0x1000u); stack_base=alloc_guest(rt,stack_bytes);
     if(!stack_base) return OS2_ERROR_NOT_ENOUGH_MEMORY;
@@ -1968,7 +2076,7 @@ static void wake_expired_waiters(struct Runtime *rt)
     for(i=0;i<MAX_THREADS;++i){
         struct GuestThread *t=&rt->threads[i];
         if (!t->wait_deadline_ms || t->wait_deadline_ms > now) continue;
-        if(t->state==THREAD_SLEEP){sync_ready(t,OS2_NO_ERROR);continue;}
+        if(t->state==THREAD_SLEEP||t->state==THREAD_WAIT_PM||t->state==THREAD_WAIT_QUEUE){sync_ready(t,OS2_NO_ERROR);continue;}
         if(t->state==THREAD_WAIT_EVENT||t->state==THREAD_WAIT_MUTEX){
             if(rt->trace_hc||rt->trace_sched)fprintf(stderr,"soft386: TID %u semaphore wait timed out\n",t->tid);
             sync_ready(t,OS2_ERROR_SEM_TIMEOUT);
@@ -1988,9 +2096,10 @@ static int schedule_next_thread(struct Runtime *rt)
     int next;
     for(;;){
         uint64_t earliest=0,now; uint32_t i; wake_expired_waiters(rt); next=next_runnable_thread(rt); if(next>=0)break;
+        if(rt->modal_pump_active)return 2;
         for(i=0;i<MAX_THREADS;++i) {
             struct GuestThread *t=&rt->threads[i];
-            if((t->state==THREAD_SLEEP||t->state==THREAD_WAIT_EVENT||t->state==THREAD_WAIT_MUTEX) &&
+            if((t->state==THREAD_SLEEP||t->state==THREAD_WAIT_PM||t->state==THREAD_WAIT_QUEUE||t->state==THREAD_WAIT_EVENT||t->state==THREAD_WAIT_MUTEX) &&
                t->wait_deadline_ms && (!earliest||t->wait_deadline_ms<earliest)) earliest=t->wait_deadline_ms;
         }
         if(!earliest){fprintf(stderr,"soft386: scheduler deadlock: no runnable thread\n");return 1;}
@@ -2019,6 +2128,73 @@ static int switch_after_hypercall(struct Runtime *rt)
     return schedule_next_thread(rt);
 }
 
+static int pm_thread_hostcall(void *opaque,uint32_t tid)
+{
+    struct Runtime *rt=(struct Runtime *)opaque;unsigned i;
+    if(!rt||!tid)return 0;
+    for(i=0;i<MAX_THREADS;i++)if(rt->threads[i].state!=THREAD_FREE&&rt->threads[i].tid==tid)
+        return rt->threads[i].state==THREAD_HOSTCALL;
+    return 0;
+}
+
+static void modal_pause_current(struct Runtime *rt)
+{
+    struct GuestThread *cur=current_guest_thread(rt);
+    if(!cur||cur->state!=THREAD_RUNNING)return;
+    cpui386_get_state(rt->cpu,&cur->regs);
+    cur->regs.ip=cur->regs.next_ip;
+    cur->regs_valid=1;cur->state=THREAD_RUNNABLE;
+}
+
+/* Called by PMWIN only at idle points inside a native modal message loop.
+ * Tiny386 is never used concurrently: park the modal owner, run other guest
+ * threads for a bounded cooperative slice, then restore the exact native-call
+ * continuation and pending hypercall state. */
+static int pm_modal_scheduler_yield(void *opaque)
+{
+    struct Runtime *rt=(struct Runtime *)opaque;struct GuestThread *owner,*nextt;
+    CPUI386_State owner_cpu;enum GuestThreadState owner_state;
+    int owner_index,next,sw,ex,retry,pending,rc;uint32_t api;
+    if(!rt||rt->process_exited||rt->modal_pump_active)return rt&&rt->process_exited;
+    owner_index=rt->current_thread;owner=current_guest_thread(rt);if(!owner||owner->state!=THREAD_RUNNING)return 0;
+    wake_expired_waiters(rt);owner_state=owner->state;owner->state=THREAD_HOSTCALL;next=next_runnable_thread(rt);
+    if(next<0){owner->state=owner_state;return 0;}
+    cpui386_get_state(rt->cpu,&owner_cpu);
+    sw=rt->switch_requested;ex=rt->current_thread_exited;retry=rt->retry_hostcall;pending=rt->pending_hostcall;api=rt->pending_api;
+    rt->modal_pump_active=1;rt->modal_owner=owner_index;rt->modal_budget=4096;
+    rt->current_thread=next;nextt=&rt->threads[next];nextt->state=THREAD_RUNNING;
+    rt->switch_requested=rt->current_thread_exited=rt->retry_hostcall=rt->pending_hostcall=0;rt->pending_api=0;
+    if(!cpui386_set_state(rt->cpu,&nextt->regs))fatal("modal scheduler CPU restore failed");
+    if(rt->trace_hc||rt->trace_sched)fprintf(stderr,"soft386: PM modal yield owner=TID %u -> TID %u\n",owner->tid,nextt->tid);
+    rc=run_guest_until(rt,NULL);(void)rc;
+    if(!rt->process_exited)modal_pause_current(rt);
+    owner->state=owner_state;rt->current_thread=owner_index;
+    if(!cpui386_set_state(rt->cpu,&owner_cpu))fatal("modal owner continuation restore failed");
+    rt->switch_requested=sw;rt->current_thread_exited=ex;rt->retry_hostcall=retry;rt->pending_hostcall=pending;rt->pending_api=api;
+    rt->modal_pump_active=0;rt->modal_owner=-1;rt->modal_budget=0;
+    if(rt->trace_hc||rt->trace_sched)fprintf(stderr,"soft386: PM modal resume owner=TID %u process_exited=%u\n",owner->tid,rt->process_exited?1u:0u);
+    return rt->process_exited?1:0;
+}
+
+#include "soft386_callbacks.h"
+
+static uint32_t dispatch_network(struct Runtime *rt,unsigned module,uint32_t ordinal,uint32_t esp)
+{
+    struct Soft386GuestMemoryOps memops;struct GuestThread *t=current_guest_thread(rt);int handled=0;uint32_t rc;
+    unsigned slot=(unsigned)rt->current_thread;
+    unsigned result_kind=module==1?(ordinal==10?2:((ordinal==23||ordinal==24)?1:0)):0;
+    if(!t||slot>=MAX_THREADS)return UINT32_MAX;
+    if(!rt->net_arenas[slot][result_kind])rt->net_arenas[slot][result_kind]=alloc_guest(rt,S386_NET_ARENA);
+    if(!rt->net_arenas[slot][result_kind])return module==1?0:UINT32_MAX;
+    bridge_memory_ops(rt,&memops);
+    rc=soft386_net_dispatch(&rt->net,&memops,module,ordinal,esp,slot,t->tid,rt->net_arenas[slot][result_kind],&handled);
+    if(!handled)fprintf(stderr,"soft386: unsupported network module=%u ordinal=%u\n",module,ordinal);
+    if(rt->net.waiting){t->state=THREAD_WAIT_QUEUE;t->wait_deadline_ms=monotonic_ms()+2;
+        rt->retry_hostcall=1;rt->switch_requested=1;}
+    return rc;
+}
+#include "soft386_search_path.h"
+#include "soft386_exitlist.h"
 static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t esp)
 {
     uint32_t a1=guest_u32(rt,esp+4),a2=guest_u32(rt,esp+8),a3=guest_u32(rt,esp+12),a4=guest_u32(rt,esp+16);
@@ -2027,33 +2203,76 @@ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t
     os2_personality_context_init(&personality,rt,&soft_personality_ops);
     os2_personality_context_set_nls(&personality,&rt->nls_state);
     if(rt->trace_hc)fprintf(stderr,"soft386: DOSCALLS.%u ESP=%08X args=%08X,%08X,%08X,%08X,%08X\n",ordinal,esp,a1,a2,a3,a4,a5);
-    if (rt->native_dos.loaded && soft386_doscalls_bridge_ordinal(ordinal)) {
+    if(rt->exit_processing&&(ordinal==311||ordinal==283))return 87;
+    if (rt->native_dos.loaded && soft386_doscalls_bridge_export(&rt->native_dos, ordinal)) {
         struct Soft386GuestMemoryOps memops;
+        unsigned abi_nargs = 0, abi_flags = soft386_doscalls_bridge_abi(ordinal, &abi_nargs);
         int handled = 0;
         uint32_t native_rc;
-        bridge_memory_ops(rt, &memops);
-        native_rc = soft386_doscalls_bridge_dispatch(&rt->native_dos, &memops, ordinal, esp, &handled);
-        if (handled) return native_rc;
+        (void)abi_nargs;
+        if (abi_flags) {
+            bridge_memory_ops(rt, &memops);
+            if (rt->trace_hc)
+                fprintf(stderr,"soft386: service DOSCALLS.%u export resolved; ABI class=%s\n",ordinal,
+                    (abi_flags&SOFT386_DOS_ABI_SCALAR)?"scalar":"marshal");
+            if ((abi_flags & (SOFT386_DOS_ABI_SCALAR|SOFT386_DOS_MAY_BLOCK)) ==
+                (SOFT386_DOS_ABI_SCALAR|SOFT386_DOS_MAY_BLOCK)) {
+                struct GuestThread *t=current_guest_thread(rt);
+                int waiting=0;
+                if(!t)return OS2_ERROR_INVALID_FUNCTION;
+                native_rc=soft386_doscalls_bridge_dispatch_async_scalar(&rt->native_dos,&memops,ordinal,esp,
+                    (unsigned)rt->current_thread,t->tid,&waiting,&handled);
+                if(handled){
+                    if(waiting){t->state=THREAD_WAIT_QUEUE;t->wait_deadline_ms=monotonic_ms()+2;
+                        rt->retry_hostcall=1;rt->switch_requested=1;}
+                    return native_rc;
+                }
+            }
+            native_rc = soft386_doscalls_bridge_dispatch(&rt->native_dos, &memops, ordinal, esp, &handled);
+            if (handled) return native_rc;
+        }
     }
     switch(ordinal){
     case 32:return guest_sleep(rt,a1);
     case 224:return os2_core_DosQueryHType(&personality,a1,a2,a3);
+    case 228:return guest_search_path(rt,a1,a2,a3,a4,a5);
     case 229:return guest_sleep(rt,a1);
     case 230:return os2_core_DosGetDateTime(&personality,a1);
     case 234:
         if(a1==EXIT_THREAD){finish_guest_thread(rt);return OS2_NO_ERROR;}
         if(a1!=EXIT_PROCESS)return OS2_ERROR_INVALID_PARAMETER;
-        rt->process_exited=1;rt->process_rc=a2;return OS2_NO_ERROR;
+        rt->process_exited=1;rt->process_rc=a2;rt->process_reason="DosExit(EXIT_PROCESS)";return OS2_NO_ERROR;
+    case 236:{
+        struct GuestThread *t=current_guest_thread(rt);
+        int32_t delta=(int32_t)a3;
+        /* DosSetPriority is guest scheduling state.  Soft386 multiplexes all
+         * guest TIDs on one host thread, so forwarding this call to Win32
+         * would incorrectly change every guest thread at once.  Keep only
+         * the OS/2-visible per-thread scheduling attributes in the jar. */
+        if(!t||a1!=2u||a4!=0u||a2>4u||delta<-31||delta>31)return OS2_ERROR_INVALID_PARAMETER;
+        if(a2)t->priority_class=a2;
+        t->priority_delta=delta;
+        return OS2_NO_ERROR;
+    }
     case 256:return os2_core_DosSetFilePtr(&personality,a1,(int32_t)a2,a3,a4);
     case 282:return os2_core_DosWrite(&personality,a1,a2,a3,a4);
     case 289:return os2_nls_api_DosSetProcessCp(&personality,a1);
     case 291:return os2_nls_api_DosQueryCp(&personality,a1,a2,a3);
+    case 296:return guest_exit_list(rt,a1,a2);
+    case 354:case 355:return guest_exception_chain(rt,ordinal,a1);
+    case 378:
+        if(a1>1||!a2||!guest_range(a2,4))return 87;
+        if(a1){if(rt->signal_focus[rt->current_thread]!=UINT32_MAX)rt->signal_focus[rt->current_thread]++;}
+        else if(rt->signal_focus[rt->current_thread])rt->signal_focus[rt->current_thread]--;
+        guest_put_u32(rt,a2,rt->signal_focus[rt->current_thread]);return 0;
     case 299:return os2_core_DosAllocMem(&personality,a1,a2,a3,a4);
     case 304:return os2_core_DosFreeMem(&personality,a1);
     case 305:return os2_core_DosSetMem(&personality,a1,a2,a3);
     case 306:return guest_query_mem(rt,a1,a2,a3);
     case 311:return create_guest_thread(rt,a1,a2,a3,a4,a5);
     case 312:return get_info_blocks(rt,a1,a2);
+    case 318:case 319:case 320:case 321:case 322:case 352:case 353:case 572:
+        return dispatch_modules(rt,ordinal,a1,a2,a3,a4);
     case 324:case 325:case 326:case 327:case 328:case 329:case 330:
         return dispatch_event_sem(rt,ordinal,a1,a2,a3,a4);
     case 331:case 332:case 333:case 334:case 335:case 336:
@@ -2063,7 +2282,14 @@ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t
     case 396:return os2_nls_api_DosQueryDBCSEnv(&personality,a1,a2,a3);
     case 397:return os2_nls_api_DosMapCase(&personality,a1,a2,a3);
     case 349:return guest_wait_thread(rt,a1,a2);
-    default:fprintf(stderr,"soft386: unsupported DOSCALLS.%u\n",ordinal);return OS2_ERROR_INVALID_FUNCTION;
+    default:
+        if(rt->native_dos.loaded){
+            if(!soft386_doscalls_bridge_export(&rt->native_dos,ordinal))
+                fprintf(stderr,"soft386: service DOSCALLS.%u native export missing\n",ordinal);
+            else
+                fprintf(stderr,"soft386: service DOSCALLS.%u export resolved; ABI descriptor missing; call not attempted\n",ordinal);
+        }else fprintf(stderr,"soft386: service DOSCALLS.%u native provider unavailable\n",ordinal);
+        return OS2_ERROR_INVALID_FUNCTION;
     }
 }
 
@@ -2082,9 +2308,19 @@ static uint32_t dispatch_nls_module(struct Runtime *rt,uint32_t ordinal,uint32_t
     }
 }
 
+static void ensure_system_module(struct Runtime *rt,const char *module)
+{
+    if(!rt->native_sys_disabled) {
+        uint32_t mask=!_stricmp(module,"VIOCALLS")?SOFT386_SYS_VIO:(!_stricmp(module,"KBDCALLS")?SOFT386_SYS_KBD:SOFT386_SYS_SES);
+        soft386_system_bridge_open_mask(&rt->native_sys,mask,rt->native_vio_path,rt->native_vio_required,
+            rt->native_kbd_path,rt->native_kbd_required,rt->native_ses_path,rt->native_ses_required,rt->native_sys.trace);
+    }
+}
+
 static uint32_t dispatch_system_module(struct Runtime *rt,const char *module,uint32_t ordinal,uint32_t esp)
 {
     struct Soft386GuestMemoryOps memops;int handled=0;uint32_t rc;
+    ensure_system_module(rt,module);
     bridge_memory_ops(rt,&memops);
     if(rt->trace_hc)fprintf(stderr,"soft386: %s.%u ESP=%08X\n",module,ordinal,esp);
     rc=soft386_system_bridge_dispatch32(&rt->native_sys,&memops,module,ordinal,esp,&handled);
@@ -2112,6 +2348,7 @@ static uint32_t dispatch_c386_console(struct Runtime *rt,uint32_t desc_id,uint32
         return OS2_ERROR_INVALID_FUNCTION;
     }
 
+    if(d)ensure_system_module(rt,d->module);
     rc=soft386_system_bridge_dispatch_c386(&rt->native_sys,&memops,desc_id,esp,&handled);
     if(!handled)fprintf(stderr,"soft386: unsupported C/386 console descriptor %u\n",desc_id);
     return rc;
@@ -2121,6 +2358,9 @@ static void emit_runtime_stubs(struct Runtime *rt)
 {
     uint8_t *p=rt->ram+GUEST_THREAD_EXIT_STUB;
     p[0]=0xB8;wr32(p+1,HC_RUNTIME|HC_RUNTIME_THREAD_RETURN);p[5]=0xE7;p[6]=(uint8_t)HOSTCALL_PORT;p[7]=0xF4;
+    p=rt->ram+GUEST_CALLBACK_RETURN_STUB;
+    p[0]=0x50;p[1]=0xB8;wr32(p+2,HC_RUNTIME|HC_RUNTIME_CALLBACK_RETURN);
+    p[6]=0xE7;p[7]=(uint8_t)HOSTCALL_PORT;p[8]=0xF4;
 }
 
 static uint8_t io_read8(void *o,int p){(void)o;(void)p;return 0xff;}
@@ -2130,16 +2370,73 @@ static void io_write8(void *o,int p,uint8_t v){struct Runtime*rt=o;if((p&0xffff)
 static void io_write16(void *o,int p,uint16_t v){struct Runtime*rt=o;if(rt->trace_hc)fprintf(stderr,"soft386: OUT16 %04X=%04X\n",p&0xffff,v);}
 static void io_write32(void *o,int p,uint32_t v){struct Runtime*rt=o;if((p&0xffff)==HOSTCALL_PORT){rt->pending_hostcall=1;rt->pending_api=v;}else if(rt->trace_hc)fprintf(stderr,"soft386: OUT32 %04X=%08X\n",p&0xffff,v);}
 
-static int run_guest(struct Runtime *rt)
+static void force_process_termination(struct Runtime *rt,uint32_t rc,const char *reason)
 {
-    long stagnant=0,last=-1;
+    unsigned i;
+    rt->process_exited=1;rt->process_forced=1;rt->process_rc=rc;rt->process_reason=reason;
+    fprintf(stderr,"soft386: forced process termination reason=%s rc=%u\n",reason?reason:"forced",(unsigned)rc);
+    rt->switch_requested=0;rt->retry_hostcall=0;rt->current_thread_exited=1;
+    for(i=0;i<MAX_THREADS;i++)if(rt->threads[i].state!=THREAD_FREE)rt->threads[i].state=THREAD_DEAD;
+}
+
+static void trace_callback_cpu(struct Runtime *rt,struct GuestCallback *stop,const CPUI386_State *st)
+{
+    uint32_t ip;unsigned i,n;
+    if(!rt||!stop||!st||!stop->cpu_trace_id||stop->cpu_trace_steps>=stop->cpu_trace_limit)return;
+    ip=st->next_ip;
+    fprintf(stderr,"soft386: cb-cpu id=%u step=%u TID=%u depth=%u EIP=%08X EFLAGS=%08X EAX=%08X ECX=%08X EDX=%08X EBX=%08X ESP=%08X EBP=%08X ESI=%08X EDI=%08X bytes=",
+            stop->cpu_trace_id,stop->cpu_trace_steps,stop->tid,
+            current_guest_thread(rt)?current_guest_thread(rt)->callback_depth:0u,
+            ip,st->flags,st->gpr[0],st->gpr[1],st->gpr[2],st->gpr[3],st->gpr[4],st->gpr[5],st->gpr[6],st->gpr[7]);
+    n=guest_range(ip,12)?12u:(guest_range(ip,1)?1u:0u);
+    for(i=0;i<n;i++)fprintf(stderr,"%02X",rt->ram[ip+i]);
+    if(!n)fputs("<unmapped>",stderr);
+    fputc('\n',stderr);
+    stop->cpu_trace_steps++;
+}
+
+static void trace_watch_changes(struct Runtime *rt,const uint8_t *before,uint32_t ip,const char *phase)
+{
+    unsigned i,j;
+    if(!rt||!before||!rt->watch_len||!rt->ram)return;
+    i=0;
+    while(i<rt->watch_len){
+        if(before[i]==rt->ram[rt->watch_addr+i]){i++;continue;}
+        j=i+1;
+        while(j<rt->watch_len&&before[j]!=rt->ram[rt->watch_addr+j])j++;
+        fprintf(stderr,"soft386: mem-watch %s EIP=%08X addr=%08X size=%u old=",phase?phase:"cpu",ip,rt->watch_addr+i,j-i);
+        {unsigned k;for(k=i;k<j;k++)fprintf(stderr,"%02X",before[k]);}
+        fputs(" new=",stderr);
+        {unsigned k;for(k=i;k<j;k++)fprintf(stderr,"%02X",rt->ram[rt->watch_addr+k]);}
+        fputc('\n',stderr);
+        i=j;
+    }
+}
+
+static int run_guest_until(struct Runtime *rt,struct GuestCallback *stop)
+{
+    long stagnant=0,last=-1;unsigned quantum=0,modal_steps=0;
     for(;;){
-        CPUI386_State st; uint32_t module,ordinal,rc,esp;
+        CPUI386_State st; uint32_t module,ordinal,rc,esp,watch_ip=0;
+        uint8_t watch_before[256];
         long before=cpui386_get_cycle(rt->cpu);
+        if(rt->modal_pump_active&&rt->modal_budget&&modal_steps>=rt->modal_budget){modal_pause_current(rt);return 0;}
         if(rt->process_exited)return (int)rt->process_rc;
-        if(rt->max_cycles && before>=rt->max_cycles){fprintf(stderr,"soft386: cycle limit reached\n");return 124;}
+        if(stop&&stop->done)return 0;
+        if(stop){struct GuestThread *owner=find_thread(rt,stop->tid);if(!owner||owner->state==THREAD_DEAD){
+            fprintf(stderr,"soft386: thread exited inside synchronous native callback\n");return 1;
+        }}
+        if(rt->max_cycles && before>=rt->max_cycles){
+            fprintf(stderr,"soft386: cycle limit reached\n");
+            force_process_termination(rt,124,"cycle-limit");
+            return 124;
+        }
         rt->pending_hostcall=0;
+        if(stop&&stop->cpu_trace_id){cpui386_get_state(rt->cpu,&st);trace_callback_cpu(rt,stop,&st);}
+        if(rt->watch_len){cpui386_get_state(rt->cpu,&st);watch_ip=st.next_ip;memcpy(watch_before,rt->ram+rt->watch_addr,rt->watch_len);}
         cpui386_step(rt->cpu,1);
+        if(rt->watch_len){trace_watch_changes(rt,watch_before,watch_ip,"cpu");memcpy(watch_before,rt->ram+rt->watch_addr,rt->watch_len);}
+        if(rt->modal_pump_active)modal_steps++;
         if(rt->pending_hostcall){
             cpui386_get_state(rt->cpu,&st); esp=st.gpr[4]; module=rt->pending_api&0xff000000u;ordinal=rt->pending_api&0x00ffffffu;
             if(!guest_range(esp,4)){fprintf(stderr,"soft386: invalid hypercall ESP %08X\n",esp);return 1;}
@@ -2149,11 +2446,57 @@ static int run_guest(struct Runtime *rt)
             else if(module==HC_SESMGR)rc=dispatch_system_module(rt,"SESMGR",ordinal,esp);
             else if(module==HC_NLS)rc=dispatch_nls_module(rt,ordinal,esp);
             else if(module==HC_C386_CONSOLE)rc=dispatch_c386_console(rt,ordinal,esp);
+            else if(module==HC_PMWP){
+                /* PMWP.203 delegates to DosLoadModule. Ownership belongs to
+                 * this jar; the native DLL must not map LE/LX into host RAM. */
+                if(ordinal==203&&guest_range(esp,20))
+                    rc=dispatch_modules(rt,318,0,0,guest_u32(rt,esp+12),guest_u32(rt,esp+8));
+                else{fprintf(stderr,"soft386: unsupported PMWP.%u\n",ordinal);rc=1;}
+            }
+            else if(module==HC_QUECALLS){
+                struct Soft386GuestMemoryOps memops;int handled=0;bridge_memory_ops(rt,&memops);
+                rc=soft386_queue_dispatch(&rt->queue,&memops,ordinal,esp,&handled);
+                if(!handled)fprintf(stderr,"soft386: QUECALLS.%u bridge did not classify call\n",ordinal);
+                if(rt->queue.waiting){struct GuestThread *t=current_guest_thread(rt);
+                    t->state=THREAD_WAIT_QUEUE;t->wait_deadline_ms=monotonic_ms()+10;
+                    rt->retry_hostcall=1;rt->switch_requested=1;
+                }
+            }
+            else if(module==HC_SO32DLL||module==HC_TCP32DLL)rc=dispatch_network(rt,module==HC_TCP32DLL,ordinal,esp);
+            else if(module==HC_PM_OLDPROC){
+                struct Soft386GuestMemoryOps memops;bridge_memory_ops(rt,&memops);
+                rc=soft386_pm_call_proc(&rt->pm,&memops,ordinal,esp);
+            }
+            else if(module>=HC_PMWIN&&module<=HC_HELPMGR){
+                struct Soft386GuestMemoryOps memops;int handled=0;bridge_memory_ops(rt,&memops);
+                rc=soft386_pm_dispatch(&rt->pm,&memops,(module-HC_PMWIN)>>24,ordinal,esp,&handled);
+                if(!handled)fprintf(stderr,"soft386: PM hostcall %08X bridge did not classify call\n",rt->pending_api);
+                if(rt->pm.waiting){struct GuestThread *t=current_guest_thread(rt);
+                    t->state=THREAD_WAIT_PM;t->wait_deadline_ms=monotonic_ms()+10;
+                    rt->retry_hostcall=1;rt->switch_requested=1;
+                }
+            }
+            else if(module==HC_RUNTIME&&ordinal==HC_RUNTIME_CALLBACK_RETURN){
+                if(!return_guest_callback(rt,&st)){rt->process_exited=1;rt->process_rc=1;rt->process_reason="invalid callback return frame";return 1;}
+                if(stop&&stop->done)return 0;
+                fprintf(stderr,"soft386: callback return does not match active native frame\n");return 1;
+            }
+            else if(module==HC_RUNTIME&&ordinal==3){fprintf(stderr,"soft386: TELNETPM unsupported external far callback\n");rt->process_exited=1;rt->process_rc=1;rt->process_reason="unsupported external far callback";rc=1;}
             else if(module==HC_RUNTIME&&ordinal==HC_RUNTIME_THREAD_RETURN){finish_guest_thread(rt);rc=0;}
             else{fprintf(stderr,"soft386: unknown hostcall %08X\n",rt->pending_api);return 1;}
+            if(rt->watch_len)trace_watch_changes(rt,watch_before,watch_ip,"hostcall");
             if(rt->process_exited)return (int)rt->process_rc;
-            if(!rt->current_thread_exited)cpui386_set_gpr(rt->cpu,0,rc);
-            if(rt->switch_requested&&switch_after_hypercall(rt))return 1;
+            if(rt->retry_hostcall){
+                cpui386_get_state(rt->cpu,&st);
+                if(st.next_ip<GUEST_STUB_BASE+7u||st.next_ip>=GUEST_CALLBACK_RETURN_STUB||
+                   rt->ram[st.next_ip-7u]!=0xB8||rd32(rt->ram+st.next_ip-6u)!=(module|ordinal)){
+                    fprintf(stderr,"soft386: wait outside a generated import veneer\n");return 1;
+                }
+                st.ip=st.next_ip=st.next_ip-7u;
+                if(!cpui386_set_state(rt->cpu,&st))fatal("cannot retry waiting service call");
+                rt->retry_hostcall=0;
+            }else if(!rt->current_thread_exited)cpui386_set_gpr(rt->cpu,0,rc);
+            if(rt->switch_requested){int sr=switch_after_hypercall(rt);if(sr==2&&rt->modal_pump_active)return 0;if(sr)return 1;}
             continue;
         }
         {
@@ -2162,35 +2505,60 @@ static int run_guest(struct Runtime *rt)
             else stagnant=0;
             last=after;
         }
+        /* A compute-bound worker must not starve a PM waiter. */
+        if(++quantum==4096){int sr;quantum=0;sr=switch_after_hypercall(rt);if(sr==2&&rt->modal_pump_active)return 0;if(sr)return 1;}
     }
 }
+static int run_guest(struct Runtime *rt){return run_guest_until(rt,NULL);}
+
 
 static int check_image(const char *path)
 {
-    struct Runtime rt; struct LeImage x; uint32_t i;
+    struct Runtime rt; struct LeImage x; uint32_t i;int dll;
     memset(&rt,0,sizeof(rt));memset(&x,0,sizeof(x));
-    rt.ram=calloc(1,RAM_SIZE);rt.stub_next=GUEST_STUB_BASE;rt.module_next=GUEST_MODULE_BASE;
+    rt.ram=calloc(1,RAM_SIZE);rt.alloc_next=GUEST_ALLOC_BASE;rt.stub_next=GUEST_STUB_BASE;rt.module_next=GUEST_MODULE_BASE;rt.main_image=&x;
+    snprintf(rt.main_path,sizeof(rt.main_path),"%s",path);rt.pm.disabled=1;
     if(!rt.ram)fatal("out of memory");
     x.file=load_file(path,&x.file_size);if(!x.file){fprintf(stderr,"soft386: cannot read %s\n",path);free(rt.ram);return 1;}
-    parse_header(&x);parse_objects(&x,&rt,1);parse_import_modules(&x);scan_fixups(&x);resolve_imports(&rt,&x);apply_fixups(&x,rt.ram);install_c386_helpers(&x,&rt);
+    loader_path=path;parse_header(&x);dll=(x.module_flags&MOD_TYPE_MASK)==MOD_TYPE_DLL;
+    parse_objects(&x,&rt,!dll);parse_import_modules(&x);module_resources(&rt,&x,1);scan_fixups(&x);resolve_imports(&rt,&x);apply_fixups(&x,rt.ram);install_c386_helpers(&x,&rt);loader_path=NULL;
     fprintf(stderr,"soft386 CHECK: %s pages=%u objects=%u entry=%08X stack=%08X imports=%u\n",x.is_lx?"LX":"LE",x.num_pages,x.num_objects,
-            x.objects[x.entry_object-1].mapped_addr+x.entry_offset,x.objects[x.stack_object-1].mapped_addr+x.stack_offset,x.nimports);
-    for(i=0;i<x.nimports;++i)fprintf(stderr,"  %s.%u -> %08X (%u sites)\n",x.modules[x.imports[i].module].name,x.imports[i].ordinal,x.imports[i].address,x.imports[i].sites);
-    free_le_image(&x);free(rt.ram);return 0;
+            x.entry_object?x.objects[x.entry_object-1].mapped_addr+x.entry_offset:0,x.stack_object?x.objects[x.stack_object-1].mapped_addr+x.stack_offset:0,x.nimports);
+    if(dll)fprintf(stderr,"soft386 CHECK: guest DLL; %u resource copies\n",rt.pm.nresources);
+    for(i=0;i<x.nimports;++i){const char *name=x.modules[x.imports[i].module].name;uint32_t id=system_module_id(name);
+        int missing=id>=HC_PMWIN&&id<=HC_HELPMGR&&!soft386_pm_api_name((id-HC_PMWIN)>>24,x.imports[i].ordinal);
+        fprintf(stderr,"  %s.%u -> %08X (%u sites)%s\n",name,x.imports[i].ordinal,x.imports[i].address,x.imports[i].sites,missing?" [PM API not yet marshalled]":"");
+    }
+    soft386_pm_close(&rt.pm);free_guest_modules(&rt);free_le_image(&x);free(rt.ram);return 0;
 }
 
 static void usage(const char *a0)
 {
-    fprintf(stderr,"usage: %s [--check] [--trace-hc] [--trace-sched] [--trace-native] [DLL options] [--max-cycles N] program.exe [guest args...]\n",a0);
+    fprintf(stderr,"usage: %s [--check] [--trace-hc] [--trace-sched] [--trace-native] [DLL options] [--watch-mem ADDR:LEN] [--max-cycles N] program.exe [guest args...]\n",a0);
+    fprintf(stderr,"  diagnostic: --watch-mem ADDR:LEN (1..256 bytes of guest RAM)\n");
     fprintf(stderr,"  DLL options: --doscalls-dll P --viocalls-dll P --kbdcalls-dll P --sesmgr-dll P\n");
-    fprintf(stderr,"               --no-doscalls-dll --no-system-dlls\n");
+    fprintf(stderr,"               --pmwin-dll P --pmgpi-dll P --pmctls-dll P --msg-dll P\n");
+    fprintf(stderr,"               --pmshapi-dll P --helpmgr-dll P --quecalls-dll P\n");
+    fprintf(stderr,"               --so32dll-dll P --tcp32dll-dll P\n");
+    fprintf(stderr,"               --no-doscalls-dll --no-system-dlls (also disables PM)\n");
     fprintf(stderr,"  Win32 default: DOSCALLS is available normally; VIO/KBD/SESMGR DLLs are loaded only when the image imports them.\n");
 }
 
 int main(int argc,char **argv)
 {
     struct Runtime rt; struct LeImage x; CPUI386_State st; uint32_t entry,stack_top,esp,env_va,arg_va,pgm_va; int rc,i,argi=1,check=0;
-    memset(&rt,0,sizeof(rt));memset(&x,0,sizeof(x));rt.current_thread=-1;rt.alloc_next=GUEST_ALLOC_BASE;rt.stub_next=GUEST_STUB_BASE;rt.module_next=GUEST_MODULE_BASE;rt.next_tid=2;rt.max_cycles=100000000;
+    memset(&rt,0,sizeof(rt));memset(&x,0,sizeof(x));rt.current_thread=-1;rt.alloc_next=GUEST_ALLOC_BASE;rt.stub_next=GUEST_STUB_BASE;rt.module_next=GUEST_MODULE_BASE;rt.next_tid=2;rt.max_cycles=100000000;rt.main_image=&x;
+    soft386_pm_init(&rt.pm,&rt,pm_current_tid,invoke_guest);
+    soft386_pm_set_scheduler_yield(&rt.pm,pm_modal_scheduler_yield);
+    soft386_pm_set_thread_hostcall(&rt.pm,pm_thread_hostcall);
+    rt.pm.veneer=pm_oldproc_veneer;rt.pm.code_address=pm_code_address;
+#ifdef SOFT386_TEST_PROVIDER
+    { extern void soft386_test_pm_provider(struct Soft386PmBridge *);soft386_test_pm_provider(&rt.pm); }
+#endif
+    {const char *envs[]={"SOFT386_PMWIN_DLL","SOFT386_PMGPI_DLL","SOFT386_PMCTLS_DLL","SOFT386_MSG_DLL","SOFT386_PMSHAPI_DLL","SOFT386_HELPMGR_DLL"};
+     for(i=0;i<S386_PM_COUNT;i++)rt.pm.paths[i]=getenv(envs[i]);}
+    rt.queue.path=getenv("SOFT386_QUECALLS_DLL");
+    rt.net.paths[0]=getenv("SOFT386_SO32DLL_DLL");rt.net.paths[1]=getenv("SOFT386_TCP32DLL_DLL");
     rt.native_dos_path=getenv("SOFT386_DOSCALLS_DLL");if(rt.native_dos_path&&rt.native_dos_path[0])rt.native_dos_required=1;
     rt.native_vio_path=getenv("SOFT386_VIOCALLS_DLL");if(rt.native_vio_path&&rt.native_vio_path[0])rt.native_vio_required=1;
     rt.native_kbd_path=getenv("SOFT386_KBDCALLS_DLL");if(rt.native_kbd_path&&rt.native_kbd_path[0])rt.native_kbd_required=1;
@@ -2201,7 +2569,7 @@ int main(int argc,char **argv)
         if(!strcmp(argv[argi],"--check")){check=1;++argi;}
         else if(!strcmp(argv[argi],"--trace-hc")){rt.trace_hc=1;++argi;}
         else if(!strcmp(argv[argi],"--trace-sched")){rt.trace_sched=1;++argi;}
-        else if(!strcmp(argv[argi],"--trace-native")){rt.native_dos.trace=1;rt.native_sys.trace=1;++argi;}
+        else if(!strcmp(argv[argi],"--trace-native")){rt.native_dos.trace=1;rt.native_sys.trace=1;rt.pm.trace=1;rt.queue.trace=1;rt.net.trace=1;++argi;}
         else if(!strcmp(argv[argi],"--run")){rt.quiet=0;++argi;}
         else if(!strcmp(argv[argi],"--run-quiet")){rt.quiet=1;++argi;}
         else if(!strcmp(argv[argi],"--argv0")&&argi+1<argc){rt.guest_argv0=argv[argi+1];argi+=2;}
@@ -2209,14 +2577,32 @@ int main(int argc,char **argv)
         else if(!strcmp(argv[argi],"--viocalls-dll")&&argi+1<argc){rt.native_vio_path=argv[argi+1];rt.native_vio_required=1;argi+=2;}
         else if(!strcmp(argv[argi],"--kbdcalls-dll")&&argi+1<argc){rt.native_kbd_path=argv[argi+1];rt.native_kbd_required=1;argi+=2;}
         else if(!strcmp(argv[argi],"--sesmgr-dll")&&argi+1<argc){rt.native_ses_path=argv[argi+1];rt.native_ses_required=1;argi+=2;}
+        else if(!strcmp(argv[argi],"--pmwin-dll")&&argi+1<argc){rt.pm.paths[0]=argv[argi+1];argi+=2;}
+        else if(!strcmp(argv[argi],"--pmgpi-dll")&&argi+1<argc){rt.pm.paths[1]=argv[argi+1];argi+=2;}
+        else if(!strcmp(argv[argi],"--pmctls-dll")&&argi+1<argc){rt.pm.paths[2]=argv[argi+1];argi+=2;}
+        else if(!strcmp(argv[argi],"--msg-dll")&&argi+1<argc){rt.pm.paths[3]=argv[argi+1];argi+=2;}
+        else if(!strcmp(argv[argi],"--pmshapi-dll")&&argi+1<argc){rt.pm.paths[4]=argv[argi+1];argi+=2;}
+        else if(!strcmp(argv[argi],"--helpmgr-dll")&&argi+1<argc){rt.pm.paths[5]=argv[argi+1];argi+=2;}
+        else if(!strcmp(argv[argi],"--quecalls-dll")&&argi+1<argc){rt.queue.path=argv[argi+1];argi+=2;}
+        else if(!strcmp(argv[argi],"--so32dll-dll")&&argi+1<argc){rt.net.paths[0]=argv[argi+1];argi+=2;}
+        else if(!strcmp(argv[argi],"--tcp32dll-dll")&&argi+1<argc){rt.net.paths[1]=argv[argi+1];argi+=2;}
         else if(!strcmp(argv[argi],"--no-doscalls-dll")){rt.native_dos_disabled=1;++argi;}
         else if(!strcmp(argv[argi],"--no-system-dlls")){rt.native_sys_disabled=1;++argi;}
+        else if(!strcmp(argv[argi],"--watch-mem")&&argi+1<argc){
+            char *end=NULL,*sep;unsigned long a,n;
+            a=strtoul(argv[argi+1],&end,0);sep=end;
+            if(!sep||*sep!=':'){fprintf(stderr,"soft386: --watch-mem expects ADDR:LEN\n");return 2;}
+            n=strtoul(sep+1,&end,0);
+            if(!end||*end||!n||n>256u||a>=RAM_SIZE||n>RAM_SIZE-a){fprintf(stderr,"soft386: invalid --watch-mem range\n");return 2;}
+            rt.watch_addr=(uint32_t)a;rt.watch_len=(unsigned)n;argi+=2;
+        }
         else if(!strcmp(argv[argi],"--max-cycles")&&argi+1<argc){rt.max_cycles=strtol(argv[argi+1],NULL,0);argi+=2;}
         else if(!strcmp(argv[argi],"--help")){usage(argv[0]);return 0;}
         else break;
     }
     if(argi>=argc){usage(argv[0]);return 2;}
     if(check)return check_image(argv[argi]);
+    rt.pm.disabled=rt.native_sys_disabled;rt.queue.disabled=rt.native_sys_disabled;rt.net.disabled=rt.native_sys_disabled;
     publish_child_bootstrap(&rt,argv[0]);
     /* Keep argv[1] semantics used by build_startup_area by compacting options away. */
     if(argi!=1){for(i=argi;i<argc;++i)argv[i-argi+1]=argv[i];argc-=argi-1;}
@@ -2233,9 +2619,10 @@ int main(int argc,char **argv)
             if (rt.native_dos_required && !loaded) { free(rt.ram); return 2; }
         }
     }
+    if(!host_full_path(argv[1],rt.main_path,sizeof(rt.main_path)))snprintf(rt.main_path,sizeof(rt.main_path),"%s",argv[1]);
     x.file=load_file(argv[1],&x.file_size);if(!x.file){fprintf(stderr,"soft386: cannot read %s\n",argv[1]);free(rt.ram);return 2;}
-    parse_header(&x);if((x.module_flags&MOD_TYPE_MASK)==MOD_TYPE_DLL)fatal("main image is a DLL");
-    parse_objects(&x,&rt,1);parse_import_modules(&x);
+    loader_path=argv[1];parse_header(&x);if((x.module_flags&MOD_TYPE_MASK)==MOD_TYPE_DLL)fatal("main image is a DLL");
+    parse_objects(&x,&rt,1);parse_import_modules(&x);module_resources(&rt,&x,1);
     if(!rt.native_sys_disabled){
         uint32_t sysmask=image_system_mask(&x);
         int trace_native=rt.native_dos.trace||rt.native_sys.trace;
@@ -2248,9 +2635,10 @@ int main(int argc,char **argv)
             (unsigned)sysmask,(sysmask&SOFT386_SYS_VIO)?"yes":"no",
             (sysmask&SOFT386_SYS_KBD)?"yes":"no",(sysmask&SOFT386_SYS_SES)?"yes":"no");
     }
-    scan_fixups(&x);resolve_imports(&rt,&x);emit_runtime_stubs(&rt);apply_fixups(&x,rt.ram);install_c386_helpers(&x,&rt);
+    scan_fixups(&x);resolve_imports(&rt,&x);emit_runtime_stubs(&rt);apply_fixups(&x,rt.ram);install_c386_helpers(&x,&rt);loader_path=NULL;
     entry=x.objects[x.entry_object-1].mapped_addr+x.entry_offset;stack_top=x.objects[x.stack_object-1].mapped_addr+x.stack_offset;
-    build_startup_area(rt.ram,argv[1],rt.guest_argv0,argc,argv,&env_va,&arg_va,&pgm_va);init_process_info(&rt,env_va,arg_va,x.module_flags);init_gdt(&rt);
+    build_startup_area(rt.ram,argv[1],rt.guest_argv0,argc,argv,&env_va,&arg_va,&pgm_va);if(x.telnet_profile&&tp_canonical_etc((char *)rt.ram+env_va,pgm_va-env_va)<0)fatal("invalid TELNETPM environment");
+    init_process_info(&rt,env_va,arg_va,x.module_flags);init_gdt(&rt);
     esp=stack_top;esp-=4;wr32(rt.ram+esp,arg_va);esp-=4;wr32(rt.ram+esp,env_va);esp-=4;wr32(rt.ram+esp,0);esp-=4;wr32(rt.ram+esp,0);esp-=4;wr32(rt.ram+esp,0);
     rt.cpu=cpui386_new(3,(char*)rt.ram,RAM_SIZE,&rt.cb);if(!rt.cpu||!rt.cb)fatal("cpui386_new failed");
     cpui386_enable_fpu(rt.cpu);
@@ -2261,7 +2649,8 @@ int main(int argc,char **argv)
     if(!cpui386_set_state(rt.cpu,&st))fatal("cannot install initial protected-mode state");
     rt.current_thread=0;rt.threads[0].tid=1;rt.threads[0].state=THREAD_RUNNING;rt.threads[0].stack_base=x.objects[x.stack_object-1].mapped_addr;rt.threads[0].stack_size=x.stack_offset;
     cpui386_get_state(rt.cpu,&rt.threads[0].regs);init_thread_info(&rt,0);rt.threads[0].regs_valid=1;if(!cpui386_set_state(rt.cpu,&rt.threads[0].regs))fatal("cannot install initial TIB/FS");
-    if(!rt.quiet)fprintf(stderr,"Soft386 OS/2 R4 - Tiny386 + 80387 + process vessels + jar kernel\n");
+    if(!rt.quiet)fprintf(stderr,"Soft386 OS/2 I386-H2S - deterministic Win32 vessel teardown\n");
+    if(!rt.quiet&&rt.watch_len)fprintf(stderr,"soft386: mem-watch range=%08X:%u\n",rt.watch_addr,rt.watch_len);
 #ifdef _WIN32
     if(!rt.quiet)fprintf(stderr,"soft386: host=Win32 x86 pointer_bits=%u\n",(unsigned)(sizeof(void*)*8u));
 #else
@@ -2275,7 +2664,48 @@ int main(int argc,char **argv)
         fprintf(stderr,"soft386: input=%s type=%s entry=%08X initial_ESP=%08X objects=%u imports=%u FS=%04X\n",argv[1],x.is_lx?"LX":"LE",entry,esp,x.num_objects,x.nimports,(unsigned)rt.threads[0].regs.seg[CPUI386_SEG_FS]);
         fprintf(stderr,"---------------- guest begins ----------------\n");fflush(stderr);
     }
-    rc=run_guest(&rt);
-    if(!rt.quiet)fprintf(stderr,"---------------- guest ended -----------------\nsoft386: rc=%d cycles=%ld\n",rc,cpui386_get_cycle(rt.cpu));
-    cpui386_delete(rt.cpu);soft386_system_bridge_close(&rt.native_sys);soft386_doscalls_bridge_close(&rt.native_dos);free_le_image(&x);free(rt.ram);return rc;
+    rc=initialize_modules(&rt)?run_guest(&rt):295;
+    if(rt.process_exited){if(!rt.process_forced){terminate_exit_list(&rt);terminate_modules(&rt);}rc=(int)rt.process_rc;}
+    if(!rt.quiet){
+        fprintf(stderr,"---------------- guest ended -----------------\n");
+        fprintf(stderr,"soft386: termination=%s rc=%d cycles=%ld\n",rt.process_reason?rt.process_reason:(rc==124?"cycle limit":(rc?"runtime/initialization failure":"guest runner returned")),rc,cpui386_get_cycle(rt.cpu));
+    }
+#ifdef _WIN32
+    /* This executable is a one-guest Win32 process vessel.  Once OS/2 process
+     * termination is complete, do not walk residual native PM windows or
+     * unload provider DLLs synchronously: DestroyWindow/FreeLibrary may enter
+     * arbitrary host teardown paths while the guest is already dead.  Quiesce
+     * every guest re-entry path, release jar-owned memory, then use the Win32
+     * process-termination primitive to reclaim process-owned HWNDs, DLLs and
+     * any still-blocked native worker threads deterministically. */
+    if(!rt.quiet){fprintf(stderr,"soft386: cleanup enter net-quiesce\n");fflush(stderr);}
+    soft386_net_quiesce_process(&rt.net);
+    if(!rt.quiet){fprintf(stderr,"soft386: cleanup leave net-quiesce pending=%d\n",rt.net.pending_on_close);fflush(stderr);}
+    if(!rt.quiet){fprintf(stderr,"soft386: cleanup enter pm-quiesce\n");fflush(stderr);}
+    soft386_pm_quiesce_process(&rt.pm);
+    if(!rt.quiet){fprintf(stderr,"soft386: cleanup leave pm-quiesce\n");fflush(stderr);}
+    if(!rt.quiet){fprintf(stderr,"soft386: cleanup enter guest-memory\n");fflush(stderr);}
+    cpui386_delete(rt.cpu);rt.cpu=NULL;
+    free_guest_modules(&rt);
+    free_le_image(&x);
+    free(rt.ram);rt.ram=NULL;
+    if(!rt.quiet){fprintf(stderr,"soft386: cleanup leave guest-memory\n");fprintf(stderr,"soft386: vessel exit rc=%d\n",rc);fflush(stderr);}
+    ExitProcess((UINT)rc);
+    return rc; /* not reached */
+#else
+    if(!rt.quiet){fprintf(stderr,"soft386: cleanup enter net\n");fflush(stderr);}
+    soft386_net_close(&rt.net);
+    if(!rt.quiet){fprintf(stderr,"soft386: cleanup leave net pending=%d\n",rt.net.pending_on_close);fflush(stderr);}
+    if(!rt.quiet){fprintf(stderr,"soft386: cleanup enter pm\n");fflush(stderr);}
+    soft386_pm_close(&rt.pm);
+    if(!rt.quiet){fprintf(stderr,"soft386: cleanup leave pm\n");fflush(stderr);}
+    soft386_queue_close(&rt.queue);
+    cpui386_delete(rt.cpu);
+    free_guest_modules(&rt);
+    soft386_system_bridge_close(&rt.native_sys);
+    if(!rt.net.pending_on_close)soft386_doscalls_bridge_close(&rt.native_dos);
+    free_le_image(&x);free(rt.ram);
+    if(!rt.quiet){fprintf(stderr,"soft386: vessel return rc=%d\n",rc);fflush(stderr);}
+    return rc;
+#endif
 }

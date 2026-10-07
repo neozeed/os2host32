@@ -1,0 +1,3 @@
+make: Entering directory '/workspace/scratch/01a62dd1f93f/work-r5d/soft386'
+/workspace/scratch/e028e5e595ed/zig-deps/ziglang/zig cc -target x86-windows-gnu -I tiny386 -I src -I ../common/include -DI386_ENABLE_FPU -O2 -g -std=gnu11 src/soft386_os2.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c src/soft386_net_bridge.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c ../common/win32/os2_nls_win32.c -o soft386_os2.exe -lm
+make: Leaving directory '/workspace/scratch/01a62dd1f93f/work-r5d/soft386'

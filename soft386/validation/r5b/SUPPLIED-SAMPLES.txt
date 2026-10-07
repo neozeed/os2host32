@@ -1,0 +1,357 @@
+BIO.EXE SHA256 816c96f22f913531c782df91677aa7c05cdbf8ed81ee6c67cfe42ac8c2954b2d
+soft386: resolve PMWIN.834 -> 000F0000
+soft386: resolve PMWIN.899 -> 000F0008
+soft386: resolve PMGPI.516 -> 000F0010
+soft386: resolve PMGPI.517 -> 000F0018
+soft386: resolve PMGPI.453 -> 000F0020
+soft386: resolve PMWIN.903 -> 000F0028
+soft386: resolve PMWIN.840 -> 000F0030
+soft386: resolve PMWIN.908 -> 000F0038
+soft386: resolve PMWIN.716 -> 000F0040
+soft386: resolve PMWIN.781 -> 000F0048
+soft386: resolve PMWIN.910 -> 000F0050
+soft386: resolve PMGPI.398 -> 000F0058
+soft386: resolve PMWIN.912 -> 000F0060
+soft386: resolve PMWIN.848 -> 000F0068
+soft386: resolve PMGPI.530 -> 000F0070
+soft386: resolve PMWIN.915 -> 000F0078
+soft386: resolve PMGPI.404 -> 000F0080
+soft386: resolve PMWIN.789 -> 000F0088
+soft386: resolve PMWIN.726 -> 000F0090
+soft386: resolve PMWIN.728 -> 000F0098
+soft386: resolve PMWIN.920 -> 000F00A0
+soft386: resolve PMWIN.729 -> 000F00A8
+soft386: resolve PMWIN.858 -> 000F00B0
+soft386: resolve PMWIN.926 -> 000F00B8
+soft386: resolve PMWIN.929 -> 000F00C0
+soft386: resolve PMWIN.738 -> 000F00C8
+soft386: resolve PMGPI.359 -> 000F00D0
+soft386: resolve PMWIN.743 -> 000F00D8
+soft386: resolve PMGPI.489 -> 000F00E0
+soft386: resolve PMWIN.875 -> 000F00E8
+soft386: resolve PMGPI.492 -> 000F00F0
+soft386: resolve PMWIN.814 -> 000F00F8
+soft386: resolve PMGPI.370 -> 000F0100
+soft386: resolve PMSHAPI.116 -> 000F0108
+soft386: resolve PMWIN.757 -> 000F0110
+soft386: resolve PMWIN.888 -> 000F0118
+soft386: resolve PMWIN.763 -> 000F0120
+soft386: resolve PMWIN.829 -> 000F0128
+soft386: resolve PMWIN.703 -> 000F0130
+soft386: resolve PMWIN.767 -> 000F0138
+soft386: resolve PMWIN.707 -> 000F0140
+soft386: resolve PMWIN.710 -> 000F0148
+soft386: resolve PMWIN.911 -> 000F0150
+soft386: resolve PMWIN.849 -> 000F0158
+soft386: resolve PMWIN.854 -> 000F0160
+soft386: resolve PMGPI.598 -> 000F0168
+soft386: resolve PMWIN.919 -> 000F0170
+soft386: resolve PMWIN.793 -> 000F0178
+soft386: resolve PMWIN.923 -> 000F0180
+soft386: resolve PMGPI.604 -> 000F0188
+soft386: resolve DOSCALLS.348 -> 000F0190
+soft386: resolve PMWIN.733 -> 000F0198
+soft386: resolve DOSCALLS.224 -> 000F01A0
+soft386: resolve PMGPI.610 -> 000F01A8
+soft386: resolve PMGPI.355 -> 000F01B0
+soft386: resolve DOSCALLS.230 -> 000F01B8
+soft386: resolve DOSCALLS.234 -> 000F01C0
+soft386: resolve PMGPI.369 -> 000F01C8
+soft386: resolve PMSHAPI.114 -> 000F01D0
+soft386: resolve PMWIN.883 -> 000F01D8
+soft386: resolve PMGPI.506 -> 000F01E0
+soft386: resolve PMGPI.379 -> 000F01E8
+soft386: resolve PMWIN.892 -> 000F01F0
+soft386: resolve PMWIN.765 -> 000F01F8
+soft386: resolve DOSCALLS.282 -> 000F0200
+soft386: resolve DOSCALLS.299 -> 000F0208
+soft386: resolve DOSCALLS.256 -> 000F0210
+soft386: resolve DOSCALLS.304 -> 000F0218
+soft386: resolve DOSCALLS.305 -> 000F0220
+soft386 CHECK: LE pages=9 objects=5 entry=00011C20 stack=00023350 imports=69
+  PMWIN.834 -> 000F0000 (1 sites)
+  PMWIN.899 -> 000F0008 (5 sites)
+  PMGPI.516 -> 000F0010 (1 sites)
+  PMGPI.517 -> 000F0018 (4 sites)
+  PMGPI.453 -> 000F0020 (1 sites)
+  PMWIN.903 -> 000F0028 (1 sites)
+  PMWIN.840 -> 000F0030 (3 sites)
+  PMWIN.908 -> 000F0038 (2 sites)
+  PMWIN.716 -> 000F0040 (1 sites)
+  PMWIN.781 -> 000F0048 (2 sites)
+  PMWIN.910 -> 000F0050 (2 sites)
+  PMGPI.398 -> 000F0058 (5 sites)
+  PMWIN.912 -> 000F0060 (1 sites)
+  PMWIN.848 -> 000F0068 (4 sites)
+  PMGPI.530 -> 000F0070 (2 sites)
+  PMWIN.915 -> 000F0078 (1 sites)
+  PMGPI.404 -> 000F0080 (5 sites)
+  PMWIN.789 -> 000F0088 (2 sites)
+  PMWIN.726 -> 000F0090 (1 sites)
+  PMWIN.728 -> 000F0098 (1 sites)
+  PMWIN.920 -> 000F00A0 (7 sites)
+  PMWIN.729 -> 000F00A8 (3 sites)
+  PMWIN.858 -> 000F00B0 (6 sites)
+  PMWIN.926 -> 000F00B8 (2 sites)
+  PMWIN.929 -> 000F00C0 (1 sites)
+  PMWIN.738 -> 000F00C8 (2 sites)
+  PMGPI.359 -> 000F00D0 (8 sites)
+  PMWIN.743 -> 000F00D8 (2 sites)
+  PMGPI.489 -> 000F00E0 (3 sites)
+  PMWIN.875 -> 000F00E8 (3 sites)
+  PMGPI.492 -> 000F00F0 (1 sites)
+  PMWIN.814 -> 000F00F8 (6 sites)
+  PMGPI.370 -> 000F0100 (1 sites)
+  PMSHAPI.116 -> 000F0108 (3 sites)
+  PMWIN.757 -> 000F0110 (3 sites)
+  PMWIN.888 -> 000F0118 (1 sites)
+  PMWIN.763 -> 000F0120 (1 sites)
+  PMWIN.829 -> 000F0128 (12 sites)
+  PMWIN.703 -> 000F0130 (2 sites)
+  PMWIN.767 -> 000F0138 (2 sites)
+  PMWIN.707 -> 000F0140 (1 sites) [PM API not yet marshalled]
+  PMWIN.710 -> 000F0148 (2 sites)
+  PMWIN.911 -> 000F0150 (5 sites)
+  PMWIN.849 -> 000F0158 (2 sites)
+  PMWIN.854 -> 000F0160 (1 sites) [PM API not yet marshalled]
+  PMGPI.598 -> 000F0168 (1 sites)
+  PMWIN.919 -> 000F0170 (3 sites)
+  PMWIN.793 -> 000F0178 (1 sites) [PM API not yet marshalled]
+  PMWIN.923 -> 000F0180 (2 sites)
+  PMGPI.604 -> 000F0188 (1 sites)
+  DOSCALLS.348 -> 000F0190 (1 sites)
+  PMWIN.733 -> 000F0198 (1 sites) [PM API not yet marshalled]
+  DOSCALLS.224 -> 000F01A0 (1 sites)
+  PMGPI.610 -> 000F01A8 (1 sites)
+  PMGPI.355 -> 000F01B0 (1 sites)
+  DOSCALLS.230 -> 000F01B8 (1 sites)
+  DOSCALLS.234 -> 000F01C0 (1 sites)
+  PMGPI.369 -> 000F01C8 (1 sites)
+  PMSHAPI.114 -> 000F01D0 (3 sites)
+  PMWIN.883 -> 000F01D8 (2 sites)
+  PMGPI.506 -> 000F01E0 (2 sites)
+  PMGPI.379 -> 000F01E8 (1 sites)
+  PMWIN.892 -> 000F01F0 (1 sites)
+  PMWIN.765 -> 000F01F8 (2 sites)
+  DOSCALLS.282 -> 000F0200 (4 sites)
+  DOSCALLS.299 -> 000F0208 (2 sites)
+  DOSCALLS.256 -> 000F0210 (2 sites)
+  DOSCALLS.304 -> 000F0218 (1 sites)
+  DOSCALLS.305 -> 000F0220 (1 sites)
+HANOI.EXE SHA256 42660bd403ee2d24b3b92ea8f81a65aed7506e8be639d94cc7ccff6c35bb77ae
+soft386: resolve PMWIN.834 -> 000F0000
+soft386: resolve PMWIN.899 -> 000F0008
+soft386: resolve PMGPI.517 -> 000F0010
+soft386: resolve PMGPI.519 -> 000F0018
+soft386: resolve PMWIN.903 -> 000F0020
+soft386: resolve PMWIN.840 -> 000F0028
+soft386: resolve PMWIN.908 -> 000F0030
+soft386: resolve PMWIN.716 -> 000F0038
+soft386: resolve PMWIN.910 -> 000F0040
+soft386: resolve PMWIN.911 -> 000F0048
+soft386: resolve PMWIN.912 -> 000F0050
+soft386: resolve PMWIN.848 -> 000F0058
+soft386: resolve PMWIN.915 -> 000F0060
+soft386: resolve PMWIN.789 -> 000F0068
+soft386: resolve PMWIN.726 -> 000F0070
+soft386: resolve PMWIN.919 -> 000F0078
+soft386: resolve PMWIN.728 -> 000F0080
+soft386: resolve PMWIN.920 -> 000F0088
+soft386: resolve PMWIN.729 -> 000F0090
+soft386: resolve PMWIN.858 -> 000F0098
+soft386: resolve DOSCALLS.282 -> 000F00A0
+soft386: resolve PMWIN.923 -> 000F00A8
+soft386: resolve DOSCALLS.348 -> 000F00B0
+soft386: resolve PMWIN.926 -> 000F00B8
+soft386: resolve DOSCALLS.286 -> 000F00C0
+soft386: resolve DOSCALLS.224 -> 000F00C8
+soft386: resolve PMWIN.738 -> 000F00D0
+soft386: resolve PMGPI.356 -> 000F00D8
+soft386: resolve DOSCALLS.232 -> 000F00E0
+soft386: resolve DOSCALLS.234 -> 000F00E8
+soft386: resolve PMWIN.814 -> 000F00F0
+soft386: resolve PMWIN.757 -> 000F00F8
+soft386: resolve DOSCALLS.311 -> 000F0100
+soft386: resolve PMWIN.888 -> 000F0108
+soft386: resolve PMWIN.763 -> 000F0110
+soft386: resolve PMWIN.701 -> 000F0118
+soft386: resolve PMWIN.765 -> 000F0120
+soft386: resolve PMWIN.703 -> 000F0128
+soft386: resolve DOSCALLS.256 -> 000F0130
+soft386: resolve DOSCALLS.299 -> 000F0138
+soft386: resolve DOSCALLS.304 -> 000F0140
+soft386: resolve DOSCALLS.305 -> 000F0148
+soft386 CHECK: LE pages=6 objects=4 entry=00010988 stack=000228E0 imports=42
+  PMWIN.834 -> 000F0000 (1 sites)
+  PMWIN.899 -> 000F0008 (1 sites)
+  PMGPI.517 -> 000F0010 (6 sites)
+  PMGPI.519 -> 000F0018 (6 sites)
+  PMWIN.903 -> 000F0020 (1 sites)
+  PMWIN.840 -> 000F0028 (1 sites)
+  PMWIN.908 -> 000F0030 (1 sites)
+  PMWIN.716 -> 000F0038 (1 sites)
+  PMWIN.910 -> 000F0040 (3 sites)
+  PMWIN.911 -> 000F0048 (2 sites)
+  PMWIN.912 -> 000F0050 (1 sites)
+  PMWIN.848 -> 000F0058 (1 sites)
+  PMWIN.915 -> 000F0060 (1 sites)
+  PMWIN.789 -> 000F0068 (2 sites)
+  PMWIN.726 -> 000F0070 (1 sites)
+  PMWIN.919 -> 000F0078 (1 sites)
+  PMWIN.728 -> 000F0080 (1 sites)
+  PMWIN.920 -> 000F0088 (1 sites)
+  PMWIN.729 -> 000F0090 (3 sites)
+  PMWIN.858 -> 000F0098 (1 sites)
+  DOSCALLS.282 -> 000F00A0 (3 sites)
+  PMWIN.923 -> 000F00A8 (2 sites)
+  DOSCALLS.348 -> 000F00B0 (1 sites)
+  PMWIN.926 -> 000F00B8 (1 sites)
+  DOSCALLS.286 -> 000F00C0 (1 sites)
+  DOSCALLS.224 -> 000F00C8 (1 sites)
+  PMWIN.738 -> 000F00D0 (1 sites)
+  PMGPI.356 -> 000F00D8 (6 sites)
+  DOSCALLS.232 -> 000F00E0 (1 sites)
+  DOSCALLS.234 -> 000F00E8 (4 sites)
+  PMWIN.814 -> 000F00F0 (1 sites)
+  PMWIN.757 -> 000F00F8 (1 sites)
+  DOSCALLS.311 -> 000F0100 (1 sites)
+  PMWIN.888 -> 000F0108 (2 sites)
+  PMWIN.763 -> 000F0110 (2 sites)
+  PMWIN.701 -> 000F0118 (2 sites)
+  PMWIN.765 -> 000F0120 (2 sites)
+  PMWIN.703 -> 000F0128 (1 sites)
+  DOSCALLS.256 -> 000F0130 (2 sites)
+  DOSCALLS.299 -> 000F0138 (2 sites)
+  DOSCALLS.304 -> 000F0140 (1 sites)
+  DOSCALLS.305 -> 000F0148 (1 sites)
+NEKO.EXE SHA256 3315d6ccbb8ec2f2a1ffb53c3444257bf798f7af4cad9527738cb54cb1d45b0b
+soft386: resolve PMSHAPI.129 -> 000F0000
+soft386: resolve PMWIN.834 -> 000F0008
+soft386: resolve PMWIN.899 -> 000F0010
+soft386: resolve PMWIN.837 -> 000F0018
+soft386: resolve PMWIN.838 -> 000F0020
+soft386: resolve PMWIN.903 -> 000F0028
+soft386: resolve PMWIN.840 -> 000F0030
+soft386: resolve PMWIN.778 -> 000F0038
+soft386: resolve PMWP.203 -> 000F0040
+soft386: resolve PMWIN.780 -> 000F0048
+soft386: resolve PMWIN.716 -> 000F0050
+soft386: resolve PMWIN.781 -> 000F0058
+soft386: resolve PMWIN.909 -> 000F0060
+soft386: resolve PMWIN.910 -> 000F0068
+soft386: resolve PMWIN.848 -> 000F0070
+soft386: resolve PMWIN.912 -> 000F0078
+soft386: resolve PMWIN.915 -> 000F0080
+soft386: resolve PMWIN.726 -> 000F0088
+soft386: resolve PMWIN.727 -> 000F0090
+soft386: resolve PMWIN.919 -> 000F0098
+soft386: resolve PMWIN.728 -> 000F00A0
+soft386: resolve PMWIN.920 -> 000F00A8
+soft386: resolve PMWIN.924 -> 000F00B0
+soft386: resolve PMWIN.860 -> 000F00B8
+soft386: resolve PMWIN.929 -> 000F00C0
+soft386: resolve PMWIN.804 -> 000F00C8
+soft386: resolve PMSHAPI.102 -> 000F00D0
+soft386: resolve PMWIN.743 -> 000F00D8
+soft386: resolve DOSCALLS.234 -> 000F00E0
+soft386: resolve PMWIN.875 -> 000F00E8
+soft386: resolve HELPMGR.52 -> 000F00F0
+soft386: resolve PMWIN.884 -> 000F00F8
+soft386: resolve PMSHAPI.117 -> 000F0100
+soft386: resolve PMWIN.757 -> 000F0108
+soft386: resolve PMWIN.822 -> 000F0110
+soft386: resolve PMWIN.823 -> 000F0118
+soft386: resolve PMWIN.888 -> 000F0120
+soft386: resolve PMSHAPI.120 -> 000F0128
+soft386: resolve PMWIN.763 -> 000F0130
+soft386: resolve PMWIN.829 -> 000F0138
+soft386: resolve PMWIN.701 -> 000F0140
+soft386: resolve PMWIN.775 -> 000F0148
+soft386: resolve PMGPI.399 -> 000F0150
+soft386: resolve PMWIN.852 -> 000F0158
+soft386: resolve PMWIN.789 -> 000F0160
+soft386: resolve PMWIN.729 -> 000F0168
+soft386: resolve PMWIN.730 -> 000F0170
+soft386: resolve PMWIN.923 -> 000F0178
+soft386: resolve DOSCALLS.348 -> 000F0180
+soft386: resolve DOSCALLS.224 -> 000F0188
+soft386: resolve PMWIN.737 -> 000F0190
+soft386: resolve PMWIN.866 -> 000F0198
+soft386: resolve PMWIN.872 -> 000F01A0
+soft386: resolve PMWIN.817 -> 000F01A8
+soft386: resolve PMWIN.883 -> 000F01B0
+soft386: resolve HELPMGR.51 -> 000F01B8
+soft386: resolve PMWIN.756 -> 000F01C0
+soft386: resolve PMWIN.821 -> 000F01C8
+soft386: resolve PMSHAPI.118 -> 000F01D0
+soft386: resolve HELPMGR.54 -> 000F01D8
+soft386: resolve PMWIN.702 -> 000F01E0
+soft386: resolve DOSCALLS.282 -> 000F01E8
+soft386: resolve DOSCALLS.299 -> 000F01F0
+soft386 CHECK: LX pages=6 objects=3 entry=00011CCC stack=000231F0 imports=63
+  PMSHAPI.129 -> 000F0000 (2 sites)
+  PMWIN.834 -> 000F0008 (1 sites)
+  PMWIN.899 -> 000F0010 (9 sites)
+  PMWIN.837 -> 000F0018 (3 sites)
+  PMWIN.838 -> 000F0020 (1 sites)
+  PMWIN.903 -> 000F0028 (3 sites)
+  PMWIN.840 -> 000F0030 (1 sites)
+  PMWIN.778 -> 000F0038 (1 sites)
+  PMWP.203 -> 000F0040 (1 sites)
+  PMWIN.780 -> 000F0048 (26 sites)
+  PMWIN.716 -> 000F0050 (1 sites)
+  PMWIN.781 -> 000F0058 (4 sites)
+  PMWIN.909 -> 000F0060 (1 sites)
+  PMWIN.910 -> 000F0068 (3 sites)
+  PMWIN.848 -> 000F0070 (3 sites)
+  PMWIN.912 -> 000F0078 (1 sites)
+  PMWIN.915 -> 000F0080 (1 sites)
+  PMWIN.726 -> 000F0088 (2 sites)
+  PMWIN.727 -> 000F0090 (25 sites)
+  PMWIN.919 -> 000F0098 (2 sites)
+  PMWIN.728 -> 000F00A0 (2 sites)
+  PMWIN.920 -> 000F00A8 (37 sites)
+  PMWIN.924 -> 000F00B0 (1 sites)
+  PMWIN.860 -> 000F00B8 (2 sites)
+  PMWIN.929 -> 000F00C0 (1 sites)
+  PMWIN.804 -> 000F00C8 (2 sites)
+  PMSHAPI.102 -> 000F00D0 (1 sites)
+  PMWIN.743 -> 000F00D8 (1 sites)
+  DOSCALLS.234 -> 000F00E0 (2 sites)
+  PMWIN.875 -> 000F00E8 (4 sites)
+  HELPMGR.52 -> 000F00F0 (2 sites)
+  PMWIN.884 -> 000F00F8 (2 sites)
+  PMSHAPI.117 -> 000F0100 (1 sites)
+  PMWIN.757 -> 000F0108 (2 sites)
+  PMWIN.822 -> 000F0110 (1 sites)
+  PMWIN.823 -> 000F0118 (2 sites)
+  PMWIN.888 -> 000F0120 (1 sites)
+  PMSHAPI.120 -> 000F0128 (1 sites)
+  PMWIN.763 -> 000F0130 (1 sites)
+  PMWIN.829 -> 000F0138 (4 sites)
+  PMWIN.701 -> 000F0140 (1 sites)
+  PMWIN.775 -> 000F0148 (1 sites)
+  PMGPI.399 -> 000F0150 (1 sites)
+  PMWIN.852 -> 000F0158 (2 sites)
+  PMWIN.789 -> 000F0160 (1 sites)
+  PMWIN.729 -> 000F0168 (1 sites)
+  PMWIN.730 -> 000F0170 (1 sites)
+  PMWIN.923 -> 000F0178 (1 sites)
+  DOSCALLS.348 -> 000F0180 (1 sites)
+  DOSCALLS.224 -> 000F0188 (1 sites)
+  PMWIN.737 -> 000F0190 (1 sites)
+  PMWIN.866 -> 000F0198 (2 sites)
+  PMWIN.872 -> 000F01A0 (2 sites)
+  PMWIN.817 -> 000F01A8 (1 sites)
+  PMWIN.883 -> 000F01B0 (2 sites)
+  HELPMGR.51 -> 000F01B8 (1 sites)
+  PMWIN.756 -> 000F01C0 (1 sites)
+  PMWIN.821 -> 000F01C8 (1 sites)
+  PMSHAPI.118 -> 000F01D0 (1 sites)
+  HELPMGR.54 -> 000F01D8 (1 sites)
+  PMWIN.702 -> 000F01E0 (1 sites)
+  DOSCALLS.282 -> 000F01E8 (2 sites)
+  DOSCALLS.299 -> 000F01F0 (1 sites)
+NEKO.DLL SHA256 289ef8c68120821f8e8c3331c823d2e6bc20b30a085554a06368c8ed38971182
+soft386 CHECK: LX pages=12 objects=3 entry=00000000 stack=00000000 imports=0
+soft386 CHECK: guest DLL; 36 resource copies

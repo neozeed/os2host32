@@ -1,0 +1,1 @@
+R5C network PASS: loopback binary I/O, pending read with concurrent sender, copied inputs, guest resolver graphs, thread errno, bounds, stale sockets, async beep (36 dispatches)

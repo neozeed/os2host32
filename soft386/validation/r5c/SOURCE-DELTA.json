@@ -1,0 +1,25 @@
+{
+  "unchanged_files_outside_soft386": 3176,
+  "changed_or_new_text_files": [
+    "soft386/Makefile",
+    "soft386/README.md",
+    "soft386/docs/R5C-TELNET-NET-HANDOFF.md",
+    "soft386/src/soft386_callbacks.h",
+    "soft386/src/soft386_exitlist.h",
+    "soft386/src/soft386_modules.h",
+    "soft386/src/soft386_net_bridge.c",
+    "soft386/src/soft386_net_bridge.h",
+    "soft386/src/soft386_os2.c",
+    "soft386/src/soft386_pm_bridge.c",
+    "soft386/src/soft386_search_path.h",
+    "soft386/src/soft386_telnet_match.h",
+    "soft386/src/soft386_telnet_profile.h",
+    "soft386/tests/mkfixtures_r5c.py",
+    "soft386/tests/net-bridge-check.c",
+    "soft386/tests/net-echo.c",
+    "soft386/tests/pm-bridge-check.c",
+    "soft386/tests/r5c-runtime-check.c",
+    "soft386/tests/telnet-profile-check.c"
+  ],
+  "vessel_sha256": "0b6c8229dc53fd8734a3f02653f19dfcb986368b66ed4f390d8186769f7c66f2"
+}

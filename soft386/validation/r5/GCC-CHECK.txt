@@ -1,0 +1,33 @@
+make: Entering directory '/workspace/scratch/01a62dd1f93f/work/os2host32/soft386'
+python3 tests/mkfixtures.py tests/fixtures
+make: Nothing to be done for 'win32'.
+tests/fixtures/dll-api-soft386.le 12288
+tests/fixtures/dll-legacy-soft386.le 12288
+tests/fixtures/dll-static-soft386.le 12288
+tests/fixtures/dll-static-soft386.lx 12288
+tests/fixtures/fpu-soft386.le 9216
+tests/fixtures/fpu-thread-soft386.le 9216
+tests/fixtures/hello-soft386.le 9216
+tests/fixtures/hello-soft386.lx 9216
+tests/fixtures/hi-surface-soft386.le 9216
+tests/fixtures/internal-soft386.le 9216
+tests/fixtures/internal-soft386.lx 9216
+tests/fixtures/memory-soft386.le 9216
+tests/fixtures/native-file-soft386.le 9216
+tests/fixtures/nls-alias-soft386.le 9216
+tests/fixtures/nls-module-soft386.le 9216
+tests/fixtures/pipe-consumer-soft386.exe 9216
+tests/fixtures/pipe-producer-soft386.exe 9216
+tests/fixtures/pmjar-soft386.exe 12288
+tests/fixtures/sync-soft386.le 9216
+tests/fixtures/system-modules-soft386.le 9216
+tests/fixtures/thread-soft386.le 9216
+python3 tests/mkfixtures_r5.py tests/fixtures
+Soft386 R5 LE/LX fixtures generated
+python3 tests/test_r4.py ./soft386_os2 ./bridge-check ./system-bridge-check
+Soft386 R2C regression: PASS
+Soft386 R3 regression: PASS
+Soft386 R4 regression: PASS
+python3 tests/test_r5.py ./soft386_os2 ./pm-runtime-check ./pm-bridge-check
+Soft386 R5 regression PASS: DLL imports, PM callback runtime, marshal boundaries, callback failure unwind
+make: Leaving directory '/workspace/scratch/01a62dd1f93f/work/os2host32/soft386'

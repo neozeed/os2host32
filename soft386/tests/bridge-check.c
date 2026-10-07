@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef __cdecl
 #define __cdecl
@@ -44,7 +45,17 @@ static uint32_t __cdecl fake_exec(char *object,int32_t cb,uint32_t flag,const ch
 }
 static uint32_t __cdecl fake_wait(uint32_t action,uint32_t option,struct FakeResultCodes*r,uint32_t *pid,uint32_t wanted)
 {assert(action==0&&option==0&&wanted==1234&&r&&pid);r->term=0;r->result=7;*pid=1234;return 0;}
-static void *getp(void *o,uint32_t ord){(void)o;switch(ord){case 273:return (void*)(uintptr_t)fake_open;case 282:return(void*)(uintptr_t)fake_write;case 281:return(void*)(uintptr_t)fake_read;case 275:return(void*)(uintptr_t)fake_disk;case 224:return(void*)(uintptr_t)fake_htype;case 283:return(void*)(uintptr_t)fake_exec;case 280:return(void*)(uintptr_t)fake_wait;default:return 0;}}
+static uint32_t __cdecl fake_beep(uint32_t frequency,uint32_t duration)
+{assert(frequency==440&&duration==30);return 0;}
+static uint32_t __cdecl fake_entercrit(void){return 0x1232;}
+static uint32_t __cdecl fake_setmaxfh(uint32_t count){assert(count==77);return 0x1209;}
+static uint32_t __cdecl fake_setdisk(uint32_t disk){assert(disk==3);return 0x1220;}
+static uint32_t __cdecl fake_setfhstate(uint32_t h,uint32_t mode){assert(h==42&&mode==0x1234);return 0x1221;}
+static uint32_t __cdecl fake_resetbuffer(uint32_t h){assert(h==42);return 0x1254;}
+static uint32_t __cdecl fake_close(uint32_t h){assert(h==42);return 0x1257;}
+static uint32_t __cdecl fake_findclose(uint32_t h){assert(h==99);return 0x1263;}
+static uint32_t __cdecl fake_setfilesize(uint32_t h,uint32_t cb){assert(h==42&&cb==0x10000);return 0x1272;}
+static void *getp(void *o,uint32_t ord){(void)o;switch(ord){case 232:return(void*)(uintptr_t)fake_entercrit;case 209:return(void*)(uintptr_t)fake_setmaxfh;case 220:return(void*)(uintptr_t)fake_setdisk;case 221:return(void*)(uintptr_t)fake_setfhstate;case 254:return(void*)(uintptr_t)fake_resetbuffer;case 257:return(void*)(uintptr_t)fake_close;case 263:return(void*)(uintptr_t)fake_findclose;case 272:return(void*)(uintptr_t)fake_setfilesize;case 273:return (void*)(uintptr_t)fake_open;case 282:return(void*)(uintptr_t)fake_write;case 281:return(void*)(uintptr_t)fake_read;case 275:return(void*)(uintptr_t)fake_disk;case 224:return(void*)(uintptr_t)fake_htype;case 283:return(void*)(uintptr_t)fake_exec;case 280:return(void*)(uintptr_t)fake_wait;case 286:return(void*)(uintptr_t)fake_beep;default:return 0;}}
 static void arg(unsigned n,uint32_t v){w32(0x1000+4+4*n,v);}
 
 int main(void)
@@ -64,8 +75,21 @@ int main(void)
  assert(soft386_doscalls_bridge_ordinal(280));
  assert(soft386_doscalls_bridge_ordinal(283));
  assert(soft386_doscalls_bridge_ordinal(382));
+ { static const uint32_t scalar_ord[]={209,220,221,232,254,257,263,272,286}; static const unsigned scalar_n[]={1,1,2,0,1,1,1,2,2}; unsigned k;
+   for(k=0;k<sizeof(scalar_ord)/sizeof(scalar_ord[0]);++k){unsigned n=0;unsigned f=soft386_doscalls_bridge_abi(scalar_ord[k],&n);assert(n==scalar_n[k]&&(f&SOFT386_DOS_ABI_SCALAR));}
+   { unsigned n=0; unsigned f=soft386_doscalls_bridge_abi(286,&n); assert(n==2&&(f&SOFT386_DOS_MAY_BLOCK)); }
+ }
  memset(ram,0,sizeof(ram));memset(&m,0,sizeof(m));m.valid=valid;m.read=rd;m.write=wr;m.read_cstr=cstr;m.read_u32=ru32;
  soft386_doscalls_bridge_set_provider(&b,0,getp,0,0);
+ /* H2C: all of these calls must reach the generic scalar engine. */
+ rc=soft386_doscalls_bridge_dispatch(&b,&m,232,0x1000,&h);assert(h&&rc==0x1232);
+ arg(0,77);rc=soft386_doscalls_bridge_dispatch(&b,&m,209,0x1000,&h);assert(h&&rc==0x1209);
+ arg(0,3);rc=soft386_doscalls_bridge_dispatch(&b,&m,220,0x1000,&h);assert(h&&rc==0x1220);
+ arg(0,42);arg(1,0x1234);rc=soft386_doscalls_bridge_dispatch(&b,&m,221,0x1000,&h);assert(h&&rc==0x1221);
+ arg(0,42);rc=soft386_doscalls_bridge_dispatch(&b,&m,254,0x1000,&h);assert(h&&rc==0x1254);
+ arg(0,42);rc=soft386_doscalls_bridge_dispatch(&b,&m,257,0x1000,&h);assert(h&&rc==0x1257);
+ arg(0,99);rc=soft386_doscalls_bridge_dispatch(&b,&m,263,0x1000,&h);assert(h&&rc==0x1263);
+ arg(0,42);arg(1,0x10000);rc=soft386_doscalls_bridge_dispatch(&b,&m,272,0x1000,&h);assert(h&&rc==0x1272);
  strcpy((char*)ram+0x2000,"bridge.tmp");arg(0,0x2000);arg(1,0x2100);arg(2,0x2104);arg(3,0);arg(4,0);arg(5,1);arg(6,0x42);arg(7,0);arg(8,0);
  rc=soft386_doscalls_bridge_dispatch(&b,&m,273,0x1000,&h);assert(h&&rc==0&&r32(0x2100)==42&&r32(0x2104)==1&&!strcmp(opened,"bridge.tmp"));
  strcpy((char*)ram+0x2200,"abc");arg(0,42);arg(1,0x2200);arg(2,3);arg(3,0x2300);rc=soft386_doscalls_bridge_dispatch(&b,&m,282,0x1000,&h);assert(rc==0&&r32(0x2300)==3&&!strcmp(wrote,"abc"));
@@ -76,5 +100,12 @@ int main(void)
  arg(0,0x2600);arg(1,64);arg(2,2);arg(3,0x2700);arg(4,0x2800);arg(5,0x2a00);arg(6,0x2900);
  rc=soft386_doscalls_bridge_dispatch(&b,&m,283,0x1000,&h);assert(h&&rc==0&&r32(0x2a00)==1234&&r32(0x2a04)==0&&!strcmp(exec_program,"child.exe")&&!strcmp(exec_argv0,"typed")&&!strcmp(exec_tail,"-a 1")&&!strcmp(exec_env0,"FOO=BAR"));
  arg(0,0);arg(1,0);arg(2,0x2b00);arg(3,0x2b08);arg(4,1234);rc=soft386_doscalls_bridge_dispatch(&b,&m,280,0x1000,&h);assert(h&&rc==0&&r32(0x2b00)==0&&r32(0x2b04)==7&&r32(0x2b08)==1234);
+ arg(0,440);arg(1,30);rc=soft386_doscalls_bridge_dispatch(&b,&m,286,0x1000,&h);assert(h&&rc==0);
+ { int waiting=0,handled=0; unsigned spin;
+   rc=soft386_doscalls_bridge_dispatch_async_scalar(&b,&m,286,0x1000,0,1,&waiting,&handled);
+   assert(handled&&waiting&&rc==0);
+   for(spin=0;spin<1000&&waiting;++spin){usleep(1000);rc=soft386_doscalls_bridge_dispatch_async_scalar(&b,&m,286,0x1000,0,1,&waiting,&handled);}
+   assert(handled&&!waiting&&rc==0);
+ }
  puts("Soft386 DOSCALLS bridge marshalling: PASS");return 0;
 }

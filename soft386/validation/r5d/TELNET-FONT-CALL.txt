@@ -1,0 +1,37 @@
+Exact supplied TELNETPM SHA256: 16f34d712cdefb8b3f4fa93b7956fc97429697419deccd80b62b8d838d4960e2
+Loaded guest code; 0xF0198 resolves to PMGPI.586.
+   14fd8:	c7 45 f8 00 00 00 00 	mov    DWORD PTR [ebp-0x8],0x0
+   14fdf:	c7 45 f4 00 00 00 00 	mov    DWORD PTR [ebp-0xc],0x0
+   14fe6:	6a 00                	push   0x0
+   14fe8:	6a 00                	push   0x0
+   14fea:	8d 45 f8             	lea    eax,[ebp-0x8]
+   14fed:	50                   	push   eax
+   14fee:	6a 00                	push   0x0
+   14ff0:	6a 01                	push   0x1
+   14ff2:	ff 75 fc             	push   DWORD PTR [ebp-0x4]
+   14ff5:	b0 06                	mov    al,0x6
+   14ff7:	e8 9c b1 0d 00       	call   0xf0198
+   14ffc:	83 c4 18             	add    esp,0x18
+   14fff:	89 45 f8             	mov    DWORD PTR [ebp-0x8],eax
+   15002:	83 7d f8 00          	cmp    DWORD PTR [ebp-0x8],0x0
+   15006:	7f 08                	jg     0x15010
+   15008:	e9 f7 04 00 00       	jmp    0x15504
+   1500d:	8d 40 00             	lea    eax,[eax+0x0]
+   15010:	8b 45 f8             	mov    eax,DWORD PTR [ebp-0x8]
+   15013:	69 c0 e4 00 00 00    	imul   eax,eax,0xe4
+   15019:	e8 22 d3 01 00       	call   0x32340
+   1501e:	89 45 f0             	mov    DWORD PTR [ebp-0x10],eax
+   15021:	83 7d f0 00          	cmp    DWORD PTR [ebp-0x10],0x0
+   15025:	75 05                	jne    0x1502c
+   15027:	e9 d8 04 00 00       	jmp    0x15504
+   1502c:	ff 75 f0             	push   DWORD PTR [ebp-0x10]
+   1502f:	68 e4 00 00 00       	push   0xe4
+   15034:	8d 45 f8             	lea    eax,[ebp-0x8]
+   15037:	50                   	push   eax
+   15038:	6a 00                	push   0x0
+   1503a:	6a 01                	push   0x1
+   1503c:	ff 75 fc             	push   DWORD PTR [ebp-0x4]
+   1503f:	b0 06                	mov    al,0x6
+   15041:	e8 52 b1 0d 00       	call   0xf0198
+   15046:	83 c4 18             	add    esp,0x18
+   15049:	0b c0                	or     eax,eax

@@ -1,0 +1,29 @@
+i686-w64-mingw32-gcc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include -shared -o DOSCALLS.dll \
+	dlls/doscalls/doscalls.c common/doscalls/os2_doscalls.c common/doscalls/os2_doscalls_platform.c common/win32/os2_doscalls_win32.c common/win32/os2_dos_platform_win32.c \
+	common/doscalls/os2_doscalls_core.c common/win32/os2_win32_services.c common/nls/os2_nls.c common/win32/os2_nls_win32.c \
+	dlls/doscalls/doscalls.def \
+	-lwinmm -Wl,--out-implib,libdoscalls.a
+i686-w64-mingw32-gcc -std=c89 -O2 -Wall -Wextra -pedantic -Idlls/pm-common -shared -o PMWIN.dll \
+	dlls/pmwin/pmwin.c common/pm/os2_track.c -Icommon/include dlls/pmwin/pmwin.def -luser32 -lgdi32 \
+	-Wl,--out-implib,libpmwin.a
+dlls/pmwin/pmwin.c: In function ‘pm_release_fonts’:
+dlls/pmwin/pmwin.c:358:20: warning: cast between incompatible function types from ‘FARPROC’ {aka ‘int (__attribute__((stdcall)) *)()’} to ‘void (__attribute__((cdecl)) *)(O2HPS)’ {aka ‘void (__attribute__((cdecl)) *)(long unsigned int)’} [-Wcast-function-type]
+  358 |     release=module?(ReleaseFontsFn)GetProcAddress(module,"OS2GPI_ReleaseFonts"):NULL;
+      |                    ^
+common/win32/os2_doscalls_win32.c: In function ‘o2win_DosGetResource’:
+common/win32/os2_doscalls_win32.c:3923:14: warning: cast between incompatible function types from ‘FARPROC’ {aka ‘int (__attribute__((stdcall)) *)()’} to ‘const void * (__attribute__((cdecl)) *)(O2ULONG,  short unsigned int,  short unsigned int,  O2ULONG *)’ {aka ‘const void * (__attribute__((cdecl)) *)(unsigned int,  short unsigned int,  short unsigned int,  unsigned int *)’} [-Wcast-function-type]
+ 3923 |     query=pm?(QueryFn)GetProcAddress(pm,"OS2PM_QueryResource"):NULL;
+      |              ^
+i686-w64-mingw32-gcc -std=c89 -O2 -Wall -Wextra -pedantic -Idlls/pm-common -shared -o PMGPI.dll \
+	dlls/pmgpi/pmgpi.c dlls/pmgpi/font_query.c dlls/pmgpi/pmgpi.def -lgdi32 \
+	-Wl,--out-implib,libpmgpi.a
+dlls/pmgpi/pmgpi.c: In function ‘GpiLoadBitmap’:
+dlls/pmgpi/pmgpi.c:1015:13: warning: cast between incompatible function types from ‘FARPROC’ {aka ‘int (__attribute__((stdcall)) *)()’} to ‘const void * (__attribute__((cdecl)) *)(O2ULONG,  O2USHORT,  O2USHORT,  O2ULONG *)’ {aka ‘const void * (__attribute__((cdecl)) *)(long unsigned int,  short unsigned int,  short unsigned int,  long unsigned int *)’} [-Wcast-function-type]
+ 1015 |     query = (O2QUERYRESOURCEFN)GetProcAddress(pmwin, "OS2PM_QueryResource");
+      |             ^
+dlls/pmgpi/pmgpi.c: At top level:
+dlls/pmgpi/pmgpi.c:215:13: warning: ‘make_bmi’ defined but not used [-Wunused-function]
+  215 | static void make_bmi(struct CompatBitmap *b, BITMAPINFOHEADER *h,
+      |             ^~~~~~~~
+i686-w64-mingw32-gcc -std=c89 -O2 -Wall -Wextra -pedantic -shared -o PMCTLS.dll dlls/pmctls/pmctls.c dlls/pmctls/pmctls.def -lcomdlg32 -luser32
+i686-w64-mingw32-gcc -std=c89 -O2 -Wall -Wextra -pedantic -Icommon/include -shared -o MSG.dll dlls/msg/msg.c common/msg/os2_msg.c dlls/msg/msg.def

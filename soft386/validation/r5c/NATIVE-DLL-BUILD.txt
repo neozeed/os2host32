@@ -1,0 +1,4 @@
+dlls/pmgpi/pmgpi.c:215:13: warning: unused function 'make_bmi' [-Wunused-function]
+  215 | static void make_bmi(struct CompatBitmap *b, BITMAPINFOHEADER *h,
+      |             ^~~~~~~~
+1 warning generated.

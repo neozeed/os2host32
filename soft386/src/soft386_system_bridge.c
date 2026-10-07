@@ -146,11 +146,10 @@ int soft386_system_bridge_open_mask(struct Soft386SystemBridge *b,uint32_t mask,
 {
     int ok=1;
     if(!b) return 0;
-    memset(b,0,sizeof(*b));
     b->trace=trace;
-    if((mask&SOFT386_SYS_VIO)!=0u && !module_open(&b->vio,"VIOCALLS",vio_path,"VIOCALLS.dll",vio_required,trace)&&vio_required)ok=0;
-    if((mask&SOFT386_SYS_KBD)!=0u && !module_open(&b->kbd,"KBDCALLS",kbd_path,"KBDCALLS.dll",kbd_required,trace)&&kbd_required)ok=0;
-    if((mask&SOFT386_SYS_SES)!=0u && !module_open(&b->ses,"SESMGR",ses_path,"SESMGR.dll",ses_required,trace)&&ses_required)ok=0;
+    if((mask&SOFT386_SYS_VIO)!=0u && !b->vio.loaded && !module_open(&b->vio,"VIOCALLS",vio_path,"VIOCALLS.dll",vio_required,trace)&&vio_required)ok=0;
+    if((mask&SOFT386_SYS_KBD)!=0u && !b->kbd.loaded && !module_open(&b->kbd,"KBDCALLS",kbd_path,"KBDCALLS.dll",kbd_required,trace)&&kbd_required)ok=0;
+    if((mask&SOFT386_SYS_SES)!=0u && !b->ses.loaded && !module_open(&b->ses,"SESMGR",ses_path,"SESMGR.dll",ses_required,trace)&&ses_required)ok=0;
     return ok;
 }
 int soft386_system_bridge_open(struct Soft386SystemBridge *b,

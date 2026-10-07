@@ -1,0 +1,13 @@
+{
+  "unchanged_files_outside_soft386": 3176,
+  "changed_text_files": [
+    "soft386/README.md",
+    "soft386/docs/R5D-PM-HANDOFF.md",
+    "soft386/src/soft386_os2.c",
+    "soft386/src/soft386_pm_bridge.c",
+    "soft386/tests/pm-bridge-check.c",
+    "soft386/tests/r5b-runtime-check.c"
+  ],
+  "patch_apply_check": "PASS",
+  "win32_exe_sha256": "934f650370a70115c9514f1db9fdcf1ae5150ddde6800d57d41addf0144674aa"
+}

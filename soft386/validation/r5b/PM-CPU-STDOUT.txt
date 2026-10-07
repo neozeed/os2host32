@@ -1,0 +1,2 @@
+Soft386 R5B PM CPU PASS
+Soft386 R5B real CPU PM provider PASS: callable old proc, paint/scroll, pointer bitmap, nested modal callbacks, yielding, FS/x87/DF/registers

@@ -3833,12 +3833,26 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 	}
 
 #include <time.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#undef IN
+#undef OUT
+#endif
 static uint64_t get_nticks()
 {
+#ifdef _WIN32
+    LARGE_INTEGER now, frequency;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&frequency);
+    return ((uint64_t)(now.QuadPart / frequency.QuadPart) * 1000000000ull +
+            (uint64_t)(now.QuadPart % frequency.QuadPart) * 1000000000ull / (uint64_t)frequency.QuadPart);
+#else
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	return ((uint64_t) ts.tv_sec * 1000000000ull +
 		(uint64_t) ts.tv_nsec);
+#endif
 }
 
 #define RDTSC() \

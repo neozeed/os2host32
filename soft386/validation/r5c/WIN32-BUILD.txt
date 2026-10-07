@@ -1,0 +1,16 @@
+src/soft386_os2.c:1110:15: warning: '__p__environ' redeclared without 'dllimport' attribute: previous 'dllimport' ignored [-Winconsistent-dllimport]
+ 1110 | extern char **_environ;
+      |               ^
+/workspace/scratch/e028e5e595ed/zig-deps/ziglang/lib/libc/include/any-windows-any/stdlib.h:225:21: note: expanded from macro '_environ'
+  225 | #define _environ (* __p__environ())
+      |                     ^
+/workspace/scratch/e028e5e595ed/zig-deps/ziglang/lib/libc/include/any-windows-any/stdlib.h:221:27: note: previous declaration is here
+  221 |   _CRTIMP char ***__cdecl __p__environ(void);
+      |                           ^
+/workspace/scratch/e028e5e595ed/zig-deps/ziglang/lib/libc/include/any-windows-any/stdlib.h:221:3: note: previous attribute is here
+  221 |   _CRTIMP char ***__cdecl __p__environ(void);
+      |   ^
+/workspace/scratch/e028e5e595ed/zig-deps/ziglang/lib/libc/include/any-windows-any/_mingw.h:52:40: note: expanded from macro '_CRTIMP'
+   52 | #      define _CRTIMP  __attribute__ ((__dllimport__))
+      |                                        ^
+1 warning generated.

@@ -1,0 +1,96 @@
+soft386: image system-module mask=0 (VIO=no KBD=no SES=no)
+soft386: resolve DOSCALLS.318 -> 000F0000
+soft386: resolve DOSCALLS.321 -> 000F0008
+soft386: resolve PMWIN.763 -> 000F0010
+soft386: resolve PMWIN.716 -> 000F0018
+soft386: resolve PMWIN.926 -> 000F0020
+soft386: resolve DOSCALLS.311 -> 000F0028
+soft386: resolve PMWIN.908 -> 000F0030
+soft386: resolve PMWIN.781 -> 000F0038
+soft386: resolve PMWIN.915 -> 000F0040
+soft386: resolve PMWIN.912 -> 000F0048
+soft386: resolve DOSCALLS.349 -> 000F0050
+soft386: resolve PMWIN.728 -> 000F0058
+soft386: resolve PMWIN.726 -> 000F0060
+soft386: resolve PMWIN.888 -> 000F0068
+soft386: resolve DOSCALLS.282 -> 000F0070
+soft386: resolve DOSCALLS.234 -> 000F0078
+soft386: resolve DOSCALLS.229 -> 000F0080
+soft386: resolve PMWIN.920 -> 000F0088
+soft386: resolve PMWIN.919 -> 000F0090
+Soft386 OS/2 R5 - Tiny386 + PM callbacks + guest DLLs + jar kernel
+soft386: host=POSIX pointer_bits=64
+soft386: 80387/x87=ON (Tiny386 optional FPU)
+soft386: native DOSCALLS bridge=OFF
+soft386: native system bridges VIO=OFF KBD=OFF SES=OFF
+soft386: input=/workspace/scratch/01a62dd1f93f/work/os2host32/soft386/tests/fixtures/pmjar-soft386.exe type=LE entry=00010000 initial_ESP=00023FEC objects=2 imports=19 FS=0018
+---------------- guest begins ----------------
+soft386: DOSCALLS.318 ESP=00023FD8 args=00000000,00000000,00020080,00020008,00000000
+soft386: resolve PMWIN.920 -> 000F0088
+soft386: resolve DOSCALLS.229 -> 000F0080
+soft386: resolve PMWIN.703 -> 000F0098
+soft386: resolve PMWIN.743 -> 000F00A0
+soft386: resolve PMGPI.517 -> 000F00A8
+soft386: resolve PMGPI.359 -> 000F00B0
+soft386: resolve PMWIN.738 -> 000F00B8
+soft386: resolve PMWIN.919 -> 000F0090
+soft386: resolve DOSCALLS.234 -> 000F0078
+soft386: DLL /workspace/scratch/01a62dd1f93f/work/os2host32/soft386/tests/fixtures/PMJAR.DLL handle=00001000 first-object=03000000
+soft386: callback -> TID 1 entry=03000000 depth=1
+soft386: DOSCALLS.321 ESP=00023FD8 args=00001000,00000000,000200A0,0002000C,00000000
+soft386: DOSCALLS.321 ESP=00023FD8 args=00001000,00000001,00000000,00020030,00000000
+soft386: DOSCALLS.321 ESP=00023FD8 args=00001000,00000000,00020200,00020030,00000000
+soft386: native PMWIN.dll.763 WinInitialize [PM marshalled]
+soft386: native PMWIN.dll.716 WinCreateMsgQueue [PM marshalled]
+soft386: native PMWIN.dll.926 WinRegisterClass [PM marshalled]
+soft386: DOSCALLS.311 ESP=00023FD4 args=0002001C,000102EF,00000000,00000000,00004000
+soft386: create TID 2 EIP=000102EF stack=01000000..01004000 ESP=01003FF8 state=RUNNABLE
+soft386: native PMWIN.dll.908 WinCreateStdWindow [PM marshalled]
+soft386: callback -> TID 1 entry=03000027 depth=1
+soft386: native PMWIN.dll.920 WinSendMsg [PM marshalled]
+soft386: callback -> TID 1 entry=03000027 depth=2
+soft386: DOSCALLS.229 ESP=00023FA8 args=00000001,000F7FE0,6D000003,00000001,00000000
+soft386: scheduler -> TID 2 EIP=000102EF ESP=01003FF8 FS=0020
+soft386: DOSCALLS.229 ESP=01003FF0 args=0000003C,000F7FF0,00000000,00000000,00000000
+soft386: scheduler -> TID 1 EIP=000F0087 ESP=00023FA8 FS=0018
+soft386: native PMWIN.dll.781 WinLoadString [PM marshalled]
+soft386: native PMWIN.dll.915 WinGetMsg [PM marshalled]
+soft386: native PMWIN.dll.912 WinDispatchMsg [PM marshalled]
+soft386: callback -> TID 1 entry=03000027 depth=1
+soft386: native PMWIN.dll.703 WinBeginPaint [PM marshalled]
+soft386: native PMWIN.dll.743 WinFillRect [PM marshalled]
+soft386: native PMGPI.dll.517 GpiSetColor [PM marshalled]
+soft386: native PMGPI.dll.359 GpiCharStringAt [PM marshalled]
+soft386: native PMWIN.dll.738 WinEndPaint [PM marshalled]
+soft386: native PMWIN.dll.915 WinGetMsg [PM marshalled]
+soft386: scheduler -> TID 1 EIP=000F0040 ESP=00023FD4 FS=0018
+soft386: native PMWIN.dll.915 WinGetMsg [PM marshalled]
+soft386: scheduler -> TID 1 EIP=000F0040 ESP=00023FD4 FS=0018
+soft386: native PMWIN.dll.915 WinGetMsg [PM marshalled]
+soft386: scheduler -> TID 1 EIP=000F0040 ESP=00023FD4 FS=0018
+soft386: native PMWIN.dll.915 WinGetMsg [PM marshalled]
+soft386: scheduler -> TID 1 EIP=000F0040 ESP=00023FD4 FS=0018
+soft386: native PMWIN.dll.915 WinGetMsg [PM marshalled]
+soft386: scheduler -> TID 1 EIP=000F0040 ESP=00023FD4 FS=0018
+soft386: native PMWIN.dll.915 WinGetMsg [PM marshalled]
+soft386: scheduler -> TID 2 EIP=000F0087 ESP=01003FF0 FS=0020
+soft386: native PMWIN.dll.920 WinSendMsg [PM marshalled]
+soft386: callback -> TID 1 entry=03000027 depth=1
+soft386: native PMWIN.dll.919 WinPostMsg [PM marshalled]
+soft386: TID 2 exited
+soft386: scheduler -> TID 1 EIP=000F0040 ESP=00023FD4 FS=0018
+soft386: native PMWIN.dll.915 WinGetMsg [PM marshalled]
+soft386: native PMWIN.dll.912 WinDispatchMsg [PM marshalled]
+soft386: callback -> TID 1 entry=03000027 depth=1
+soft386: native PMWIN.dll.919 WinPostMsg [PM marshalled]
+soft386: native PMWIN.dll.915 WinGetMsg [PM marshalled]
+soft386: DOSCALLS.349 ESP=00023FE0 args=0002001C,00000000,00000000,00000000,00000000
+soft386: native PMWIN.dll.728 WinDestroyWindow [PM marshalled]
+soft386: callback -> TID 1 entry=03000027 depth=1
+soft386: native PMWIN.dll.726 WinDestroyMsgQueue [PM marshalled]
+soft386: native PMWIN.dll.888 WinTerminate [PM marshalled]
+soft386: DOSCALLS.282 ESP=00023FD8 args=00000001,00020140,00000022,00020020,00000000
+soft386: DOSCALLS.234 ESP=00023FE0 args=00000001,00000000,00000000,00000000,00000000
+soft386: callback -> TID 1 entry=03000000 depth=1
+---------------- guest ended -----------------
+soft386: rc=0 cycles=571

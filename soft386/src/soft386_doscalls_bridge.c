@@ -12,6 +12,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef _WIN32
+#include <pthread.h>
+#include <stdatomic.h>
+#endif
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -107,32 +112,88 @@ int soft386_doscalls_bridge_open(struct Soft386NativeDoscalls *bridge,
 #endif
 }
 
+static void close_async_jobs(struct Soft386NativeDoscalls *bridge);
+
 void soft386_doscalls_bridge_close(struct Soft386NativeDoscalls *bridge)
 {
     if (!bridge) return;
+    close_async_jobs(bridge);
     if (bridge->close && bridge->opaque) bridge->close(bridge->opaque);
     memset(bridge, 0, sizeof(*bridge));
 }
 
-/* Native service tranche R1/R3.  Deliberately excludes memory (299/304/305/306,
- * 344-347), thread scheduling (229/234/311/312/349), sync
- * (232,324-336), guest module loading (318-322), signal/exception state, NLS,
- * and selector helpers.  R3 deliberately admits DosExecPgm/DosWaitChild: the
- * existing native DOSCALLS process backend creates another soft386 vessel,
- * while every child still receives its own Tiny386 CPU/RAM/PIB/TIB state. */
+/* H1 ABI registry.  This table describes representation/execution only;
+ * it must not grow OS/2 API semantics.  SCALAR entries use the common scalar
+ * call engine.  MARSHALLED entries name only an ABI boundary that requires
+ * guest-memory translation in the switch below. */
+struct Soft386DosAbiDesc { uint32_t ordinal; unsigned nargs, flags; const char *name; };
+static const struct Soft386DosAbiDesc dos_abi[] = {
+    { 110u, 1u, SOFT386_DOS_ABI_MARSHALLED, "DosForceDelete" },
+    { 209u, 1u, SOFT386_DOS_ABI_SCALAR, "DosSetMaxFH" },
+    { 218u, 4u, SOFT386_DOS_ABI_MARSHALLED, "DosSetFileInfo" },
+    { 232u, 0u, SOFT386_DOS_ABI_SCALAR, "DosEnterCritSec" },
+    { 219u, 5u, SOFT386_DOS_ABI_MARSHALLED, "DosSetPathInfo" },
+    { 220u, 1u, SOFT386_DOS_ABI_SCALAR, "DosSetDefaultDisk" },
+    { 221u, 2u, SOFT386_DOS_ABI_SCALAR, "DosSetFHState" },
+    { 223u, 4u, SOFT386_DOS_ABI_MARSHALLED, "DosQueryPathInfo" },
+    { 224u, 3u, SOFT386_DOS_ABI_MARSHALLED, "DosQueryHType" },
+    { 226u, 1u, SOFT386_DOS_ABI_MARSHALLED, "DosDeleteDir" },
+    { 239u, 3u, SOFT386_DOS_ABI_MARSHALLED, "DosCreatePipe" },
+    { 254u, 1u, SOFT386_DOS_ABI_SCALAR, "DosResetBuffer" },
+    { 255u, 1u, SOFT386_DOS_ABI_MARSHALLED, "DosSetCurrentDir" },
+    { 256u, 4u, SOFT386_DOS_ABI_MARSHALLED, "DosSetFilePtr" },
+    { 257u, 1u, SOFT386_DOS_ABI_SCALAR, "DosClose" },
+    { 258u, 3u, SOFT386_DOS_ABI_MARSHALLED, "DosCopy" },
+    { 259u, 2u, SOFT386_DOS_ABI_MARSHALLED, "DosDelete" },
+    { 260u, 2u, SOFT386_DOS_ABI_MARSHALLED, "DosDupHandle" },
+    { 263u, 1u, SOFT386_DOS_ABI_SCALAR, "DosFindClose" },
+    { 264u, 7u, SOFT386_DOS_ABI_MARSHALLED, "DosFindFirst" },
+    { 265u, 4u, SOFT386_DOS_ABI_MARSHALLED, "DosFindNext" },
+    { 270u, 3u, SOFT386_DOS_ABI_MARSHALLED, "DosCreateDir" },
+    { 271u, 2u, SOFT386_DOS_ABI_MARSHALLED, "DosMove" },
+    { 272u, 2u, SOFT386_DOS_ABI_SCALAR, "DosSetFileSize" },
+    { 273u, 8u, SOFT386_DOS_ABI_MARSHALLED, "DosOpen" },
+    { 274u, 3u, SOFT386_DOS_ABI_MARSHALLED, "DosQueryCurrentDir" },
+    { 275u, 2u, SOFT386_DOS_ABI_MARSHALLED, "DosQueryCurrentDisk" },
+    { 276u, 2u, SOFT386_DOS_ABI_MARSHALLED, "DosQueryFHState" },
+    { 278u, 4u, SOFT386_DOS_ABI_MARSHALLED, "DosQueryFSInfo" },
+    { 279u, 4u, SOFT386_DOS_ABI_MARSHALLED, "DosQueryFileInfo" },
+    { 280u, 5u, SOFT386_DOS_ABI_MARSHALLED, "DosWaitChild" },
+    { 281u, 4u, SOFT386_DOS_ABI_MARSHALLED, "DosRead" },
+    { 282u, 4u, SOFT386_DOS_ABI_MARSHALLED, "DosWrite" },
+    { 283u, 7u, SOFT386_DOS_ABI_MARSHALLED, "DosExecPgm" },
+    { 286u, 2u, SOFT386_DOS_ABI_SCALAR | SOFT386_DOS_MAY_BLOCK, "DosBeep" },
+    { 323u, 2u, SOFT386_DOS_ABI_MARSHALLED, "DosQueryAppType" },
+    { 362u, 1u, SOFT386_DOS_ABI_MARSHALLED, "DosTmrQueryFreq" },
+    { 363u, 1u, SOFT386_DOS_ABI_MARSHALLED, "DosTmrQueryTime" },
+    { 382u, 2u, SOFT386_DOS_ABI_MARSHALLED, "DosSetRelMaxFH" }
+};
+static const struct Soft386DosAbiDesc *abi_desc(uint32_t ordinal)
+{
+    unsigned i;
+    for (i = 0; i < sizeof(dos_abi)/sizeof(dos_abi[0]); ++i)
+        if (dos_abi[i].ordinal == ordinal) return &dos_abi[i];
+    return NULL;
+}
+unsigned soft386_doscalls_bridge_abi(uint32_t ordinal, unsigned *nargs)
+{
+    const struct Soft386DosAbiDesc *d = abi_desc(ordinal);
+    if (nargs) *nargs = d ? d->nargs : 0u;
+    return d ? d->flags : 0u;
+}
+
+/* Bridged service admission is now descriptor-driven.  Guest-local APIs are
+ * absent from this registry and therefore fall through to the jar handlers. */
 int soft386_doscalls_bridge_ordinal(uint32_t ordinal)
 {
-    switch (ordinal) {
-    case 110: case 209: case 218: case 219: case 220: case 221: case 223:
-    case 224: case 226: case 239: case 254: case 255: case 256: case 257:
-    case 258: case 259: case 260: case 263: case 264: case 265: case 270:
-    case 271: case 272: case 273: case 274: case 275: case 276: case 278:
-    case 279: case 280: case 281: case 282: case 283: case 323: case 362:
-    case 363: case 382:
-        return 1;
-    default:
-        return 0;
-    }
+    return abi_desc(ordinal) != NULL;
+}
+
+/* Service availability belongs to the provider, not to the ABI table. */
+int soft386_doscalls_bridge_export(struct Soft386NativeDoscalls *bridge, uint32_t ordinal)
+{
+    if (!bridge || !bridge->loaded || !bridge->get_proc) return 0;
+    return bridge->get_proc(bridge->opaque, ordinal) != NULL;
 }
 
 static uint32_t arg32(const struct Soft386GuestMemoryOps *m, uint32_t esp, unsigned n)
@@ -141,31 +202,8 @@ static uint32_t arg32(const struct Soft386GuestMemoryOps *m, uint32_t esp, unsig
 }
 static unsigned bridge_nargs(uint32_t ordinal)
 {
-    switch (ordinal) {
-    case 110: case 209: case 220: case 226: case 254: case 255:
-    case 257: case 263: case 362: case 363:
-        return 1;
-    case 221: case 259: case 260: case 271: case 272:
-    case 275: case 276: case 323: case 382:
-        return 2;
-    case 224: case 239: case 258: case 270: case 274:
-        return 3;
-    case 218: case 223: case 256: case 265: case 278: case 279:
-    case 281: case 282:
-        return 4;
-    case 280:
-        return 5;
-    case 219:
-        return 5;
-    case 283:
-        return 7;
-    case 264:
-        return 7;
-    case 273:
-        return 8;
-    default:
-        return 0;
-    }
+    const struct Soft386DosAbiDesc *d = abi_desc(ordinal);
+    return d ? d->nargs : 0u;
 }
 
 static int need(const struct Soft386GuestMemoryOps *m, uint32_t p, uint32_t cb, int wr)
@@ -244,6 +282,20 @@ static uint32_t missing(struct Soft386NativeDoscalls *b, uint32_t ord)
  * intended 32-bit Win32 build. */
 #define PCAST(type, p) ((type)(uintptr_t)(p))
 
+static uint32_t call_scalar(void *vp, unsigned nargs, const uint32_t *a)
+{
+    switch (nargs) {
+    case 0: return PCAST(O2RET (__cdecl *)(void),vp)();
+    case 1: return PCAST(O2RET (__cdecl *)(O2ULONG),vp)(a[0]);
+    case 2: return PCAST(O2RET (__cdecl *)(O2ULONG,O2ULONG),vp)(a[0],a[1]);
+    case 3: return PCAST(O2RET (__cdecl *)(O2ULONG,O2ULONG,O2ULONG),vp)(a[0],a[1],a[2]);
+    case 4: return PCAST(O2RET (__cdecl *)(O2ULONG,O2ULONG,O2ULONG,O2ULONG),vp)(a[0],a[1],a[2],a[3]);
+    case 5: return PCAST(O2RET (__cdecl *)(O2ULONG,O2ULONG,O2ULONG,O2ULONG,O2ULONG),vp)(a[0],a[1],a[2],a[3],a[4]);
+    case 6: return PCAST(O2RET (__cdecl *)(O2ULONG,O2ULONG,O2ULONG,O2ULONG,O2ULONG,O2ULONG),vp)(a[0],a[1],a[2],a[3],a[4],a[5]);
+    default: return OS2_ERROR_INVALID_PARAMETER;
+    }
+}
+
 uint32_t soft386_doscalls_bridge_dispatch(
     struct Soft386NativeDoscalls *b,
     const struct Soft386GuestMemoryOps *m,
@@ -261,12 +313,22 @@ uint32_t soft386_doscalls_bridge_dispatch(
     if (!m || !m->valid || !m->read || !m->write || !m->read_cstr || !m->read_u32)
         return OS2_ERROR_INVALID_PARAMETER;
     nargs = bridge_nargs(ordinal);
-    if (!nargs || !m->valid(m->opaque, esp + 4u, nargs * 4u, 0))
+    if (nargs && !m->valid(m->opaque, esp + 4u, nargs * 4u, 0))
         return OS2_ERROR_INVALID_PARAMETER;
     memset(a, 0, sizeof(a));
     for (i = 0; i < nargs; ++i) a[i] = arg32(m, esp, i);
     vp = proc(b, ordinal);
     if (!vp) return missing(b, ordinal);
+
+    {
+        const struct Soft386DosAbiDesc *d = abi_desc(ordinal);
+        if (d && (d->flags & SOFT386_DOS_ABI_SCALAR)) {
+            trace_call(b, ordinal, d->name);
+            rc = call_scalar(vp, d->nargs, a);
+            trace_return(b, ordinal, rc);
+            return rc;
+        }
+    }
 
     switch (ordinal) {
     case 110: { /* DosForceDelete(path) */
@@ -281,9 +343,6 @@ uint32_t soft386_doscalls_bridge_dispatch(
         if (!get_cstr(m,a[0],s1,sizeof(s1)) || !get_cstr(m,a[1],s2,sizeof(s2))) return OS2_ERROR_INVALID_PARAMETER;
         return PCAST(Fn,vp)(s1,s2,a[2]);
     }
-    case 209: { typedef O2RET (__cdecl *Fn)(O2ULONG); trace_call(b,ordinal,"DosSetMaxFH"); return PCAST(Fn,vp)(a[0]); }
-    case 254: { typedef O2RET (__cdecl *Fn)(O2HFILE); trace_call(b,ordinal,"DosResetBuffer"); return PCAST(Fn,vp)(a[0]); }
-    case 221: { typedef O2RET (__cdecl *Fn)(O2HFILE,O2ULONG); trace_call(b,ordinal,"DosSetFHState"); return PCAST(Fn,vp)(a[0],a[1]); }
     case 276: { /* DosQueryFHState(h,&mode) */
         typedef O2RET (__cdecl *Fn)(O2HFILE,O2ULONG *);
         trace_call(b,ordinal,"DosQueryFHState"); if(!need(m,a[1],4,1))return OS2_ERROR_INVALID_PARAMETER;
@@ -301,7 +360,6 @@ uint32_t soft386_doscalls_bridge_dispatch(
     case 362: { typedef O2RET (__cdecl *Fn)(O2ULONG *); trace_call(b,ordinal,"DosTmrQueryFreq"); if(!need(m,a[0],4,1))return OS2_ERROR_INVALID_PARAMETER; v1=0;rc=PCAST(Fn,vp)(&v1);if(!rc&&!m->write(m->opaque,a[0],&v1,4))return OS2_ERROR_INVALID_PARAMETER;return rc; }
     case 363: { typedef O2RET (__cdecl *Fn)(struct O2DosQword *); struct O2DosQword q; trace_call(b,ordinal,"DosTmrQueryTime"); if(!need(m,a[0],8,1))return OS2_ERROR_INVALID_PARAMETER; memset(&q,0,sizeof(q));rc=PCAST(Fn,vp)(&q);if(!rc&&!m->write(m->opaque,a[0],&q,8))return OS2_ERROR_INVALID_PARAMETER;return rc; }
     case 382: { typedef O2RET (__cdecl *Fn)(O2LONG *,O2ULONG *); O2LONG req; O2ULONG cur; trace_call(b,ordinal,"DosSetRelMaxFH"); if(!need(m,a[0],4,1)||!need(m,a[1],4,1))return OS2_ERROR_INVALID_PARAMETER; req=(O2LONG)m->read_u32(m->opaque,a[0]);cur=m->read_u32(m->opaque,a[1]);rc=PCAST(Fn,vp)(&req,&cur);if(!rc){if(!m->write(m->opaque,a[0],&req,4)||!m->write(m->opaque,a[1],&cur,4))return OS2_ERROR_INVALID_PARAMETER;}return rc; }
-    case 220: { typedef O2RET (__cdecl *Fn)(O2ULONG); trace_call(b,ordinal,"DosSetDefaultDisk"); return PCAST(Fn,vp)(a[0]); }
     case 223: { /* path,level,buffer,cb */
         typedef O2RET (__cdecl *Fn)(const char *,O2ULONG,void *,O2ULONG);
         trace_call(b,ordinal,"DosQueryPathInfo"); if(!get_cstr(m,a[0],s1,sizeof(s1))||(a[3]&&!need(m,a[2],a[3],1)))return OS2_ERROR_INVALID_PARAMETER;
@@ -312,10 +370,8 @@ uint32_t soft386_doscalls_bridge_dispatch(
     case 239: { typedef O2RET (__cdecl *Fn)(O2HFILE *,O2HFILE *,O2ULONG); trace_call(b,ordinal,"DosCreatePipe"); if(!need(m,a[0],4,1)||!need(m,a[1],4,1))return OS2_ERROR_INVALID_PARAMETER;v1=v2=0;rc=PCAST(Fn,vp)(&v1,&v2,a[2]);if(!rc){if(!m->write(m->opaque,a[0],&v1,4)||!m->write(m->opaque,a[1],&v2,4))return OS2_ERROR_INVALID_PARAMETER;}return rc; }
     case 255: { typedef O2RET (__cdecl *Fn)(const char *); trace_call(b,ordinal,"DosSetCurrentDir"); if(!get_cstr(m,a[0],s1,sizeof(s1)))return OS2_ERROR_INVALID_PARAMETER;return PCAST(Fn,vp)(s1); }
     case 256: { typedef O2RET (__cdecl *Fn)(O2HFILE,O2LONG,O2ULONG,O2ULONG *); trace_call(b,ordinal,"DosSetFilePtr"); if(!need(m,a[3],4,1))return OS2_ERROR_INVALID_PARAMETER;v1=0;rc=PCAST(Fn,vp)(a[0],(O2LONG)a[1],a[2],&v1);if(!rc&&!m->write(m->opaque,a[3],&v1,4))return OS2_ERROR_INVALID_PARAMETER;return rc; }
-    case 257: { typedef O2RET (__cdecl *Fn)(O2HFILE); trace_call(b,ordinal,"DosClose"); return PCAST(Fn,vp)(a[0]); }
     case 259: { typedef O2RET (__cdecl *Fn)(const char *,O2ULONG); trace_call(b,ordinal,"DosDelete"); if(!get_cstr(m,a[0],s1,sizeof(s1)))return OS2_ERROR_INVALID_PARAMETER;return PCAST(Fn,vp)(s1,a[1]); }
     case 260: { typedef O2RET (__cdecl *Fn)(O2HFILE,O2HFILE *); trace_call(b,ordinal,"DosDupHandle"); if(!need(m,a[1],4,1))return OS2_ERROR_INVALID_PARAMETER;v1=m->read_u32(m->opaque,a[1]);rc=PCAST(Fn,vp)(a[0],&v1);if(!rc&&!m->write(m->opaque,a[1],&v1,4))return OS2_ERROR_INVALID_PARAMETER;return rc; }
-    case 263: { typedef O2RET (__cdecl *Fn)(O2ULONG); trace_call(b,ordinal,"DosFindClose"); return PCAST(Fn,vp)(a[0]); }
     case 264: { /* filespec,phdir,attrs,findbuf,cb,pcount,level */
         typedef O2RET (__cdecl *Fn)(const char *,O2ULONG *,O2ULONG,void *,O2ULONG,O2ULONG *,O2ULONG);
         O2ULONG hdir,count; uint32_t level=arg32(m,esp,6);
@@ -329,7 +385,6 @@ uint32_t soft386_doscalls_bridge_dispatch(
     case 265: { typedef O2RET (__cdecl *Fn)(O2ULONG,void *,O2ULONG,O2ULONG *); O2ULONG count; trace_call(b,ordinal,"DosFindNext"); if(!need(m,a[3],4,1)||(a[2]&&!need(m,a[1],a[2],1)))return OS2_ERROR_INVALID_PARAMETER;count=m->read_u32(m->opaque,a[3]);buf=temp_alloc(a[2]);if(!buf)return OS2_ERROR_NOT_ENOUGH_MEMORY;rc=PCAST(Fn,vp)(a[0],buf,a[2],&count);if(!m->write(m->opaque,a[3],&count,4)||(a[2]&&!m->write(m->opaque,a[1],buf,a[2])))rc=OS2_ERROR_INVALID_PARAMETER;free(buf);return rc; }
     case 270: { typedef O2RET (__cdecl *Fn)(const char *,void *,O2ULONG); trace_call(b,ordinal,"DosCreateDir"); if(!get_cstr(m,a[0],s1,sizeof(s1)))return OS2_ERROR_INVALID_PARAMETER; if(a[1])return OS2_ERROR_INVALID_PARAMETER; return PCAST(Fn,vp)(s1,NULL,a[2]); }
     case 271: { typedef O2RET (__cdecl *Fn)(const char *,const char *); trace_call(b,ordinal,"DosMove");if(!get_cstr(m,a[0],s1,sizeof(s1))||!get_cstr(m,a[1],s2,sizeof(s2)))return OS2_ERROR_INVALID_PARAMETER;return PCAST(Fn,vp)(s1,s2); }
-    case 272: { typedef O2RET (__cdecl *Fn)(O2HFILE,O2ULONG); trace_call(b,ordinal,"DosSetFileSize");return PCAST(Fn,vp)(a[0],a[1]); }
     case 273: { /* ABI8 guest: path,phfile,paction,cb,attr,flags,mode,pEA */
         typedef O2RET (__cdecl *Fn)(const char *,O2HFILE *,O2ULONG *,O2ULONG,O2ULONG,O2ULONG,O2ULONG,void *,O2ULONG);
         O2HFILE hf; O2ULONG action; uint32_t ea=arg32(m,esp,7);
@@ -388,4 +443,81 @@ uint32_t soft386_doscalls_bridge_dispatch(
     default: break;
     }
     return OS2_ERROR_INVALID_FUNCTION;
+}
+
+
+/* Generic asynchronous scalar invocation.  This is scheduler plumbing, not
+ * DosBeep semantics: any future scalar descriptor may opt into MAY_BLOCK. */
+struct Soft386DosAsyncJob {
+    uint32_t ordinal, esp, tid, args[6], rc;
+    unsigned nargs;
+    void *fn;
+#ifdef _WIN32
+    HANDLE thread;
+#else
+    pthread_t thread;
+    atomic_int done;
+#endif
+};
+static void async_execute(struct Soft386DosAsyncJob *j)
+{
+    j->rc = call_scalar(j->fn, j->nargs, j->args);
+}
+#ifdef _WIN32
+static DWORD WINAPI dos_async_worker(void *p) { async_execute((struct Soft386DosAsyncJob *)p); return 0; }
+static int dos_async_start(struct Soft386DosAsyncJob *j) { j->thread=CreateThread(NULL,0,dos_async_worker,j,0,NULL); return j->thread!=NULL; }
+static int dos_async_done(struct Soft386DosAsyncJob *j) { return WaitForSingleObject(j->thread,0)==WAIT_OBJECT_0; }
+static void dos_async_join(struct Soft386DosAsyncJob *j) { CloseHandle(j->thread); }
+#else
+static void *dos_async_worker(void *p) { struct Soft386DosAsyncJob *j=(struct Soft386DosAsyncJob *)p; async_execute(j); atomic_store_explicit(&j->done,1,memory_order_release); return NULL; }
+static int dos_async_start(struct Soft386DosAsyncJob *j) { atomic_init(&j->done,0); return pthread_create(&j->thread,NULL,dos_async_worker,j)==0; }
+static int dos_async_done(struct Soft386DosAsyncJob *j) { return atomic_load_explicit(&j->done,memory_order_acquire)!=0; }
+static void dos_async_join(struct Soft386DosAsyncJob *j) { (void)pthread_join(j->thread,NULL); }
+#endif
+
+static void close_async_jobs(struct Soft386NativeDoscalls *b)
+{
+    unsigned i;
+    if(!b)return;
+    for(i=0;i<SOFT386_DOS_ASYNC_SLOTS;++i){
+        struct Soft386DosAsyncJob *j=(struct Soft386DosAsyncJob *)b->async_jobs[i];
+        if(!j)continue;
+        dos_async_join(j);
+        free(j);
+        b->async_jobs[i]=NULL;
+    }
+}
+
+uint32_t soft386_doscalls_bridge_dispatch_async_scalar(
+    struct Soft386NativeDoscalls *b, const struct Soft386GuestMemoryOps *m,
+    uint32_t ordinal, uint32_t esp, unsigned slot, uint32_t tid,
+    int *waiting, int *handled)
+{
+    const struct Soft386DosAbiDesc *d=abi_desc(ordinal);
+    struct Soft386DosAsyncJob *j;
+    unsigned i;
+    void *vp;
+    if (waiting) *waiting=0;
+    if (handled) *handled=d && (d->flags & (SOFT386_DOS_ABI_SCALAR|SOFT386_DOS_MAY_BLOCK)) == (SOFT386_DOS_ABI_SCALAR|SOFT386_DOS_MAY_BLOCK);
+    if (!d || !(d->flags & SOFT386_DOS_ABI_SCALAR) || !(d->flags & SOFT386_DOS_MAY_BLOCK)) return OS2_ERROR_INVALID_FUNCTION;
+    if (!b || !b->loaded || !m || !m->valid || !m->read_u32 || slot>=SOFT386_DOS_ASYNC_SLOTS) return OS2_ERROR_INVALID_PARAMETER;
+    j=(struct Soft386DosAsyncJob *)b->async_jobs[slot];
+    if (j) {
+        if (j->ordinal!=ordinal || j->esp!=esp || j->tid!=tid) return OS2_ERROR_INVALID_PARAMETER;
+        if (!dos_async_done(j)) { if(waiting)*waiting=1; return OS2_NO_ERROR; }
+        dos_async_join(j);
+        i=j->rc;
+        if (b->trace) fprintf(stderr,"soft386: native DOSCALLS.%u async returned rc=%u\n",ordinal,i);
+        free(j); b->async_jobs[slot]=NULL; return i;
+    }
+    if (d->nargs>6u || !m->valid(m->opaque,esp+4u,d->nargs*4u,0)) return OS2_ERROR_INVALID_PARAMETER;
+    vp=proc(b,ordinal); if(!vp)return missing(b,ordinal);
+    j=(struct Soft386DosAsyncJob *)calloc(1,sizeof(*j)); if(!j)return OS2_ERROR_NOT_ENOUGH_MEMORY;
+    j->ordinal=ordinal;j->esp=esp;j->tid=tid;j->nargs=d->nargs;j->fn=vp;
+    for(i=0;i<d->nargs;++i)j->args[i]=m->read_u32(m->opaque,esp+4u+4u*i);
+    if(!dos_async_start(j)){free(j);return OS2_ERROR_NOT_ENOUGH_MEMORY;}
+    b->async_jobs[slot]=j;b->async_tids[slot]=tid;
+    if(waiting)*waiting=1;
+    if(b->trace)fprintf(stderr,"soft386: native DOSCALLS.%u %s [generic async scalar] owner TID=%u\n",ordinal,d->name,tid);
+    return OS2_NO_ERROR;
 }

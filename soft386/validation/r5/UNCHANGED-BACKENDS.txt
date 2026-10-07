@@ -1,0 +1,2 @@
+All 3176 original project files outside soft386/ are byte-identical.
+Baseline ZIP SHA256: f3158bda4003ca226fbdeb1ce235b3c8b81ab243e28fc73a0accee7bebba434c

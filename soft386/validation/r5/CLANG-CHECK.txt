@@ -1,0 +1,4 @@
+Soft386 R2C regression: PASS
+Soft386 R3 regression: PASS
+Soft386 R4 regression: PASS
+Soft386 R5 regression PASS: DLL imports, PM callback runtime, marshal boundaries, callback failure unwind

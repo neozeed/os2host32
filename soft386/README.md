@@ -1,4 +1,80 @@
-# Soft386 OS/2 R4
+R5D update: see [PM fixes and Windows test steps](docs/R5D-PM-HANDOFF.md).
+
+# Soft386 OS/2 R5C
+
+## R5C TELNETPM and TCP/IP
+
+The exact TELNETPM-1993 image now has a jar-specific mixed-mode profile.
+SO32DLL and TCP32DLL use explicit copied-buffer bridges with asynchronous
+native workers; blocked network calls yield the guest CPU. Native resolver
+pointer graphs become guest pointers, with separate per-thread host/service/
+address result storage. DosSearchPath consults the guest environment, and
+DosBeep waits asynchronously. CRT exit callbacks and exception-chain records
+remain in the jar. Supporting PM accelerator, cursor, font and switch calls
+are also marshalled. Existing system DLL sources and WHP are unchanged.
+
+Run `make check` for host regressions. `make win32` uses 32-bit MinGW.
+The supplied Windows smoke kit needs neither Python nor a compiler.
+**TELNETPM live GUI/network acceptance remains pending.** See
+[R5C handoff](docs/R5C-TELNET-NET-HANDOFF.md) for tested scope and limitations.
+
+R5B live feedback now confirms BIO's two windows, SimCity startup, Life, and
+SarienPM loading. NEKO still shows only its control panel; R5C does not claim
+to repair the missing cat.
+
+## R5B runtime gaps from the live demo traces
+
+R5B corrects the 13-argument WinCreateWindow ABI and adds WinSubclassWindow,
+WinDlgBox, WinQueryPointerInfo, WinQueryWindowProcess, WinScrollWindow,
+WinDrawBitmap, dialog short/text-limit helpers and WinSetSysModalWindow.
+Saved native control procedures become callable guest veneers with private
+native targets. QUECALLS.9/.14/.15/.16 use an explicit bridge; empty WAIT reads
+park the guest thread, while payload values remain opaque 32-bit values.
+
+The full host regression suite, new real-CPU callback/queue fixtures, sanitizer
+boundary checks and i686 Windows build pass. Live R5B GUI acceptance is pending.
+The system DLL sources and WHP remain unchanged. See
+[R5B changes, limits and Windows steps](docs/R5B-PM-QUEUE-HANDOFF.md).
+
+## R5A loader and PM service correction
+
+HANOI has now been reported working live on Windows with R5. R5A fixes the
+misleading BIO/Sarien-style "not LE/LX" error when an unrecognized system
+personality is found as a native PE DLL through OS2LIBPATH. PMSHAPI and HELPMGR
+have explicit marshal routes; PMWP.203 loads the requested user DLL inside the
+jar. LX iterated pages are decoded with checked input and output bounds, and
+resource-only DLL objects receive independent guest allocations.
+
+The supplied BIO, HANOI, NEKO and NEKO.DLL pass R5A loader checks. This is not a
+claim of complete GUI compatibility: unimplemented PM imports are now marked
+in --check output. See [R5A correction and Windows steps](docs/R5A-LOADER-HANDOFF.md).
+The original system DLL sources and WHP remain unchanged.
+
+## R5 Presentation Manager and guest DLLs
+
+R5 adds a bounded PMWIN/PMGPI/PMCTLS/MSG bridge and LE/LX user DLL loading.
+System personality DLL sources are unchanged. Window procedures execute in the
+Tiny386 jar, including nested callbacks and worker-to-PM-owner calls. The bridge
+saves integer, segment, flags and x87 state, keeps native handles behind typed
+guest tokens, copies buffers/resources, and lets other guest threads run while
+`WinGetMsg` waits.
+
+The headless end-to-end fixture loads `PMJAR.DLL`, runs its initialization,
+registers its guest window procedure, yields inside `WM_CREATE`, performs a
+nested send, paints, receives a worker send, destroys the window and terminates
+the DLL. GCC/Clang host checks and the i686 Windows build were validated.
+The user subsequently reported HANOI working live on Windows. The synthetic
+smoke kit and each additional application still need their own live acceptance.
+
+Start with [R5 handoff](docs/R5-PM-DLL-HANDOFF.md),
+[Windows acceptance](docs/WINDOWS-TEST-R5.md), and the
+[PM bridge catalogue](docs/R5-PM-API-SURFACE.md).
+
+The initial scope is one PM message-queue owner per jar, plus guest workers and
+independent child jars. Full PM, arbitrary pointer-bearing control messages,
+physical DLL unloading and general 16-bit OS/2 execution are not implemented.
+
+## Preserved R4 checkpoint
 
 ## R4 optional 80387/x87
 

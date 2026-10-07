@@ -1,0 +1,1 @@
+All 3176 original files outside soft386/ remain byte-identical to os2host32-f0c6ff2.zip.

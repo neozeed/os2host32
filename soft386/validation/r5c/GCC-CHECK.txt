@@ -1,0 +1,74 @@
+R5C network PASS: loopback binary I/O, pending read with concurrent sender, copied inputs, guest resolver graphs, thread errno, bounds, stale sockets, async beep (36 dispatches)
+soft386: resolve SO32DLL.26 -> 000F0000
+soft386: resolve TCP32DLL.11 -> 000F0008
+soft386: resolve SO32DLL.16 -> 000F0010
+soft386: resolve SO32DLL.3 -> 000F0018
+soft386: resolve DOSCALLS.311 -> 000F0020
+soft386: resolve DOSCALLS.229 -> 000F0028
+soft386: resolve SO32DLL.13 -> 000F0030
+soft386: resolve DOSCALLS.349 -> 000F0038
+soft386: resolve SO32DLL.17 -> 000F0040
+soft386: resolve DOSCALLS.282 -> 000F0048
+soft386: resolve DOSCALLS.234 -> 000F0050
+soft386: resolve SO32DLL.10 -> 000F0058
+Soft386 OS/2 R5C - TELNETPM jar + async TCP/IP + search/beep
+soft386: host=POSIX pointer_bits=64
+soft386: 80387/x87=ON (Tiny386 optional FPU)
+soft386: native DOSCALLS bridge=ON
+soft386: native system bridges VIO=OFF KBD=OFF SES=OFF
+soft386: input=tests/fixtures/net-soft386.le type=LE entry=00010000 initial_ESP=00023FEC objects=2 imports=12 FS=0018
+---------------- guest begins ----------------
+---------------- guest ended -----------------
+soft386: rc=0 cycles=171
+R5C Tiny386 async network PASS: worker progress, guest buffers, FS/x87/EBX preserved
+soft386: resolve DOSCALLS.228 -> 000F0000
+soft386: resolve DOSCALLS.296 -> 000F0008
+soft386: resolve DOSCALLS.234 -> 000F0010
+soft386: resolve DOSCALLS.282 -> 000F0018
+Soft386 OS/2 R5C - TELNETPM jar + async TCP/IP + search/beep
+soft386: host=POSIX pointer_bits=64
+soft386: 80387/x87=ON (Tiny386 optional FPU)
+soft386: native DOSCALLS bridge=ON
+soft386: native system bridges VIO=OFF KBD=OFF SES=OFF
+soft386: input=tests/fixtures/exit-soft386.le type=LE entry=00010000 initial_ESP=00023FEC objects=2 imports=4 FS=0018
+---------------- guest begins ----------------
+---------------- guest ended -----------------
+soft386: rc=0 cycles=71
+R5C Tiny386 search + ordered exit callback PASS
+tests/fixtures/dll-api-soft386.le 12288
+tests/fixtures/dll-legacy-soft386.le 12288
+tests/fixtures/dll-static-soft386.le 12288
+tests/fixtures/dll-static-soft386.lx 12288
+tests/fixtures/exit-soft386.le 12288
+tests/fixtures/fpu-soft386.le 9216
+tests/fixtures/fpu-thread-soft386.le 9216
+tests/fixtures/hello-soft386.le 9216
+tests/fixtures/hello-soft386.lx 9216
+tests/fixtures/hi-surface-soft386.le 9216
+tests/fixtures/internal-soft386.le 9216
+tests/fixtures/internal-soft386.lx 9216
+tests/fixtures/memory-soft386.le 9216
+tests/fixtures/native-file-soft386.le 9216
+tests/fixtures/net-soft386.le 12288
+tests/fixtures/nls-alias-soft386.le 9216
+tests/fixtures/nls-module-soft386.le 9216
+tests/fixtures/pipe-consumer-soft386.exe 9216
+tests/fixtures/pipe-producer-soft386.exe 9216
+tests/fixtures/pm-r5b-soft386.le 12288
+tests/fixtures/pmjar-soft386.exe 12288
+tests/fixtures/pmjar-view-soft386.exe 12288
+tests/fixtures/queue-soft386.le 12288
+tests/fixtures/resource-load-soft386.le 12288
+tests/fixtures/route-native-soft386.le 12288
+tests/fixtures/sync-soft386.le 9216
+tests/fixtures/system-modules-soft386.le 9216
+tests/fixtures/thread-soft386.le 9216
+Soft386 R5 LE/LX fixtures generated
+Soft386 R5A fixtures generated
+Soft386 R5B fixtures generated
+Soft386 R2C regression: PASS
+Soft386 R3 regression: PASS
+Soft386 R4 regression: PASS
+Soft386 R5 regression PASS: DLL imports, PM callback runtime, marshal boundaries, callback failure unwind
+Soft386 R5A loader PASS: native routing, PE diagnostics, iterated bounds, independent DLL resources, PMWP jar loading
+Soft386 R5B PASS: PE service routing, queue wait/producer scheduling, opaque values, PM callback veneers and dialog state

@@ -1,0 +1,4 @@
+/workspace/scratch/01a62dd1f93f/toolchain/usr/bin/i686-w64-mingw32-gcc-win32 -std=c89 -O2 -Wall -Wextra -pedantic -shared -o PMSHAPI.dll dlls/pmshapi/pmshapi.c dlls/pmshapi/switchlist.c dlls/pmshapi/pmshapi.def \
+	-luser32 -Wl,--out-implib,libpmshapi.a
+/workspace/scratch/01a62dd1f93f/toolchain/usr/bin/i686-w64-mingw32-gcc-win32 -std=c89 -O2 -Wall -Wextra -pedantic -shared -o HELPMGR.dll dlls/helpmgr/helpmgr.c dlls/helpmgr/helpmgr.def \
+	-Wl,--out-implib,libhelpmgr.a

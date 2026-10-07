@@ -1,0 +1,2 @@
+Soft386 R5B PM boundary PASS: 13-argument create, old-proc lifetime, pointer bitmaps, scroll rectangles, short outputs, bounds, typed handles, nested strings, bitmap buffers, QMSG integrity, FIFO, ownership, profiles, switch entries, help lifetime
+Soft386 R5B queue boundary PASS: typed handles, opaque payloads, checked copyout, nonblocking waits, jar PID

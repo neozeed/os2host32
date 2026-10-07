@@ -1,0 +1,1 @@
+Soft386 R5 PM boundary PASS: bounds, typed handles, nested strings, bitmap buffers, QMSG integrity, FIFO, ownership

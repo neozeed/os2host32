@@ -1,0 +1,2 @@
+cc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0
+i686-w64-mingw32-gcc-win32 (GCC) 13-win32

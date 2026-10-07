@@ -1,0 +1,1 @@
+Soft386 R5D PM boundary PASS: zero-capacity fonts, callback icon tokens, 13-argument create, old-proc lifetime, pointer bitmaps, scroll rectangles, short outputs, bounds, typed handles, nested strings, bitmap buffers, QMSG integrity, FIFO, ownership, profiles, switch entries, help lifetime

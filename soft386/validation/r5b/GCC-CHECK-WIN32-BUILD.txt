@@ -1,0 +1,2778 @@
+make: Entering directory '/workspace/scratch/01a62dd1f93f/work/os2host32/soft386'
+cc -I tiny386 -I src -I ../common/include -DI386_ENABLE_FPU -O2 -g -std=gnu99 -Wall -Wextra -Wno-unused-function -Wno-misleading-indentation src/soft386_os2.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c  -o soft386_os2 -lm
+tiny386/i386.c: In function ‘get_CF’:
+tiny386/i386.c:354:60: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+  354 |                         return (((s32) cpu->cc.dst) >> 31) != cpu->cc.dst2;
+      |                                                            ^~
+tiny386/i386.c: At top level:
+tiny386/i386.c:383:1: warning: ‘static’ is not at beginning of declaration [-Wold-style-declaration]
+  383 | const static u8 parity_tab[256] = {
+      | ^~~~~
+tiny386/i386.c: In function ‘translate_laddr’:
+tiny386/i386.c:650:37: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘int’ [-Wsign-compare]
+  650 |                 if ((laddr & 0xfff) > 0x1000 - size) {
+      |                                     ^
+tiny386/i386.c: In function ‘segcheck’:
+tiny386/i386.c:663:50: warning: unused parameter ‘rwm’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                              ~~~~^~~
+tiny386/i386.c:663:70: warning: unused parameter ‘addr’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                                ~~~~~~^~~~
+tiny386/i386.c:663:80: warning: unused parameter ‘size’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                                            ~~~~^~~~
+tiny386/i386ins.def: In function ‘cpu_exec1’:
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2925:16: note: in expansion of macro ‘INS_helper’
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:90:1: note: in expansion of macro ‘I’
+   90 | I(C(0x6c), _,      0, INSb)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2925:16: note: in expansion of macro ‘INS_helper’
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:90:1: note: in expansion of macro ‘I’
+   90 | I(C(0x6c), _,      0, INSb)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2926:29: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2926:29: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2926:53: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2926:53: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2993:17: note: in expansion of macro ‘OUTS_helper’
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:92:1: note: in expansion of macro ‘I’
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2993:17: note: in expansion of macro ‘OUTS_helper’
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:92:1: note: in expansion of macro ‘I’
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:30: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:30: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:55: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:55: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2854:17: note: in expansion of macro ‘STOS_helper’
+ 2854 | #define STOSb() STOS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:136:1: note: in expansion of macro ‘I’
+  136 | I(C(0xaa), _,      0, STOSb)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2854:17: note: in expansion of macro ‘STOS_helper’
+ 2854 | #define STOSb() STOS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:136:1: note: in expansion of macro ‘I’
+  136 | I(C(0xaa), _,      0, STOSb)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2859:30: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2859:30: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2859:55: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2859:55: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c: In function ‘call_isr’:
+tiny386/i386.c:4672:21: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 4672 |         if (off + 7 > cpu->idt.limit) {
+      |                     ^
+tiny386/i386.c: In function ‘cpui386_set_verbose’:
+tiny386/i386.c:5573:9: warning: ignoring return value of ‘freopen’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+ 5573 |         freopen("/tmp/xlog", "w", stderr);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorei32’:
+tiny386/fpu.c:407:62: warning: operand of ‘?:’ changes signedness from ‘int’ to ‘unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  407 |         s32 v = val < 2147483648.0 && val >= -2147483648.0 ? (s32) val : 0x80000000;
+      |                                                              ^~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorei64’:
+tiny386/fpu.c:416:17: warning: operand of ‘?:’ changes signedness from ‘long int’ to ‘long long unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  416 |                 (int64_t) val : 0x8000000000000000ll;
+      |                 ^~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorebcd’:
+tiny386/fpu.c:427:17: warning: operand of ‘?:’ changes signedness from ‘long int’ to ‘long long unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  427 |                 (int64_t) val : 0x8000000000000000ll;
+      |                 ^~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘cmov_cond’:
+tiny386/fpu.c:862:28: warning: unused parameter ‘fpu’ [-Wunused-parameter]
+  862 | static bool cmov_cond(FPU *fpu, void *cpu, int i)
+      |                       ~~~~~^~~
+python3 tests/mkfixtures.py tests/fixtures
+tests/fixtures/dll-api-soft386.le 12288
+tests/fixtures/dll-legacy-soft386.le 12288
+tests/fixtures/dll-static-soft386.le 12288
+tests/fixtures/dll-static-soft386.lx 12288
+tests/fixtures/fpu-soft386.le 9216
+tests/fixtures/fpu-thread-soft386.le 9216
+tests/fixtures/hello-soft386.le 9216
+tests/fixtures/hello-soft386.lx 9216
+tests/fixtures/hi-surface-soft386.le 9216
+tests/fixtures/internal-soft386.le 9216
+tests/fixtures/internal-soft386.lx 9216
+tests/fixtures/memory-soft386.le 9216
+tests/fixtures/native-file-soft386.le 9216
+tests/fixtures/nls-alias-soft386.le 9216
+tests/fixtures/nls-module-soft386.le 9216
+tests/fixtures/pipe-consumer-soft386.exe 9216
+tests/fixtures/pipe-producer-soft386.exe 9216
+tests/fixtures/pm-r5b-soft386.le 12288
+tests/fixtures/pmjar-soft386.exe 12288
+tests/fixtures/pmjar-view-soft386.exe 12288
+tests/fixtures/queue-soft386.le 12288
+tests/fixtures/resource-load-soft386.le 12288
+tests/fixtures/route-native-soft386.le 12288
+tests/fixtures/sync-soft386.le 9216
+tests/fixtures/system-modules-soft386.le 9216
+tests/fixtures/thread-soft386.le 9216
+python3 tests/mkfixtures_r5.py tests/fixtures
+Soft386 R5 LE/LX fixtures generated
+python3 tests/mkfixtures_r5a.py tests/fixtures
+Soft386 R5A fixtures generated
+python3 tests/mkfixtures_r5b.py tests/fixtures
+Soft386 R5B fixtures generated
+cc -I tiny386 -I src -I ../common/include -DI386_ENABLE_FPU -O2 -g -std=gnu99 -Wall -Wextra -Wno-unused-function -Wno-misleading-indentation tests/pm-runtime-check.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c  -o pm-runtime-check -lm
+tiny386/i386.c: In function ‘get_CF’:
+tiny386/i386.c:354:60: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+  354 |                         return (((s32) cpu->cc.dst) >> 31) != cpu->cc.dst2;
+      |                                                            ^~
+tiny386/i386.c: At top level:
+tiny386/i386.c:383:1: warning: ‘static’ is not at beginning of declaration [-Wold-style-declaration]
+  383 | const static u8 parity_tab[256] = {
+      | ^~~~~
+tiny386/i386.c: In function ‘translate_laddr’:
+tiny386/i386.c:650:37: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘int’ [-Wsign-compare]
+  650 |                 if ((laddr & 0xfff) > 0x1000 - size) {
+      |                                     ^
+tiny386/i386.c: In function ‘segcheck’:
+tiny386/i386.c:663:50: warning: unused parameter ‘rwm’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                              ~~~~^~~
+tiny386/i386.c:663:70: warning: unused parameter ‘addr’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                                ~~~~~~^~~~
+tiny386/i386.c:663:80: warning: unused parameter ‘size’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                                            ~~~~^~~~
+tiny386/i386ins.def: In function ‘cpu_exec1’:
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2925:16: note: in expansion of macro ‘INS_helper’
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:90:1: note: in expansion of macro ‘I’
+   90 | I(C(0x6c), _,      0, INSb)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2925:16: note: in expansion of macro ‘INS_helper’
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:90:1: note: in expansion of macro ‘I’
+   90 | I(C(0x6c), _,      0, INSb)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2926:29: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2926:29: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2926:53: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2926:53: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2993:17: note: in expansion of macro ‘OUTS_helper’
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:92:1: note: in expansion of macro ‘I’
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2993:17: note: in expansion of macro ‘OUTS_helper’
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:92:1: note: in expansion of macro ‘I’
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:30: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:30: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:55: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:55: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2854:17: note: in expansion of macro ‘STOS_helper’
+ 2854 | #define STOSb() STOS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:136:1: note: in expansion of macro ‘I’
+  136 | I(C(0xaa), _,      0, STOSb)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2854:17: note: in expansion of macro ‘STOS_helper’
+ 2854 | #define STOSb() STOS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:136:1: note: in expansion of macro ‘I’
+  136 | I(C(0xaa), _,      0, STOSb)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2859:30: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2859:30: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2859:55: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2859:55: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c: In function ‘call_isr’:
+tiny386/i386.c:4672:21: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 4672 |         if (off + 7 > cpu->idt.limit) {
+      |                     ^
+tiny386/i386.c: In function ‘cpui386_set_verbose’:
+tiny386/i386.c:5573:9: warning: ignoring return value of ‘freopen’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+ 5573 |         freopen("/tmp/xlog", "w", stderr);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorei32’:
+tiny386/fpu.c:407:62: warning: operand of ‘?:’ changes signedness from ‘int’ to ‘unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  407 |         s32 v = val < 2147483648.0 && val >= -2147483648.0 ? (s32) val : 0x80000000;
+      |                                                              ^~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorei64’:
+tiny386/fpu.c:416:17: warning: operand of ‘?:’ changes signedness from ‘long int’ to ‘long long unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  416 |                 (int64_t) val : 0x8000000000000000ll;
+      |                 ^~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorebcd’:
+tiny386/fpu.c:427:17: warning: operand of ‘?:’ changes signedness from ‘long int’ to ‘long long unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  427 |                 (int64_t) val : 0x8000000000000000ll;
+      |                 ^~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘cmov_cond’:
+tiny386/fpu.c:862:28: warning: unused parameter ‘fpu’ [-Wunused-parameter]
+  862 | static bool cmov_cond(FPU *fpu, void *cpu, int i)
+      |                       ~~~~~^~~
+cc -I src -O2 -g -std=gnu99 -Wall -Wextra -Wno-unused-function -Wno-misleading-indentation tests/pm-bridge-check.c src/soft386_pm_bridge.c -o pm-bridge-check
+cc -I tiny386 -I src -I ../common/include -DI386_ENABLE_FPU -O2 -g -std=gnu99 -Wall -Wextra -Wno-unused-function -Wno-misleading-indentation tests/r5b-runtime-check.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c  -o r5b-runtime-check -lm
+tiny386/i386.c: In function ‘get_CF’:
+tiny386/i386.c:354:60: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+  354 |                         return (((s32) cpu->cc.dst) >> 31) != cpu->cc.dst2;
+      |                                                            ^~
+tiny386/i386.c: At top level:
+tiny386/i386.c:383:1: warning: ‘static’ is not at beginning of declaration [-Wold-style-declaration]
+  383 | const static u8 parity_tab[256] = {
+      | ^~~~~
+tiny386/i386.c: In function ‘translate_laddr’:
+tiny386/i386.c:650:37: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘int’ [-Wsign-compare]
+  650 |                 if ((laddr & 0xfff) > 0x1000 - size) {
+      |                                     ^
+tiny386/i386.c: In function ‘segcheck’:
+tiny386/i386.c:663:50: warning: unused parameter ‘rwm’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                              ~~~~^~~
+tiny386/i386.c:663:70: warning: unused parameter ‘addr’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                                ~~~~~~^~~~
+tiny386/i386.c:663:80: warning: unused parameter ‘size’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                                            ~~~~^~~~
+tiny386/i386ins.def: In function ‘cpu_exec1’:
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2925:16: note: in expansion of macro ‘INS_helper’
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:90:1: note: in expansion of macro ‘I’
+   90 | I(C(0x6c), _,      0, INSb)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2925:16: note: in expansion of macro ‘INS_helper’
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:90:1: note: in expansion of macro ‘I’
+   90 | I(C(0x6c), _,      0, INSb)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2926:29: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2926:29: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2926:53: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2926:53: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2993:17: note: in expansion of macro ‘OUTS_helper’
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:92:1: note: in expansion of macro ‘I’
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2993:17: note: in expansion of macro ‘OUTS_helper’
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:92:1: note: in expansion of macro ‘I’
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:30: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:30: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:55: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:55: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2854:17: note: in expansion of macro ‘STOS_helper’
+ 2854 | #define STOSb() STOS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:136:1: note: in expansion of macro ‘I’
+  136 | I(C(0xaa), _,      0, STOSb)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2854:17: note: in expansion of macro ‘STOS_helper’
+ 2854 | #define STOSb() STOS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:136:1: note: in expansion of macro ‘I’
+  136 | I(C(0xaa), _,      0, STOSb)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2859:30: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2859:30: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2859:55: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2859:55: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c: In function ‘call_isr’:
+tiny386/i386.c:4672:21: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 4672 |         if (off + 7 > cpu->idt.limit) {
+      |                     ^
+tiny386/i386.c: In function ‘cpui386_set_verbose’:
+tiny386/i386.c:5573:9: warning: ignoring return value of ‘freopen’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+ 5573 |         freopen("/tmp/xlog", "w", stderr);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorei32’:
+tiny386/fpu.c:407:62: warning: operand of ‘?:’ changes signedness from ‘int’ to ‘unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  407 |         s32 v = val < 2147483648.0 && val >= -2147483648.0 ? (s32) val : 0x80000000;
+      |                                                              ^~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorei64’:
+tiny386/fpu.c:416:17: warning: operand of ‘?:’ changes signedness from ‘long int’ to ‘long long unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  416 |                 (int64_t) val : 0x8000000000000000ll;
+      |                 ^~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorebcd’:
+tiny386/fpu.c:427:17: warning: operand of ‘?:’ changes signedness from ‘long int’ to ‘long long unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  427 |                 (int64_t) val : 0x8000000000000000ll;
+      |                 ^~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘cmov_cond’:
+tiny386/fpu.c:862:28: warning: unused parameter ‘fpu’ [-Wunused-parameter]
+  862 | static bool cmov_cond(FPU *fpu, void *cpu, int i)
+      |                       ~~~~~^~~
+cc -I src -O2 -g -std=gnu99 -Wall -Wextra -Wno-unused-function -Wno-misleading-indentation tests/queue-bridge-check.c src/soft386_queue_bridge.c -o queue-bridge-check
+python3 tests/test_r4.py ./soft386_os2 ./bridge-check ./system-bridge-check
+Soft386 R2C regression: PASS
+Soft386 R3 regression: PASS
+Soft386 R4 regression: PASS
+python3 tests/test_r5.py ./soft386_os2 ./pm-runtime-check ./pm-bridge-check
+Soft386 R5 regression PASS: DLL imports, PM callback runtime, marshal boundaries, callback failure unwind
+python3 tests/test_r5a.py ./soft386_os2
+Soft386 R5A loader PASS: native routing, PE diagnostics, iterated bounds, independent DLL resources, PMWP jar loading
+python3 tests/test_r5b.py ./soft386_os2 ./r5b-runtime-check ./queue-bridge-check
+Soft386 R5B PASS: PE service routing, queue wait/producer scheduling, opaque values, PM callback veneers and dialog state
+/workspace/scratch/01a62dd1f93f/toolchain/usr/bin/i686-w64-mingw32-gcc-win32 -I tiny386 -I src -I ../common/include -DI386_ENABLE_FPU -O2 -g -std=gnu99 -Wall -Wextra -Wno-unused-function -Wno-misleading-indentation src/soft386_os2.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c ../common/win32/os2_nls_win32.c -o soft386_os2.exe -lm
+tiny386/i386.c: In function ‘get_CF’:
+tiny386/i386.c:354:60: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+  354 |                         return (((s32) cpu->cc.dst) >> 31) != cpu->cc.dst2;
+      |                                                            ^~
+tiny386/i386.c: At top level:
+tiny386/i386.c:383:1: warning: ‘static’ is not at beginning of declaration [-Wold-style-declaration]
+  383 | const static u8 parity_tab[256] = {
+      | ^~~~~
+tiny386/i386.c: In function ‘translate_laddr’:
+tiny386/i386.c:650:37: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘int’ [-Wsign-compare]
+  650 |                 if ((laddr & 0xfff) > 0x1000 - size) {
+      |                                     ^
+tiny386/i386.c: In function ‘segcheck’:
+tiny386/i386.c:663:50: warning: unused parameter ‘rwm’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                              ~~~~^~~
+tiny386/i386.c:663:70: warning: unused parameter ‘addr’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                                ~~~~~~^~~~
+tiny386/i386.c:663:80: warning: unused parameter ‘size’ [-Wunused-parameter]
+  663 | static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
+      |                                                                            ~~~~^~~~
+tiny386/i386.c: In function ‘load8’:
+tiny386/i386.c:761:27: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+  761 |         if (unlikely(addr >= cpu->phys_mem_size)) {
+      |                           ^~
+tiny386/i386.c:132:41: note: in definition of macro ‘unlikely’
+  132 | #define unlikely(x) __builtin_expect(!!(x), 0)
+      |                                         ^
+tiny386/i386.c: In function ‘load16’:
+tiny386/i386.c:771:33: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+  771 |         if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
+      |                                 ^~
+tiny386/i386.c:132:41: note: in definition of macro ‘unlikely’
+  132 | #define unlikely(x) __builtin_expect(!!(x), 0)
+      |                                         ^
+tiny386/i386.c: In function ‘load32’:
+tiny386/i386.c:784:33: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+  784 |         if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
+      |                                 ^~
+tiny386/i386.c:132:41: note: in definition of macro ‘unlikely’
+  132 | #define unlikely(x) __builtin_expect(!!(x), 0)
+      |                                         ^
+tiny386/i386.c: In function ‘store8’:
+tiny386/i386.c:811:27: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+  811 |         if (unlikely(addr >= cpu->phys_mem_size)) {
+      |                           ^~
+tiny386/i386.c:132:41: note: in definition of macro ‘unlikely’
+  132 | #define unlikely(x) __builtin_expect(!!(x), 0)
+      |                                         ^
+tiny386/i386.c: In function ‘store16’:
+tiny386/i386.c:823:33: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+  823 |         if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
+      |                                 ^~
+tiny386/i386.c:132:41: note: in definition of macro ‘unlikely’
+  132 | #define unlikely(x) __builtin_expect(!!(x), 0)
+      |                                         ^
+tiny386/i386.c: In function ‘store32’:
+tiny386/i386.c:840:33: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+  840 |         if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
+      |                                 ^~
+tiny386/i386.c:132:41: note: in definition of macro ‘unlikely’
+  132 | #define unlikely(x) __builtin_expect(!!(x), 0)
+      |                                         ^
+tiny386/i386.c: In function ‘peek8’:
+tiny386/i386.c:900:28: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+  900 |         if (unlikely(paddr >= cpu->phys_mem_size)) {
+      |                            ^~
+tiny386/i386.c:132:41: note: in definition of macro ‘unlikely’
+  132 | #define unlikely(x) __builtin_expect(!!(x), 0)
+      |                                         ^
+tiny386/i386.c:905:26: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+  905 |         if (likely(paddr < cpu->phys_mem_size - 4096 && !in_iomem(paddr + 16))) {
+      |                          ^
+tiny386/i386.c:131:39: note: in definition of macro ‘likely’
+  131 | #define likely(x) __builtin_expect(!!(x), 1)
+      |                                       ^
+tiny386/i386ins.def: In function ‘cpu_exec1’:
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2925:16: note: in expansion of macro ‘INS_helper’
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:90:1: note: in expansion of macro ‘I’
+   90 | I(C(0x6c), _,      0, INSb)
+      | ^
+tiny386/i386.c:2891:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2891 |                     (memld.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2925:16: note: in expansion of macro ‘INS_helper’
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:90:1: note: in expansion of macro ‘I’
+   90 | I(C(0x6c), _,      0, INSb)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2925:16: note: in expansion of macro ‘INS_helper’
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:90:1: note: in expansion of macro ‘I’
+   90 | I(C(0x6c), _,      0, INSb)
+      | ^
+tiny386/i386.c:2891:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2891 |                     (memld.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2925:16: note: in expansion of macro ‘INS_helper’
+ 2925 | #define INSb() INS_helper(8)
+      |                ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:90:1: note: in expansion of macro ‘I’
+   90 | I(C(0x6c), _,      0, INSb)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2926:29: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2891:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2891 |                     (memld.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2926:29: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2926:29: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2891:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2891 |                     (memld.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2926:29: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                             ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2926:53: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2891:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2891 |                     (memld.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2922:31: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~
+tiny386/i386.c:2926:53: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2888:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2888 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2926:53: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2891:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2891 |                     (memld.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2922:61: note: in expansion of macro ‘INS_helper2’
+ 2922 |                 if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
+      |                                                             ^~~~~~~~~~~
+tiny386/i386.c:2926:53: note: in expansion of macro ‘INS_helper’
+ 2926 | #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+      |                                                     ^~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘INS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:91:1: note: in expansion of macro ‘I’
+   91 | I(C(0x6d), _,      0, INS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2993:17: note: in expansion of macro ‘OUTS_helper’
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:92:1: note: in expansion of macro ‘I’
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ^
+tiny386/i386.c:2954:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2954 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2993:17: note: in expansion of macro ‘OUTS_helper’
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:92:1: note: in expansion of macro ‘I’
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2993:17: note: in expansion of macro ‘OUTS_helper’
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:92:1: note: in expansion of macro ‘I’
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ^
+tiny386/i386.c:2954:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2954 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2993:17: note: in expansion of macro ‘OUTS_helper’
+ 2993 | #define OUTSb() OUTS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:92:1: note: in expansion of macro ‘I’
+   92 | I(C(0x6e), _,      0, OUTSb)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:30: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2954:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2954 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:30: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:30: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2954:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2954 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:30: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:55: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2954:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2954 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2987:25: note: in expansion of macro ‘OUTS_helper2’
+ 2987 |                         OUTS_helper2(BIT, 16) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:55: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2951:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2951 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:55: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2954:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2954 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2989:25: note: in expansion of macro ‘OUTS_helper2’
+ 2989 |                         OUTS_helper2(BIT, 32) \
+      |                         ^~~~~~~~~~~~
+tiny386/i386.c:2994:55: note: in expansion of macro ‘OUTS_helper’
+ 2994 | #define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘OUTS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:93:1: note: in expansion of macro ‘I’
+   93 | I(C(0x6f), _,      0, OUTS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2782:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2782 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2782:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2782 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2857:17: note: in expansion of macro ‘MOVS_helper’
+ 2857 | #define MOVSb() MOVS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:130:1: note: in expansion of macro ‘I’
+  130 | I(C(0xa4), _,      0, MOVSb)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2782:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2782 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2782:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2782 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:30: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2782:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2782 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2812:31: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2776:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2776 |                 if (counts < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2778:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2778 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2782:42: warning: comparison of integer expressions of different signedness: ‘uword’ {aka ‘unsigned int’} and ‘long int’ [-Wsign-compare]
+ 2782 |                     (memls.addr1 | 4095) < cpu->phys_mem_size && \
+      |                                          ^
+tiny386/i386.c:2812:62: note: in expansion of macro ‘MOVS_helper2’
+ 2812 |                 if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2862:55: note: in expansion of macro ‘MOVS_helper’
+ 2862 | #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘MOVS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:131:1: note: in expansion of macro ‘I’
+  131 | I(C(0xa5), _,      0, MOVS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2854:17: note: in expansion of macro ‘STOS_helper’
+ 2854 | #define STOSb() STOS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:136:1: note: in expansion of macro ‘I’
+  136 | I(C(0xaa), _,      0, STOSb)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2854:17: note: in expansion of macro ‘STOS_helper’
+ 2854 | #define STOSb() STOS_helper(8)
+      |                 ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOSb’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:136:1: note: in expansion of macro ‘I’
+  136 | I(C(0xaa), _,      0, STOSb)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2859:30: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2859:30: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                              ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:31: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                               ^~~~~~~~~~~~
+tiny386/i386.c:2859:55: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c:2669:28: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 2669 |                 if (countd < count) \
+      |                            ^
+tiny386/i386.c:2687:62: note: in expansion of macro ‘STOS_helper2’
+ 2687 |                 if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
+      |                                                              ^~~~~~~~~~~~
+tiny386/i386.c:2859:55: note: in expansion of macro ‘STOS_helper’
+ 2859 | #define STOS() if (opsz16) { STOS_helper(16) } else { STOS_helper(32) }
+      |                                                       ^~~~~~~~~~~
+tiny386/i386.c:1186:22: note: in expansion of macro ‘STOS’
+ 1186 | #define _(rwm, inst) inst()
+      |                      ^~~~
+tiny386/i386.c:4091:42: note: in expansion of macro ‘_’
+ 4091 | #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+      |                                          ^~~
+tiny386/i386ins.def:137:1: note: in expansion of macro ‘I’
+  137 | I(C(0xab), _,      0, STOS)
+      | ^
+tiny386/i386.c: In function ‘call_isr’:
+tiny386/i386.c:4672:21: warning: comparison of integer expressions of different signedness: ‘int’ and ‘uword’ {aka ‘unsigned int’} [-Wsign-compare]
+ 4672 |         if (off + 7 > cpu->idt.limit) {
+      |                     ^
+tiny386/i386.c: At top level:
+tiny386/i386.c:3946:13: warning: ‘verbose’ defined but not used [-Wunused-variable]
+ 3946 | static bool verbose;
+      |             ^~~~~~~
+tiny386/fpu.c: In function ‘fpstorei32’:
+tiny386/fpu.c:407:62: warning: operand of ‘?:’ changes signedness from ‘int’ to ‘unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  407 |         s32 v = val < 2147483648.0 && val >= -2147483648.0 ? (s32) val : 0x80000000;
+      |                                                              ^~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorei64’:
+tiny386/fpu.c:416:17: warning: operand of ‘?:’ changes signedness from ‘long long int’ to ‘long long unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  416 |                 (int64_t) val : 0x8000000000000000ll;
+      |                 ^~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘fpstorebcd’:
+tiny386/fpu.c:427:17: warning: operand of ‘?:’ changes signedness from ‘long long int’ to ‘long long unsigned int’ due to unsignedness of other operand [-Wsign-compare]
+  427 |                 (int64_t) val : 0x8000000000000000ll;
+      |                 ^~~~~~~~~~~~~
+tiny386/fpu.c: In function ‘cmov_cond’:
+tiny386/fpu.c:862:28: warning: unused parameter ‘fpu’ [-Wunused-parameter]
+  862 | static bool cmov_cond(FPU *fpu, void *cpu, int i)
+      |                       ~~~~~^~~
+make: Leaving directory '/workspace/scratch/01a62dd1f93f/work/os2host32/soft386'

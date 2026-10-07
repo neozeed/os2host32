@@ -1,0 +1,2 @@
+Soft386 R5 PM/DLL acceptance PASS
+Soft386 R5 headless PM runtime PASS: DLL callback, nesting, yielding, owner TID, FS/x87, resources, QMSG tokens

@@ -1,0 +1,6 @@
+I386-H1A SOURCE CHECKPOINT
+
+This package intentionally omits soft386_os2.exe because the H1A source was not
+rebuilt with a 32-bit MinGW compiler in the packaging environment.  Rebuild the
+Win32 target before runtime testing; do not accidentally test the old R5D EXE.
+See docs/I386-H1A-HANDOFF.md.

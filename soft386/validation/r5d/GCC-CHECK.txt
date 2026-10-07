@@ -1,0 +1,93 @@
+make: Entering directory '/workspace/scratch/01a62dd1f93f/work-r5d/soft386'
+cc -I tiny386 -I src -I ../common/include -DI386_ENABLE_FPU -O0 -g -std=gnu11 tests/r5c-runtime-check.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c src/soft386_net_bridge.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c  -o r5c-runtime-check -lm -pthread
+python3 tests/mkfixtures_r5c.py tests/fixtures
+./net-bridge-check
+R5C network PASS: loopback binary I/O, pending read with concurrent sender, copied inputs, guest resolver graphs, thread errno, bounds, stale sockets, async beep (36 dispatches)
+./r5c-runtime-check tests/fixtures/net-soft386.le
+soft386: resolve SO32DLL.26 -> 000F0000
+soft386: resolve TCP32DLL.11 -> 000F0008
+soft386: resolve SO32DLL.16 -> 000F0010
+soft386: resolve SO32DLL.3 -> 000F0018
+soft386: resolve DOSCALLS.311 -> 000F0020
+soft386: resolve DOSCALLS.229 -> 000F0028
+soft386: resolve SO32DLL.13 -> 000F0030
+soft386: resolve DOSCALLS.349 -> 000F0038
+soft386: resolve SO32DLL.17 -> 000F0040
+soft386: resolve DOSCALLS.282 -> 000F0048
+soft386: resolve DOSCALLS.234 -> 000F0050
+soft386: resolve SO32DLL.10 -> 000F0058
+Soft386 OS/2 R5D - PM font queries + control callback handles
+soft386: host=POSIX pointer_bits=64
+soft386: 80387/x87=ON (Tiny386 optional FPU)
+soft386: native DOSCALLS bridge=ON
+soft386: native system bridges VIO=OFF KBD=OFF SES=OFF
+soft386: input=tests/fixtures/net-soft386.le type=LE entry=00010000 initial_ESP=00023FEC objects=2 imports=12 FS=0018
+---------------- guest begins ----------------
+---------------- guest ended -----------------
+soft386: rc=0 cycles=169
+R5C Tiny386 async network PASS: worker progress, guest buffers, FS/x87/EBX preserved
+./r5c-runtime-check tests/fixtures/exit-soft386.le
+soft386: resolve DOSCALLS.228 -> 000F0000
+soft386: resolve DOSCALLS.296 -> 000F0008
+soft386: resolve DOSCALLS.234 -> 000F0010
+soft386: resolve DOSCALLS.282 -> 000F0018
+Soft386 OS/2 R5D - PM font queries + control callback handles
+soft386: host=POSIX pointer_bits=64
+soft386: 80387/x87=ON (Tiny386 optional FPU)
+soft386: native DOSCALLS bridge=ON
+soft386: native system bridges VIO=OFF KBD=OFF SES=OFF
+soft386: input=tests/fixtures/exit-soft386.le type=LE entry=00010000 initial_ESP=00023FEC objects=2 imports=4 FS=0018
+---------------- guest begins ----------------
+---------------- guest ended -----------------
+soft386: rc=0 cycles=71
+R5C Tiny386 search + ordered exit callback PASS
+cc -I tiny386 -I src -I ../common/include -DI386_ENABLE_FPU -O0 -g -std=gnu11 src/soft386_os2.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c src/soft386_net_bridge.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c  -o soft386_os2 -lm -pthread
+python3 tests/mkfixtures.py tests/fixtures
+tests/fixtures/dll-api-soft386.le 12288
+tests/fixtures/dll-legacy-soft386.le 12288
+tests/fixtures/dll-static-soft386.le 12288
+tests/fixtures/dll-static-soft386.lx 12288
+tests/fixtures/exit-soft386.le 12288
+tests/fixtures/fpu-soft386.le 9216
+tests/fixtures/fpu-thread-soft386.le 9216
+tests/fixtures/hello-soft386.le 9216
+tests/fixtures/hello-soft386.lx 9216
+tests/fixtures/hi-surface-soft386.le 9216
+tests/fixtures/internal-soft386.le 9216
+tests/fixtures/internal-soft386.lx 9216
+tests/fixtures/memory-soft386.le 9216
+tests/fixtures/native-file-soft386.le 9216
+tests/fixtures/net-soft386.le 12288
+tests/fixtures/nls-alias-soft386.le 9216
+tests/fixtures/nls-module-soft386.le 9216
+tests/fixtures/pipe-consumer-soft386.exe 9216
+tests/fixtures/pipe-producer-soft386.exe 9216
+tests/fixtures/pm-r5b-soft386.le 12288
+tests/fixtures/pmjar-soft386.exe 12288
+tests/fixtures/pmjar-view-soft386.exe 12288
+tests/fixtures/queue-soft386.le 12288
+tests/fixtures/resource-load-soft386.le 12288
+tests/fixtures/route-native-soft386.le 12288
+tests/fixtures/sync-soft386.le 9216
+tests/fixtures/system-modules-soft386.le 9216
+tests/fixtures/thread-soft386.le 9216
+python3 tests/mkfixtures_r5.py tests/fixtures
+Soft386 R5 LE/LX fixtures generated
+python3 tests/mkfixtures_r5a.py tests/fixtures
+Soft386 R5A fixtures generated
+python3 tests/mkfixtures_r5b.py tests/fixtures
+Soft386 R5B fixtures generated
+cc -I tiny386 -I src -I ../common/include -DI386_ENABLE_FPU -O0 -g -std=gnu11 tests/pm-runtime-check.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c src/soft386_net_bridge.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c  -o pm-runtime-check -lm -pthread
+cc -I src -O0 -g -std=gnu11 tests/pm-bridge-check.c src/soft386_pm_bridge.c -o pm-bridge-check
+cc -I tiny386 -I src -I ../common/include -DI386_ENABLE_FPU -O0 -g -std=gnu11 tests/r5b-runtime-check.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c src/soft386_net_bridge.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c  -o r5b-runtime-check -lm -pthread
+python3 tests/test_r4.py ./soft386_os2 ./bridge-check ./system-bridge-check
+Soft386 R2C regression: PASS
+Soft386 R3 regression: PASS
+Soft386 R4 regression: PASS
+python3 tests/test_r5.py ./soft386_os2 ./pm-runtime-check ./pm-bridge-check
+Soft386 R5 regression PASS: DLL imports, PM callback runtime, marshal boundaries, callback failure unwind
+python3 tests/test_r5a.py ./soft386_os2
+Soft386 R5A loader PASS: native routing, PE diagnostics, iterated bounds, independent DLL resources, PMWP jar loading
+python3 tests/test_r5b.py ./soft386_os2 ./r5b-runtime-check ./queue-bridge-check
+Soft386 R5B PASS: PE service routing, queue wait/producer scheduling, opaque values, PM callback veneers and dialog state
+make: Leaving directory '/workspace/scratch/01a62dd1f93f/work-r5d/soft386'
