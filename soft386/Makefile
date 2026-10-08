@@ -26,7 +26,7 @@ $(error Soft386 R5 WINCC must target 32-bit i386/i686; do not use mingw64)
 endif
 endif
 
-SRC = src/soft386_os2.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c src/soft386_net_bridge.c src/soft386_ne_kbd.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c ../common/msg/os2_msg.c ../common/kbd/os2_kbd.c
+SRC = src/soft386_os2.c src/soft386_doscalls_bridge.c src/soft386_system_bridge.c src/soft386_pm_bridge.c src/soft386_queue_bridge.c src/soft386_net_bridge.c src/soft386_ne_kbd.c src/soft386_ne_file.c tiny386/i386.c tiny386/fpu.c ../common/doscalls/os2_doscalls_core.c ../common/nls/os2_nls.c ../common/nls/os2_nls_api.c ../common/msg/os2_msg.c ../common/kbd/os2_kbd.c
 WIN_EXTRA_SRC = ../common/win32/os2_nls_win32.c ../common/win32/os2_kbd_win32.c
 
 # Plain `make` is also useful from a native MinGW/RosBE shell.  In that case
@@ -78,8 +78,11 @@ fixtures:
 	python3 tests/mkfixtures_r5b.py tests/fixtures
 
 check-ne: all
+	python3 tests/check-ne-pascal-abi.py
 	python3 tests/check-ne-modules.py ./$(TARGET) tests/fixtures/link386-os2beta-ne16.exe
 	python3 tests/check-ne-kbdflush.py ./$(TARGET)
+	python3 tests/check-ne-nls-casemap.py ./$(TARGET)
+	python3 tests/check-ne-rc-files.py ./$(TARGET)
 	python3 tests/check-ne-args.py ./$(TARGET) tests/fixtures/args-ne16.exe
 	python3 tests/check-ne-link386.py ./$(TARGET) tests/fixtures/link386-os2beta-ne16.exe
 	python3 tests/check-ne-lib-add.py ./$(TARGET) tests/fixtures/lib-os2beta-ne16.exe tests/fixtures/huge-omf.obj
