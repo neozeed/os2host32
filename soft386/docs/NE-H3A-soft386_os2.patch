@@ -1,0 +1,208 @@
+--- /tmp/tmp.vx0OmYIDoq/os2host32-SOFT386-I386-H2S/soft386/src/soft386_os2.c	2026-10-07 12:30:03.000000000 +0000
++++ ./os2host32-SOFT386-I386-H2S/soft386/src/soft386_os2.c	2026-10-07 21:13:33.599951648 +0000
+@@ -62,7 +62,7 @@
+ #define SYNC_GENERATION_MAX 0x003fffffu
+ #define MUTEX_TAG           0x40000000u
+ #define SEM_INDEFINITE_WAIT 0xffffffffu
+-#define GUEST_GDT_BYTES     ((3u + MAX_THREADS) * 8u)
++#define GUEST_GDT_BYTES     0x00000800u
+ #define GUEST_STARTUP       0x00E00000u
+ #define GUEST_STARTUP_LIMIT 0x00E20000u
+ #define GUEST_INFO          0x00E20000u
+@@ -92,6 +92,7 @@
+ #define HC_PM_OLDPROC       0x10000000u
+ #define HC_SO32DLL          0x11000000u
+ #define HC_TCP32DLL         0x12000000u
++#define HC_DOS16            0x13000000u
+ #define HC_RUNTIME_THREAD_RETURN 1u
+ #define HC_RUNTIME_CALLBACK_RETURN 2u
+ #define GUEST_THREAD_EXIT_STUB 0x000F7FF0u
+@@ -319,6 +320,9 @@
+     int native_vio_required, native_kbd_required, native_ses_required;
+     int native_sys_disabled;
+     const char *guest_argv0;
++    int ne16_active;
++    uint16_t ne16_stub_sel;
++    uint32_t ne16_stub_base;
+ };
+ 
+ static int invoke_guest(void *, uint32_t, uint32_t, const uint32_t *, uint32_t, uint32_t *);
+@@ -364,6 +368,23 @@
+     p[3] = (uint8_t)((v >> 24) & 0xffu);
+ }
+ 
++static void wr16(uint8_t *p, uint16_t v)
++{
++    p[0]=(uint8_t)(v&0xffu); p[1]=(uint8_t)(v>>8);
++}
++
++static void put_desc16(uint8_t *d,uint32_t base,uint16_t limit,uint8_t access)
++{
++    d[0]=(uint8_t)limit;d[1]=(uint8_t)(limit>>8);
++    d[2]=(uint8_t)base;d[3]=(uint8_t)(base>>8);d[4]=(uint8_t)(base>>16);
++    d[5]=access;d[6]=0;d[7]=(uint8_t)(base>>24);
++}
++
++static uint32_t desc_base(const uint8_t *d)
++{
++    return (uint32_t)d[2]|((uint32_t)d[3]<<8)|((uint32_t)d[4]<<16)|((uint32_t)d[7]<<24);
++}
++
+ static uint32_t align_up(uint32_t v, uint32_t a)
+ {
+     return (v + a - 1u) & ~(a - 1u);
+@@ -2512,6 +2533,139 @@
+ static int run_guest(struct Runtime *rt){return run_guest_until(rt,NULL);}
+ 
+ 
++
++#define NE_MAX_SEGMENTS 64u
++#define NE_SEG_BASE 0x00400000u
++#define NE_ENV_BASE 0x00880000u
++#define NE_INFO_BASE 0x00890000u
++#define NE_ALLOC_BASE 0x00900000u
++#define NE_SEG_SEL_BASE 0x0100u
++#define NE_STUB_SEL 0x0180u
++#define NE_ENV_SEL 0x0188u
++#define NE_GINFO_SEL 0x0190u
++#define NE_LINFO_SEL 0x0198u
++#define NE_ALLOC_SEL_BASE 0x0200u
++#define NE_STUB_BASE 0x000F8000u
++
++struct NeSeg16 {uint32_t base,file_off,alloc_size,file_size;uint16_t flags,selector;};
++struct NeImage16 {
++    uint8_t *file;uint32_t file_size,ne;uint16_t flags,autodata,heap,stack,ip,cs_seg,sp,ss_seg,cseg,cmod,align;
++    uint16_t segtab,modtab,imptab;struct NeSeg16 seg[NE_MAX_SEGMENTS];
++    uint16_t import_ord[256];unsigned nimport;
++    uint16_t next_alloc_sel;uint32_t next_alloc_base;
++};
++
++static int is_ne_image(const uint8_t *p,uint32_t n)
++{
++    uint32_t h;if(n<0x40u||p[0]!='M'||p[1]!='Z')return 0;h=rd32(p+0x3c);return h+2u<=n&&p[h]=='N'&&p[h+1]=='E';
++}
++static uint16_t ne_seg_sel(unsigned segno){return (uint16_t)(NE_SEG_SEL_BASE+(segno-1u)*8u);}
++static uint32_t ne_selector_base(struct Runtime *rt,uint16_t sel)
++{
++    uint32_t off=(uint32_t)(sel&~7u);if(off+7u>=GUEST_GDT_BYTES)return UINT32_MAX;return desc_base(rt->ram+GUEST_GDT+off);
++}
++static uint32_t ne_far_linear(struct Runtime *rt,uint32_t fp,uint32_t need)
++{
++    uint16_t off=(uint16_t)fp,sel=(uint16_t)(fp>>16);uint32_t base=ne_selector_base(rt,sel);
++    if(base==UINT32_MAX||base>=RAM_SIZE||need>RAM_SIZE-base||off>RAM_SIZE-base-need)return UINT32_MAX;return base+off;
++}
++static uint16_t ne_stack16(struct Runtime *rt,const CPUI386_State *st,uint16_t add)
++{
++    uint32_t b=ne_selector_base(rt,(uint16_t)st->seg[CPUI386_SEG_SS]);uint16_t sp=(uint16_t)st->gpr[4];return rd16(rt->ram+b+(uint16_t)(sp+add));
++}
++static uint32_t ne_stack32(struct Runtime *rt,const CPUI386_State *st,uint16_t add)
++{return (uint32_t)ne_stack16(rt,st,add)|((uint32_t)ne_stack16(rt,st,(uint16_t)(add+2u))<<16);}
++static uint32_t ne_arg_fp(struct Runtime *rt,const CPUI386_State *st,uint16_t add){return ne_stack32(rt,st,add);}
++static int ne_put16_far(struct Runtime *rt,uint32_t fp,uint16_t v){uint32_t a=ne_far_linear(rt,fp,2);if(a==UINT32_MAX)return 0;wr16(rt->ram+a,v);return 1;}
++static int ne_put32_far(struct Runtime *rt,uint32_t fp,uint32_t v){uint32_t a=ne_far_linear(rt,fp,4);if(a==UINT32_MAX)return 0;wr32(rt->ram+a,v);return 1;}
++static unsigned ne_cleanup_bytes(uint32_t ord)
++{
++    switch(ord){case 5:return 4;case 8:return 8;case 34:return 8;case 38:return 4;case 77:return 10;case 85:return 2;case 89:return 10;case 138:return 12;case 140:return 8;case 141:return 4;case 142:return 8;default:return 0;}
++}
++static uint16_t ne_alloc_segment(struct Runtime *rt,struct NeImage16 *n,uint16_t cb)
++{
++    uint16_t sel=n->next_alloc_sel;uint32_t size=cb?cb:0x10000u,base=n->next_alloc_base;if(base+0x10000u>RAM_SIZE||sel+7u>=GUEST_GDT_BYTES)return 0;
++    memset(rt->ram+base,0,size);put_desc16(rt->ram+GUEST_GDT+sel,base,(uint16_t)(size-1u),0x92);n->next_alloc_base+=0x10000u;n->next_alloc_sel=(uint16_t)(sel+8u);return sel;
++}
++static uint32_t dispatch_dos16(struct Runtime *rt,struct NeImage16 *n,uint32_t ord,const CPUI386_State *st)
++{
++    struct Os2PersonalityContext personality;uint32_t fp,a,tmp=NE_INFO_BASE+0x800u,actual=0;uint16_t h,cb,sel,flags;
++    os2_personality_context_init(&personality,rt,&soft_personality_ops);os2_personality_context_set_nls(&personality,&rt->nls_state);
++    if(rt->trace_hc)fprintf(stderr,"soft386: DOS16.%u SS:SP=%04X:%04X\n",(unsigned)ord,(unsigned)st->seg[CPUI386_SEG_SS],(unsigned)((uint16_t)st->gpr[4]));
++    switch(ord){
++    case 5: /* DosExit(action,result), Pascal order */
++        rt->process_exited=1;rt->process_rc=ne_stack16(rt,st,4);rt->process_reason="Dos16Exit(EXIT_PROCESS)";return 0;
++    case 8: /* DosGetInfoSeg(PSEL global,PSEL local) */
++        if(!ne_put16_far(rt,ne_arg_fp(rt,st,4),NE_LINFO_SEL)||!ne_put16_far(rt,ne_arg_fp(rt,st,8),NE_GINFO_SEL))return 87;return 0;
++    case 34: /* DosAllocSeg(size,PSEL,flags) */
++        flags=ne_stack16(rt,st,4);(void)flags;fp=ne_arg_fp(rt,st,6);cb=ne_stack16(rt,st,10);sel=ne_alloc_segment(rt,n,cb);if(!sel)return 8;if(!ne_put16_far(rt,fp,sel))return 87;return 0;
++    case 38: /* DosReallocSeg(size,selector) */
++        sel=ne_stack16(rt,st,4);cb=ne_stack16(rt,st,6);if((sel&7u)||sel+7u>=GUEST_GDT_BYTES)return 6;put_desc16(rt->ram+GUEST_GDT+sel,ne_selector_base(rt,sel),(uint16_t)((cb?cb:0x10000u)-1u),0x92);return 0;
++    case 77: /* DosQHandType(hfile,PUSHORT type,PUSHORT attr) */
++        if(!ne_put16_far(rt,ne_arg_fp(rt,st,4),0)||!ne_put16_far(rt,ne_arg_fp(rt,st,8),(ne_stack16(rt,st,12)<=2)?1u:0u))return 87;return 0;
++    case 85: return 0; /* DosSetMaxFH */
++    case 89: /* DosSetVec(vec,routine,old) - enough for CRT signal bootstrap */
++        if(!ne_put32_far(rt,ne_arg_fp(rt,st,4),0))return 87;return 0;
++    case 138: /* DosWrite(hfile,buf,len,actual) */
++        fp=ne_arg_fp(rt,st,4);cb=ne_stack16(rt,st,8);a=ne_far_linear(rt,ne_arg_fp(rt,st,10),cb);h=ne_stack16(rt,st,14);if(a==UINT32_MAX)return 87;
++        wr32(rt->ram+tmp,0);actual=os2_core_DosWrite(&personality,h,a,cb,tmp);if(!ne_put16_far(rt,fp,(uint16_t)rd32(rt->ram+tmp)))return 87;return actual;
++    case 140: /* DosSemRequest(HSEM,LONG) */
++        fp=ne_stack32(rt,st,8);a=ne_far_linear(rt,fp,4);if(a==UINT32_MAX)return 6;if(rd32(rt->ram+a)!=0)return 121;wr32(rt->ram+a,1);return 0;
++    case 141: /* DosSemClear(HSEM) */
++        fp=ne_stack32(rt,st,4);a=ne_far_linear(rt,fp,4);if(a==UINT32_MAX)return 6;wr32(rt->ram+a,0);return 0;
++    case 142: /* DosSemWait(HSEM,LONG) */
++        fp=ne_stack32(rt,st,8);a=ne_far_linear(rt,fp,4);if(a==UINT32_MAX)return 6;return rd32(rt->ram+a)?121:0;
++    default:fprintf(stderr,"soft386: unsupported DOS16.%u\n",(unsigned)ord);return 1;
++    }
++}
++static int ne_return_from_stub(struct Runtime *rt,uint32_t ord,uint32_t rc,CPUI386_State *st)
++{
++    uint32_t sb=ne_selector_base(rt,(uint16_t)st->seg[CPUI386_SEG_SS]);uint16_t sp=(uint16_t)st->gpr[4],rip,rcs;unsigned clean=ne_cleanup_bytes(ord);
++    if(sb==UINT32_MAX)return 0;rip=rd16(rt->ram+sb+sp);rcs=rd16(rt->ram+sb+(uint16_t)(sp+2u));sp=(uint16_t)(sp+4u+clean);
++    st->gpr[0]=(st->gpr[0]&0xffff0000u)|(rc&0xffffu);st->gpr[4]=(st->gpr[4]&0xffff0000u)|sp;st->seg[CPUI386_SEG_CS]=rcs;st->ip=rip;st->next_ip=rip;return cpui386_set_state(rt->cpu,st);
++}
++static uint16_t ne_stub_for(struct Runtime *rt,struct NeImage16 *n,uint16_t ord)
++{
++    unsigned i;uint32_t off;
++    for(i=0;i<n->nimport;i++)if(n->import_ord[i]==ord)return (uint16_t)(i*10u);
++    if(n->nimport>=256)return 0xffffu;i=n->nimport++;n->import_ord[i]=ord;off=i*10u;
++    rt->ram[NE_STUB_BASE+off]=0x66;rt->ram[NE_STUB_BASE+off+1]=0xB8;wr32(rt->ram+NE_STUB_BASE+off+2,HC_DOS16|ord);rt->ram[NE_STUB_BASE+off+6]=0x66;rt->ram[NE_STUB_BASE+off+7]=0xE7;rt->ram[NE_STUB_BASE+off+8]=(uint8_t)HOSTCALL_PORT;rt->ram[NE_STUB_BASE+off+9]=0xF4;
++    return (uint16_t)off;
++}
++static int parse_ne16(struct Runtime *rt,struct NeImage16 *n,uint8_t *file,uint32_t file_size)
++{
++    uint32_t i,pos,end,fo,fs,alloc;uint16_t off,ln,fl,minalloc,count,j;uint8_t srctype,tflags;uint16_t src,t1,t2,stub;
++    memset(n,0,sizeof(*n));n->file=file;n->file_size=file_size;n->ne=rd32(file+0x3c);if(n->ne+0x40u>file_size)return 0;
++    n->flags=rd16(file+n->ne+0x0c);n->autodata=rd16(file+n->ne+0x0e);n->heap=rd16(file+n->ne+0x10);n->stack=rd16(file+n->ne+0x12);n->ip=rd16(file+n->ne+0x14);n->cs_seg=rd16(file+n->ne+0x16);n->sp=rd16(file+n->ne+0x18);n->ss_seg=rd16(file+n->ne+0x1a);n->cseg=rd16(file+n->ne+0x1c);n->cmod=rd16(file+n->ne+0x1e);n->segtab=rd16(file+n->ne+0x22);n->modtab=rd16(file+n->ne+0x28);n->imptab=rd16(file+n->ne+0x2a);n->align=rd16(file+n->ne+0x32);
++    if(file[n->ne+0x36]!=1||!n->cseg||n->cseg>NE_MAX_SEGMENTS||!n->cs_seg||n->cs_seg>n->cseg||!n->ss_seg||n->ss_seg>n->cseg)return 0;
++    memset(rt->ram+GUEST_GDT,0,GUEST_GDT_BYTES);put_desc16(rt->ram+GUEST_GDT+NE_STUB_SEL,NE_STUB_BASE,0xffff,0x9a);put_desc16(rt->ram+GUEST_GDT+NE_ENV_SEL,NE_ENV_BASE,0xffff,0x92);put_desc16(rt->ram+GUEST_GDT+NE_GINFO_SEL,NE_INFO_BASE,0x00ff,0x92);put_desc16(rt->ram+GUEST_GDT+NE_LINFO_SEL,NE_INFO_BASE+0x100,0x00ff,0x92);
++    for(i=0;i<n->cseg;i++){
++        pos=n->ne+n->segtab+i*8u;if(pos+8u>file_size)return 0;off=rd16(file+pos);ln=rd16(file+pos+2);fl=rd16(file+pos+4);minalloc=rd16(file+pos+6);fo=(uint32_t)off<<n->align;fs=ln?ln:0x10000u;alloc=minalloc?minalloc:0x10000u;
++        if(i+1u==n->autodata){uint32_t need=alloc+n->stack+n->heap;if(need>0x10000u)return 0;if(need>alloc)alloc=need;}
++        if(alloc>0x10000u||NE_SEG_BASE+i*0x10000u+alloc>RAM_SIZE||(fo&&fo+fs>file_size))return 0;
++        n->seg[i].base=NE_SEG_BASE+i*0x10000u;n->seg[i].file_off=fo;n->seg[i].file_size=fs;n->seg[i].alloc_size=alloc;n->seg[i].flags=fl;n->seg[i].selector=ne_seg_sel(i+1u);memset(rt->ram+n->seg[i].base,0,alloc);if(fo)memcpy(rt->ram+n->seg[i].base,file+fo,fs<alloc?fs:alloc);put_desc16(rt->ram+GUEST_GDT+n->seg[i].selector,n->seg[i].base,(uint16_t)(alloc-1u),(fl&1u)?0x92:0x9a);
++    }
++    for(i=0;i<n->cseg;i++)if(n->seg[i].flags&0x0100u){pos=n->seg[i].file_off+n->seg[i].file_size;if(pos+2u>file_size)return 0;count=rd16(file+pos);pos+=2;end=pos+(uint32_t)count*8u;if(end>file_size)return 0;for(j=0;j<count;j++,pos+=8){srctype=file[pos];tflags=file[pos+1];src=rd16(file+pos+2);t1=rd16(file+pos+4);t2=rd16(file+pos+6);if(src+4u>n->seg[i].alloc_size)return 0;if((tflags&3u)==0){uint16_t cur=src,next;if(!t1||t1>n->cseg)return 0;if(srctype!=2&&srctype!=3)return 0;for(;;){if((uint32_t)cur+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;next=rd16(rt->ram+n->seg[i].base+cur);if(srctype==2)wr16(rt->ram+n->seg[i].base+cur,ne_seg_sel(t1));else{wr16(rt->ram+n->seg[i].base+cur,t2);wr16(rt->ram+n->seg[i].base+cur+2,ne_seg_sel(t1));}if(next==0xffffu)break;cur=next;}}else if((tflags&3u)==1){uint16_t cur=src,next;if(!t1||t1>n->cmod)return 0;stub=ne_stub_for(rt,n,t2);if(stub==0xffffu)return 0;if(srctype!=2&&srctype!=3)return 0;for(;;){if((uint32_t)cur+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;next=rd16(rt->ram+n->seg[i].base+cur);if(srctype==2)wr16(rt->ram+n->seg[i].base+cur,NE_STUB_SEL);else{wr16(rt->ram+n->seg[i].base+cur,stub);wr16(rt->ram+n->seg[i].base+cur+2,NE_STUB_SEL);}if(next==0xffffu)break;cur=next;}}else return 0;}}
++    n->next_alloc_sel=NE_ALLOC_SEL_BASE;n->next_alloc_base=NE_ALLOC_BASE;return 1;
++}
++static uint16_t build_ne_environment(struct Runtime *rt,const char *program,int argc,char **argv)
++{
++    uint8_t *p=rt->ram+NE_ENV_BASE;uint32_t off=0,i;char **e=HOST_ENVIRON;const char *a0=program;
++    if(e)for(;*e;e++){size_t z=strlen(*e)+1;if(off+z+2>=0xff00u)break;memcpy(p+off,*e,z);off+=(uint32_t)z;}p[off++]=0;if(off+strlen(a0)+2>=0xff00u)return 0;memcpy(p+off,a0,strlen(a0)+1);off+=(uint32_t)strlen(a0)+1;{uint16_t cmd=(uint16_t)off;for(i=2;i<(uint32_t)argc;i++){size_t z=strlen(argv[i]);if(i>2)p[off++]=' ';memcpy(p+off,argv[i],z);off+=(uint32_t)z;}p[off++]=0;return cmd;}
++}
++static int run_ne16_image(struct Runtime *rt,uint8_t *file,uint32_t file_size,int argc,char **argv)
++{
++    struct NeImage16 n;CPUI386_State st;uint16_t cmd,ds,ss,cs,sp;uint32_t data_size;long stagnant=0,last=-1;int rc=1;
++    if(!parse_ne16(rt,&n,file,file_size)){fprintf(stderr,"soft386: unsupported or malformed OS/2 NE image\n");return 2;}cmd=build_ne_environment(rt,argv[1],argc,argv);if(!cmd)return 2;
++    memset(rt->ram+NE_INFO_BASE,0,0x200);wr16(rt->ram+NE_INFO_BASE+0x100,1); /* minimal local PID */
++    rt->cpu=cpui386_new(3,(char*)rt->ram,RAM_SIZE,&rt->cb);if(!rt->cpu||!rt->cb)fatal("cpui386_new failed");rt->cb->io=rt;rt->cb->io_read8=io_read8;rt->cb->io_read16=io_read16;rt->cb->io_read32=io_read32;rt->cb->io_write8=io_write8;rt->cb->io_write16=io_write16;rt->cb->io_write32=io_write32;
++    cs=ne_seg_sel(n.cs_seg);ss=ne_seg_sel(n.ss_seg);ds=n.autodata?ne_seg_sel(n.autodata):0;sp=n.sp;if(!sp&&n.ss_seg==n.autodata){uint32_t base=n.seg[n.autodata-1].file_size+n.stack;if(base>0xffffu)base=0xffffu;sp=(uint16_t)base;}data_size=n.autodata?n.seg[n.autodata-1].alloc_size:0;
++    cpui386_reset_pm16_tiny(rt->cpu,n.seg[n.cs_seg-1].base,n.ip,GUEST_GDT);cpui386_get_state(rt->cpu,&st);st.gdt_base=GUEST_GDT;st.gdt_limit=GUEST_GDT_BYTES-1;st.ip=n.ip;st.next_ip=n.ip;st.flags=2;st.seg[CPUI386_SEG_CS]=cs;st.seg[CPUI386_SEG_SS]=ss;st.seg[CPUI386_SEG_DS]=ds;st.seg[CPUI386_SEG_ES]=0;st.seg[CPUI386_SEG_FS]=0;st.seg[CPUI386_SEG_GS]=0;st.gpr[0]=NE_ENV_SEL;st.gpr[3]=cmd;st.gpr[1]=(uint16_t)data_size;st.gpr[2]=n.stack;st.gpr[6]=n.heap;st.gpr[7]=1;st.gpr[4]=sp;st.gpr[5]=0;if(!cpui386_set_state(rt->cpu,&st))fatal("cannot install NE protected-mode state");rt->ne16_active=1;rt->ne16_stub_sel=NE_STUB_SEL;rt->ne16_stub_base=NE_STUB_BASE;
++    if(!rt->quiet){fprintf(stderr,"Soft386 OS/2 NE-H3A - 16-bit segmented process vessel\n");fprintf(stderr,"soft386: input=%s type=NE entry=%04X:%04X stack=%04X:%04X DS=%04X env=%04X imports=%u\n",argv[1],cs,n.ip,ss,sp,ds,NE_ENV_SEL,n.nimport);fprintf(stderr,"---------------- guest begins ----------------\n");}
++    for(;;){long before=cpui386_get_cycle(rt->cpu);if(rt->process_exited){rc=(int)rt->process_rc;break;}if(rt->max_cycles&&before>=rt->max_cycles){force_process_termination(rt,124,"cycle-limit");rc=124;break;}rt->pending_hostcall=0;cpui386_step(rt->cpu,1);if(rt->pending_hostcall){uint32_t ord,hrc;cpui386_get_state(rt->cpu,&st);if((rt->pending_api&0xff000000u)!=HC_DOS16){fprintf(stderr,"soft386: NE unexpected hypercall %08X\n",rt->pending_api);rc=1;break;}ord=rt->pending_api&0x00ffffffu;hrc=dispatch_dos16(rt,&n,ord,&st);if(rt->process_exited){rc=(int)rt->process_rc;break;}if(!ne_return_from_stub(rt,ord,hrc,&st)){fprintf(stderr,"soft386: NE far return failed\n");rc=1;break;}continue;}if(cpui386_get_excno(rt->cpu)){cpui386_get_state(rt->cpu,&st);fprintf(stderr,"soft386: NE exception %d at %04X:%04X\n",cpui386_get_excno(rt->cpu),(unsigned)st.seg[CPUI386_SEG_CS],(unsigned)((uint16_t)st.ip));rc=1;break;}{long after=cpui386_get_cycle(rt->cpu);if(after==before&&after==last){if(++stagnant>1){fprintf(stderr,"soft386: NE guest halted without process exit\n");rc=1;break;}}else stagnant=0;last=after;}}
++    if(!rt->quiet){fprintf(stderr,"---------------- guest ended -----------------\n");fprintf(stderr,"soft386: termination=%s rc=%d cycles=%ld\n",rt->process_reason?rt->process_reason:(rc?"NE runtime failure":"guest runner returned"),rc,cpui386_get_cycle(rt->cpu));}return rc;
++}
++
+ static int check_image(const char *path)
+ {
+     struct Runtime rt; struct LeImage x; uint32_t i;int dll;
+@@ -2621,6 +2775,14 @@
+     }
+     if(!host_full_path(argv[1],rt.main_path,sizeof(rt.main_path)))snprintf(rt.main_path,sizeof(rt.main_path),"%s",argv[1]);
+     x.file=load_file(argv[1],&x.file_size);if(!x.file){fprintf(stderr,"soft386: cannot read %s\n",argv[1]);free(rt.ram);return 2;}
++    if(is_ne_image(x.file,x.file_size)){
++        rc=run_ne16_image(&rt,x.file,x.file_size,argc,argv);free(x.file);x.file=NULL;
++#ifdef _WIN32
++        cpui386_delete(rt.cpu);soft386_doscalls_bridge_close(&rt.native_dos);free(rt.ram);ExitProcess((UINT)rc);return rc;
++#else
++        cpui386_delete(rt.cpu);soft386_doscalls_bridge_close(&rt.native_dos);free(rt.ram);return rc;
++#endif
++    }
+     loader_path=argv[1];parse_header(&x);if((x.module_flags&MOD_TYPE_MASK)==MOD_TYPE_DLL)fatal("main image is a DLL");
+     parse_objects(&x,&rt,1);parse_import_modules(&x);module_resources(&rt,&x,1);
+     if(!rt.native_sys_disabled){

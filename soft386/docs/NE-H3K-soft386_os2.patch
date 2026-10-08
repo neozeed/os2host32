@@ -1,0 +1,44 @@
+--- /tmp/soft386-h3j-before.c	2026-10-07 22:40:05.418001666 +0000
++++ soft386/src/soft386_os2.c	2026-10-07 22:40:06.093722822 +0000
+@@ -2825,11 +2825,39 @@
+     for(i=0;i<n->cseg;i++)if(n->seg[i].flags&0x0100u){pos=n->seg[i].file_off+n->seg[i].file_size;if(pos+2u>file_size)return 0;count=rd16(file+pos);pos+=2;end=pos+(uint32_t)count*8u;if(end>file_size)return 0;for(j=0;j<count;j++,pos+=8){srctype=file[pos];tflags=file[pos+1];src=rd16(file+pos+2);t1=rd16(file+pos+4);t2=rd16(file+pos+6);if((uint32_t)src+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;if((tflags&3u)==0){uint16_t cur=src,next;if(!t1||t1>n->cseg)return 0;if(srctype!=2&&srctype!=3&&srctype!=5)return 0;for(;;){if((uint32_t)cur+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;next=rd16(rt->ram+n->seg[i].base+cur);if(srctype==2)wr16(rt->ram+n->seg[i].base+cur,ne_seg_sel(t1));else if(srctype==5)wr16(rt->ram+n->seg[i].base+cur,t2);else{wr16(rt->ram+n->seg[i].base+cur,t2);wr16(rt->ram+n->seg[i].base+cur+2,ne_seg_sel(t1));}if(next==0xffffu)break;cur=next;}}else if((tflags&3u)==1){uint16_t cur=src,next;if(!t1||t1>n->cmod)return 0;stub=ne_stub_for(rt,n,t1,t2);if(stub==0xffffu)return 0;if(srctype!=2&&srctype!=3&&srctype!=5)return 0;for(;;){if((uint32_t)cur+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;next=rd16(rt->ram+n->seg[i].base+cur);if(srctype==2)wr16(rt->ram+n->seg[i].base+cur,NE_STUB_SEL);else if(srctype==5)wr16(rt->ram+n->seg[i].base+cur,stub);else{wr16(rt->ram+n->seg[i].base+cur,stub);wr16(rt->ram+n->seg[i].base+cur+2,NE_STUB_SEL);}if(next==0xffffu)break;cur=next;}}else return 0;}}
+     n->next_alloc_sel=NE_ALLOC_SEL_BASE;n->next_alloc_base=NE_ALLOC_BASE;return 1;
+ }
++/* The OS/2 16-bit startup BX value addresses a pair of NUL-delimited
++ * strings: program name, then command tail.  Do not point BX at the tail:
++ * the Microsoft 16-bit CRT consumes the first string as argv[0]. */
+ static uint16_t build_ne_environment(struct Runtime *rt,const char *program,int argc,char **argv)
+ {
+-    uint8_t *p=rt->ram+NE_ENV_BASE;uint32_t off=0,i;char **e=HOST_ENVIRON;const char *a0=program;
+-    if(e)for(;*e;e++){size_t z=strlen(*e)+1;if(off+z+2>=0xff00u)break;memcpy(p+off,*e,z);off+=(uint32_t)z;}p[off++]=0;if(off+strlen(a0)+2>=0xff00u)return 0;memcpy(p+off,a0,strlen(a0)+1);off+=(uint32_t)strlen(a0)+1;{uint16_t cmd=(uint16_t)off;for(i=2;i<(uint32_t)argc;i++){size_t z=strlen(argv[i]);if(i>2)p[off++]=' ';memcpy(p+off,argv[i],z);off+=(uint32_t)z;}p[off++]=0;return cmd;}
++    uint8_t *p=rt->ram+NE_ENV_BASE;
++    uint32_t off=0,i,argv0_off;
++    char **e=HOST_ENVIRON;
++    const char *a0=program;
++    size_t z;
++    if(e)for(;*e;e++){
++        z=strlen(*e)+1;
++        if(off+z+2>=0xff00u)break;
++        memcpy(p+off,*e,z);off+=(uint32_t)z;
++    }
++    p[off++]=0;
++    argv0_off=off;
++    z=strlen(a0)+1;
++    if(off+z+2>=0xff00u)return 0;
++    memcpy(p+off,a0,z);off+=(uint32_t)z;
++    for(i=2;i<(uint32_t)argc;i++){
++        int quote=arg_needs_quotes(argv[i]);
++        z=strlen(argv[i]);
++        if(off+z+4>=0xff00u)return 0;
++        if(i>2)p[off++]=' ';
++        if(quote)p[off++]='"';
++        memcpy(p+off,argv[i],z);off+=(uint32_t)z;
++        if(quote)p[off++]='"';
++    }
++    p[off++]=0;
++    return (uint16_t)argv0_off;
+ }
++
+ static int run_ne16_image(struct Runtime *rt,uint8_t *file,uint32_t file_size,int argc,char **argv)
+ {
+     struct NeImage16 n;CPUI386_State st;uint16_t cmd,ds,ss,cs,sp;uint32_t data_size;long stagnant=0,last=-1;int rc=1;unsigned h;
