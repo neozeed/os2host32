@@ -509,3 +509,7 @@ viofetch-check:
 	$(HOSTCC) $(C89FLAGS) -Werror -Iproj/viofetch tests/vio/viofetch-host-check.c viofetch-host.o -o viofetch-host-check
 	./viofetch-host-check
 	$(RM) viofetch-host.o viofetch-host-check
+
+.PHONY: pm-mouse-check
+pm-mouse-check:
+	HOSTCC="$(HOSTCC)" python3 tests/pmcompat/mouse-input-host-check.py

@@ -130,6 +130,12 @@ typedef struct O2MENUITEM {
 #define O2_WM_BUTTON1DOWN      0x0071U
 #define O2_WM_BUTTON1UP        0x0072U
 #define O2_WM_BUTTON1DBLCLK    0x0073U
+#define O2_WM_BUTTON2DOWN      0x0074U
+#define O2_WM_BUTTON2UP        0x0075U
+#define O2_WM_BUTTON2DBLCLK    0x0076U
+#define O2_WM_BUTTON3DOWN      0x0077U
+#define O2_WM_BUTTON3UP        0x0078U
+#define O2_WM_BUTTON3DBLCLK    0x0079U
 #define O2_WM_CHAR             0x007aU
 
 /* WC_STATIC control messages used by OS/2 2.x. */
@@ -150,6 +156,9 @@ typedef struct O2MENUITEM {
 #define O2_KC_KEYUP            0x0040U
 #define O2_KC_PREVDOWN         0x0080U
 
+#define O2_VK_BUTTON1          0x0001U
+#define O2_VK_BUTTON2          0x0002U
+#define O2_VK_BUTTON3          0x0003U
 #define O2_VK_BREAK            0x0004U
 #define O2_VK_BACKSPACE        0x0005U
 #define O2_VK_TAB              0x0006U
@@ -1320,6 +1329,25 @@ static O2USHORT pm_scroll_code(UINT code)
     }
 }
 
+/* OS/2 button 2 is right; button 3 is middle.  Share this map between
+ * client windows and dialogs so the two callback paths stay consistent. */
+static O2USHORT pm_mouse_message(UINT msg)
+{
+    switch (msg) {
+    case WM_MOUSEMOVE: return O2_WM_MOUSEMOVE;
+    case WM_LBUTTONDOWN: return O2_WM_BUTTON1DOWN;
+    case WM_LBUTTONUP: return O2_WM_BUTTON1UP;
+    case WM_LBUTTONDBLCLK: return O2_WM_BUTTON1DBLCLK;
+    case WM_RBUTTONDOWN: return O2_WM_BUTTON2DOWN;
+    case WM_RBUTTONUP: return O2_WM_BUTTON2UP;
+    case WM_RBUTTONDBLCLK: return O2_WM_BUTTON2DBLCLK;
+    case WM_MBUTTONDOWN: return O2_WM_BUTTON3DOWN;
+    case WM_MBUTTONUP: return O2_WM_BUTTON3UP;
+    case WM_MBUTTONDBLCLK: return O2_WM_BUTTON3DBLCLK;
+    default: return 0;
+    }
+}
+
 static O2MPARAM pm_mouse_point(HWND hwnd, LPARAM lParam)
 {
     RECT cr;
@@ -1432,10 +1460,14 @@ static LRESULT CALLBACK pm_dialog_wndproc(HWND hwnd, UINT msg,
     case WM_LBUTTONDOWN:
     case WM_LBUTTONUP:
     case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MBUTTONDBLCLK:
         if (dlg) {
-            O2USHORT om = msg == WM_MOUSEMOVE ? O2_WM_MOUSEMOVE :
-                          (msg == WM_LBUTTONDOWN ? O2_WM_BUTTON1DOWN :
-                           (msg == WM_LBUTTONDBLCLK ? O2_WM_BUTTON1DBLCLK : O2_WM_BUTTON1UP));
+            O2USHORT om = pm_mouse_message(msg);
             (void)call_dialog_guest(hwnd, dlg, om, pm_mouse_point(hwnd, lParam), 0);
             return 0;
         }
@@ -2022,10 +2054,13 @@ static LRESULT CALLBACK pm_wndproc(HWND hwnd, UINT msg,
     case WM_LBUTTONDOWN:
     case WM_LBUTTONUP:
     case WM_LBUTTONDBLCLK:
-        (void)call_guest(hwnd,
-            msg == WM_MOUSEMOVE ? O2_WM_MOUSEMOVE :
-            (msg == WM_LBUTTONDOWN ? O2_WM_BUTTON1DOWN :
-             (msg == WM_LBUTTONDBLCLK ? O2_WM_BUTTON1DBLCLK : O2_WM_BUTTON1UP)),
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MBUTTONDBLCLK:
+        (void)call_guest(hwnd, pm_mouse_message(msg),
             pm_mouse_point(hwnd, lParam), 0);
         return 0;
 
@@ -4942,6 +4977,11 @@ short __cdecl WinGetKeyState(O2HWND desktop,LONG key)
 {
     UINT vk;
     (void)desktop;
+    /* Mouse virtual keys are not WM_CHAR keys.  In particular OS/2 button
+     * 3 (0x03) maps to Win32 VK_MBUTTON (0x04), not VK_CANCEL (0x03). */
+    if(key==O2_VK_BUTTON1) return GetKeyState(VK_LBUTTON);
+    if(key==O2_VK_BUTTON2) return GetKeyState(VK_RBUTTON);
+    if(key==O2_VK_BUTTON3) return GetKeyState(VK_MBUTTON);
     /* Reuse the inverse of our existing PM WM_CHAR virtual-key mapping. */
     for(vk=1;vk<256;++vk)
         if(os2_vk_from_win(vk)==key && key!=0) return GetKeyState((int)vk);
