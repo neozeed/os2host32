@@ -2100,9 +2100,10 @@ static LRESULT CALLBACK pm_wndproc(HWND hwnd, UINT msg,
 
     case WM_CLOSE:
         pm_trace("WM_CLOSE -> guest", (unsigned long)(DWORD)hwnd, 0, 0);
-        (void)call_guest(hwnd, O2_WM_CLOSE, 0, 0);
-        if (IsWindow(hwnd)) DestroyWindow(hwnd);
-        return 0;
+        /* The guest owns close policy. It may hide this window for later
+         * reuse, ignore the request, destroy it, or end its message loop.
+         * A zero WM_CLOSE result is not permission for native destruction. */
+        return (LRESULT)call_guest(hwnd, O2_WM_CLOSE, 0, 0);
 
     case WM_DESTROY:
         pm_trace("WM_DESTROY", (unsigned long)(DWORD)hwnd, 0, 0);
