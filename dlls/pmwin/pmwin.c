@@ -2836,9 +2836,34 @@ O2USHORT __cdecl WinMessageBox(O2HWND parent, O2HWND owner,
         wh = NULL;
     flags = MB_OK;
     if (style & O2_MB_ICONEXCLAMATION)
-        flags |= MB_ICONEXCLAMATION;
+    /* OS/2 and Win32 use different button/icon encodings. In particular
+     * OS/2 YESNO=4 must return MBID_YES=6, not DID_OK=1. */
+    switch (style & 0x000fUL) {
+    case 0: flags = MB_OK; break;
+    case 1: flags = MB_OKCANCEL; break;
+    case 2: flags = MB_RETRYCANCEL; break;
+    case 3: flags = MB_ABORTRETRYIGNORE; break;
+    case 4: flags = MB_YESNO; break;
+    case 5: flags = MB_YESNOCANCEL; break;
+    default:
+        /* Do not turn an unsupported choice into an affirmative result. */
+        return (O2USHORT)0xffffU;
+    }
+    switch (style & 0x00f0UL) {
+    case 0x10: flags |= MB_ICONQUESTION; break;
+    case 0x20: flags |= MB_ICONEXCLAMATION; break;
+    case 0x30: flags |= MB_ICONASTERISK; break;
+    case 0x40: flags |= MB_ICONHAND; break;
+    }
+    switch (style & 0x0300UL) {
+    case 0x0100: flags |= MB_DEFBUTTON2; break;
+    case 0x0200: flags |= MB_DEFBUTTON3; break;
+    }
+    if (style & 0x1000UL) flags |= MB_SYSTEMMODAL;
     rc = MessageBoxA(wh, text ? text : "", caption ? caption : "", flags);
-    return (O2USHORT)(rc == IDOK ? O2_DID_OK : 0);
+    /* Standard OK/Cancel/Abort/Retry/Ignore/Yes/No IDs agree (1..7). */
+    if (rc >= IDOK && rc <= IDNO) return (O2USHORT)rc;
+    return (O2USHORT)0xffffU;
 }
 
 /* 794 */
