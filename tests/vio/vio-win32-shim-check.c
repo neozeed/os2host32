@@ -46,7 +46,7 @@ static void expect(const char *name, unsigned long got, unsigned long want)
     }
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     struct Os2VioModeInfo mode;
     struct Os2VioCursorInfo saved;
@@ -61,14 +61,23 @@ int main(void)
     char raw[3];
     unsigned short r;
     unsigned short c;
+    unsigned short left = 0U;
+    unsigned short top = argc > 1 ? 3U : 0U;
+    (void)argv;
 
     win32_vio_stub_reset();
+    win32_vio_stub_set_window(left, top);
     memset(&mode, 0, sizeof(mode));
     mode.cb = (unsigned short)sizeof(mode);
     rc = VioGetMode(&mode, 0U);
     expect("get mode rc", rc, 0U);
     expect("mode rows", mode.rows, 5U);
     expect("mode columns", mode.columns, 10U);
+    memset(&mode, 0xa5, sizeof(mode));
+    mode.cb = 8U;
+    expect("short mode prefix", VioGetMode(&mode,0U), 0U);
+    expect("mode hres sentinel", mode.hres, 0xa5a5U);
+    expect("mode vres sentinel", mode.vres, 0xa5a5U);
 
     rc = VioSetCurPos(2U, 3U, 0U);
     expect("set cur pos", rc, 0U);
@@ -106,6 +115,11 @@ int main(void)
     expect("wrt char str att", rc, 0U);
     expect("att char", win32_vio_stub_char(3U, 4U), (unsigned char)'A');
     expect("att map", win32_vio_stub_attr(3U, 4U), 0x1eU);
+    mode.cb = sizeof(mode);
+    expect("unchanged viewport mode", VioGetMode(&mode,0U),0U);
+    read_bytes = 2U;
+    expect("blink cell read", VioReadCellStr(read_cells,&read_bytes,3U,4U,0U),0U);
+    expect("logical blink retained",read_cells[1],0x9eU);
 
     attr = 0x2aU;
     rc = VioWrtNAttr(&attr, 3U, 0U, 8U, 0U);
@@ -131,6 +145,19 @@ int main(void)
     expect("read cell char", read_cells[0], (unsigned char)'Z');
     expect("read cell attr", read_cells[1], 0x1bU);
     expect("read cell wrapped", read_cells[4], (unsigned char)'Z');
+
+    /* Scroll only the requested rectangle, preserving its neighbours. */
+    attr = 0x0cU;
+    rc = VioWrtCharStrAtt("0123456789", 10U, 2U, 0U, &attr, 0U);
+    expect("scroll seed", rc, 0U);
+    cell[0] = (unsigned char)' ';
+    cell[1] = 0x07U;
+    rc = VioScrollUp(1U, 2U, 3U, 6U, 1U, cell, 0U);
+    expect("partial scroll", rc, 0U);
+    expect("scrolled char", win32_vio_stub_char(1U, 2U), '2');
+    expect("scrolled attr", win32_vio_stub_attr(1U, 2U), 0x0cU);
+    expect("outside scroll", win32_vio_stub_char(2U, 0U), '0');
+    expect("scroll exposed", win32_vio_stub_char(3U, 2U), ' ');
 
     cell[0] = (unsigned char)' ';
     cell[1] = 0x07U;
@@ -159,6 +186,26 @@ int main(void)
 
     rc = VioGetCurPos(&row, &column, 7U);
     expect("invalid hvio", rc, OS2_VIO_ERROR_INVALID_VIO_HANDLE);
+
+    for (r = 0; r < 12U; ++r) {
+        for (c = 0; c < 16U; ++c) {
+            if (r < top || r >= top + 5U || c < left || c >= left + 10U) {
+                expect("hidden buffer unchanged", win32_vio_stub_buffer_char(r,c), '.');
+                expect("hidden attributes unchanged", win32_vio_stub_buffer_attr(r,c), 7U);
+            }
+        }
+    }
+    /* Positioned spans also wrap correctly in a horizontally panned view. */
+    win32_vio_stub_reset();
+    win32_vio_stub_set_window(2U, 3U);
+    attr = 0x0eU;
+    expect("horizontal attributed span", VioWrtCharStrAtt("ABCD",4U,1U,8U,&attr,0U),0U);
+    expect("horizontal first",win32_vio_stub_buffer_char(4U,10U),'A');
+    expect("horizontal last column",win32_vio_stub_buffer_char(4U,11U),'B');
+    expect("horizontal wrap",win32_vio_stub_buffer_char(5U,2U),'C');
+    expect("horizontal wrapped attribute",win32_vio_stub_buffer_attr(5U,2U),0x0eU);
+    expect("horizontal hidden right",win32_vio_stub_buffer_char(4U,12U),'.');
+    expect("horizontal hidden left",win32_vio_stub_buffer_char(5U,0U),'.');
 
     if (failures != 0) {
         fprintf(stderr, "vio-win32-shim-check: %d failure(s)\n", failures);

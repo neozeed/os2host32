@@ -2877,6 +2877,14 @@ O2ULONG __cdecl WinQueryPointerInfo(O2ULONG pointer, O2POINTERINFO *info)
     return (mask || color) ? 1UL : 0UL;
 }
 
+/* 867 - PM desktop pixels use a bottom-left origin, like QueryPointerPos. */
+O2ULONG __cdecl WinSetPointerPos(O2HWND desktop, O2LONG x, O2LONG y)
+{
+    (void)desktop;
+    return SetCursorPos((int)x, GetSystemMetrics(SM_CYSCREEN) - 1 - (int)y)
+           ? 1UL : 0UL;
+}
+
 /* 823 */
 O2ULONG __cdecl WinQueryPointerPos(O2HWND desktop, O2POINTL *ptl)
 {

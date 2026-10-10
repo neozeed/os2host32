@@ -54,3 +54,19 @@ uint64_t os2_win32_monotonic_milliseconds(void *opaque)
     (void)opaque;
     return (uint64_t)GetTickCount64();
 }
+
+os2_api_ret_t os2_win32_query_memory_status(
+    void *opaque, struct Os2MemoryStatus *value)
+{
+    MEMORYSTATUSEX status;
+    (void)opaque;
+    if (value == NULL) return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
+    status.dwLength = sizeof(status);
+    if (!GlobalMemoryStatusEx(&status))
+        return (os2_api_ret_t)GetLastError();
+    value->total_physical = (uint64_t)status.ullTotalPhys;
+    value->available_physical = (uint64_t)status.ullAvailPhys;
+    value->available_commit = (uint64_t)status.ullAvailPageFile;
+    value->available_virtual = (uint64_t)status.ullAvailVirtual;
+    return OS2_PERSONALITY_NO_ERROR;
+}

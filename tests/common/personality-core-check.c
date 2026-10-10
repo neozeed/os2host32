@@ -174,6 +174,20 @@ static uint64_t mock_milliseconds(void *opaque)
     return 123456u;
 }
 
+static int memory_failure, memory_inverted;
+static os2_api_ret_t mock_memory_status(void *opaque,
+    struct Os2MemoryStatus *value)
+{
+    (void)opaque;
+    if (memory_failure) return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
+    value->total_physical = (uint64_t)8u * 1024u * 1024u * 1024u;
+    value->available_physical = (uint64_t)7u * 1024u * 1024u * 1024u;
+    if (memory_inverted) value->available_physical = value->total_physical + 1;
+    value->available_commit = 123456789u;
+    value->available_virtual = 987654321u;
+    return 0;
+}
+
 static const struct Os2PersonalityOps mock_ops = {
     mock_validate,
     mock_write_memory,
@@ -185,7 +199,8 @@ static const struct Os2PersonalityOps mock_ops = {
     mock_free,
     mock_set_memory,
     mock_datetime,
-    mock_milliseconds
+    mock_milliseconds,
+    mock_memory_status
 };
 
 static uint32_t load_u32(const unsigned char *memory, uint32_t address)
@@ -301,6 +316,35 @@ int main(void)
                 load_u32(mock.memory, 0x310u) == 123456u,
                 "DosQuerySysInfo produces one common value set");
 
+    rc = os2_core_DosQuerySysInfo(&context, 17u, 21u, 0x400u, 20u);
+    ok &= check(rc == 0u && load_u32(mock.memory, 0x400u) == 0xffffffffu &&
+                load_u32(mock.memory, 0x404u) == 1073741824u &&
+                load_u32(mock.memory, 0x408u) == 123456789u &&
+                load_u32(mock.memory, 0x40cu) == 987654321u &&
+                load_u32(mock.memory, 0x410u) == 987654321u,
+                "memory queries saturate, subtract before truncation, and serialize ULONGs");
+    memory_inverted = 1;
+    rc = os2_core_DosQuerySysInfo(&context,18u,18u,0x500u,4u);
+    ok &= check(rc == 0 && load_u32(mock.memory,0x500u) == 0,
+                "resident count cannot underflow on inconsistent host data");
+    memory_inverted = 0;
+    memset(mock.memory + 0x500u,0xa5,4);
+    memory_failure = 1;
+    rc = os2_core_DosQuerySysInfo(&context,19u,19u,0x500u,4u);
+    ok &= check(rc == OS2_PERSONALITY_ERROR_INVALID_FUNCTION &&
+                load_u32(mock.memory,0x500u) == 0xa5a5a5a5u,
+                "memory backend failure preserves the caller buffer");
+    memory_failure = 0;
+    {
+        struct Os2PersonalityOps unavailable = mock_ops;
+        unavailable.query_memory_status = NULL;
+        context.ops = &unavailable;
+        rc = os2_core_DosQuerySysInfo(&context, 17u, 21u, 0x400u, 20u);
+        ok &= check(rc == 0u && load_u32(mock.memory, 0x400u) == 0u &&
+                    load_u32(mock.memory, 0x410u) == 0u,
+                    "older backends retain their zero-memory fallback");
+        context.ops = &mock_ops;
+    }
     if (!ok)
         return 1;
     printf("PASS: shared DOSCALLS personality core and ordinal catalogue\n");

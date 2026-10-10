@@ -77,7 +77,9 @@ static uint32_t queryfonts(uintptr_t ps,uintptr_t options,uintptr_t face,uintptr
     assert(*(uint32_t *)count==2&&stride==228);hostptr(metrics,456);
     memset((void *)metrics,42,456);*(uint32_t *)count=2;return 0;
 }
-static void *pm(void *o,uint32_t n){(void)o;switch(n){case 779:case 781:return (void *)loadstring;case 776:return (void *)loadaccel;case 850:return (void *)setaccel;case 812:return (void *)cursorinfo;case 890:return (void *)trackrect;case 909:return (void *)newwindow;case 929:return (void *)subclass;case 822:return (void *)pointerinfo;case 838:return (void *)windowprocess;case 730:return (void *)drawbitmap;case 849:return (void *)scrollwindow;case 814:return (void *)shortout;case 728:return (void *)destroywindow;case 763:return (void *)init;case 716:return (void *)queue;case 726:return (void *)destroyqueue;case 888:return (void *)terminate;case 840:return (void *)rect;case 832:return (void *)queryupdateregion;case 918:return (void *)peek;case 912:return (void *)dispatch;case 919:return (void *)postmsg;case 920:return (void *)sendmsg;case 903:return (void *)senddlg;case 899:return (void *)windowfromid;case 751:return (void *)errorinfo;case 999:return (void *)untyped_export;default:return NULL;}}
+static uint32_t setpointerpos(uintptr_t w,uintptr_t x,uintptr_t y)
+{assert(w==1 && (uint32_t)x==0xfffffff9u && y==37);calls++;return 1;}
+static void *pm(void *o,uint32_t n){(void)o;switch(n){case 867:return (void *)setpointerpos;case 779:case 781:return (void *)loadstring;case 776:return (void *)loadaccel;case 850:return (void *)setaccel;case 812:return (void *)cursorinfo;case 890:return (void *)trackrect;case 909:return (void *)newwindow;case 929:return (void *)subclass;case 822:return (void *)pointerinfo;case 838:return (void *)windowprocess;case 730:return (void *)drawbitmap;case 849:return (void *)scrollwindow;case 814:return (void *)shortout;case 728:return (void *)destroywindow;case 763:return (void *)init;case 716:return (void *)queue;case 726:return (void *)destroyqueue;case 888:return (void *)terminate;case 840:return (void *)rect;case 832:return (void *)queryupdateregion;case 918:return (void *)peek;case 912:return (void *)dispatch;case 919:return (void *)postmsg;case 920:return (void *)sendmsg;case 903:return (void *)senddlg;case 899:return (void *)windowfromid;case 751:return (void *)errorinfo;case 999:return (void *)untyped_export;default:return NULL;}}
 static void *gpi(void *o,uint32_t n){(void)o;switch(n){case 355:return (void *)bitblt;case 610:return (void *)devopendc;case 370:return (void *)createregion;case 586:return (void *)queryfonts;case 369:return (void *)createps;case 598:return (void *)bitmap;case 506:return (void *)setbitmap;case 599:return (void *)getbits;default:return NULL;}}
 static void *msg(void *o,uint32_t n){(void)o;return n==4?(void *)insert:NULL;}
 static uint32_t openprofile(uintptr_t hab,uintptr_t file){assert(hab==1);hostptr(file,8);assert(!strcmp((char *)file,"jar.ini"));calls++;return 0xe5555555;}
@@ -103,6 +105,7 @@ int main(void){struct Soft386PmBridge b;uint32_t hab,hps,hbm,n,saved[7],hmq,hini
     /* H2B: the provider can export an API even when the guest ABI crossing is not described. */
     {int handled=0;uint32_t before=calls;assert(soft386_pm_export(&b,0,999));assert(!soft386_pm_dispatch(&b,&(struct Soft386GuestMemoryOps){NULL,valid,readmem,writemem,readstr,u32},0,999,256,&handled));assert(handled&&calls==before);}
     hab=RUN(0,763,0);assert(hab&&hab!=1);hmq=RUN(0,716,hab,0);assert(hmq!=0xe1111111);
+    assert(RUN(0,867,1,0xfffffff9u,37)==1);
     assert(RUN(0,840,1,1024)==1&&u32(NULL,1024)==1&&u32(NULL,1036)==4);
     /* H2R: bounded PM string copyout must not zero the unused staging tail. */
     memset(ram+12000,0xa5,96);

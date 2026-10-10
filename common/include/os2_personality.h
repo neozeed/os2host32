@@ -39,6 +39,16 @@ struct Os2LocalDateTime {
     uint8_t weekday;
 };
 
+/* Backend byte counts; the shared core clamps them to OS/2 ULONG fields.
+ * Native hosts can supply host budgets; a jar supplies its own arena budget.
+ * available_virtual is the backend's maximum single-allocation budget. */
+struct Os2MemoryStatus {
+    uint64_t total_physical;
+    uint64_t available_physical;
+    uint64_t available_commit;
+    uint64_t available_virtual;
+};
+
 struct Os2PersonalityOps {
     os2_api_ret_t (*validate_memory)(void *opaque, os2_addr32_t address,
                                     uint32_t length, uint32_t access);
@@ -67,6 +77,8 @@ struct Os2PersonalityOps {
     os2_api_ret_t (*query_local_datetime)(
         void *opaque, struct Os2LocalDateTime *value);
     uint64_t (*monotonic_milliseconds)(void *opaque);
+    os2_api_ret_t (*query_memory_status)(void *opaque,
+                                        struct Os2MemoryStatus *value);
 };
 
 struct Os2NlsState;

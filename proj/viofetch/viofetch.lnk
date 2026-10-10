@@ -1,0 +1,5 @@
+viofetch.obj
+viofetch.exe
+viofetch.map
+LIBC.LIB OS2386.LIB
+viofetch.def

@@ -14,12 +14,13 @@
 #endif
 
 static struct Os2VioSession vio_session;
+static struct Os2VioWin32State vio_backend_state;
 static int vio_session_ready;
 
 static struct Os2VioSession *session(void)
 {
     if (!vio_session_ready) {
-        os2_vio_win32_session_init(&vio_session);
+        os2_vio_win32_session_init(&vio_session, &vio_backend_state);
         vio_session_ready = 1;
     }
     return &vio_session;

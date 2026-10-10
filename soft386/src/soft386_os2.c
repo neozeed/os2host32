@@ -1526,11 +1526,43 @@ static uint64_t soft_monotonic_milliseconds(void *opaque)
     return monotonic_ms();
 }
 
+/* The jar owns this memory namespace on every host.  Report only space
+ * alloc_guest can use: reusable whole blocks and the untouched tail when
+ * an unused allocation-table entry remains.  There is no split/coalesce
+ * or automatic arena growth in this allocator. */
+static os2_api_ret_t soft_query_memory_status(void *opaque,
+                                               struct Os2MemoryStatus *value)
+{
+    struct Runtime *rt = (struct Runtime *)opaque;
+    uint64_t free_bytes = 0;
+    uint32_t largest = 0, i, tail;
+    int spare_slot = 0;
+    if (!rt || !value) return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
+    for (i = 0; i < MAX_ALLOCS; ++i) {
+        const struct GuestAlloc *ga = &rt->allocs[i];
+        if (!ga->base) spare_slot = 1;
+        else if (!ga->used) {
+            free_bytes += ga->size;
+            if (ga->size > largest) largest = ga->size;
+        }
+    }
+    if (spare_slot && rt->alloc_next >= GUEST_ALLOC_BASE &&
+        rt->alloc_next < GUEST_ALLOC_LIMIT) {
+        tail = GUEST_ALLOC_LIMIT - align_up(rt->alloc_next, 0x1000u);
+        free_bytes += tail;
+        if (tail > largest) largest = tail;
+    }
+    value->total_physical = RAM_SIZE;
+    value->available_physical = free_bytes;
+    value->available_commit = free_bytes;
+    value->available_virtual = largest;
+    return OS2_PERSONALITY_NO_ERROR;
+}
 static const struct Os2PersonalityOps soft_personality_ops = {
     soft_validate_memory, soft_write_memory, soft_map_read_memory,
     soft_query_handle_type, soft_write_handle, soft_set_file_pointer,
     soft_allocate_memory, soft_free_memory, soft_set_memory,
-    soft_query_local_datetime, soft_monotonic_milliseconds
+    soft_query_local_datetime, soft_monotonic_milliseconds, soft_query_memory_status
 };
 
 static uint32_t hostcall_stub(struct Runtime *rt, uint32_t module, uint32_t ordinal)
@@ -2246,6 +2278,10 @@ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t
     os2_personality_context_set_nls(&personality,&rt->nls_state);
     if(rt->trace_hc)fprintf(stderr,"soft386: DOSCALLS.%u ESP=%08X args=%08X,%08X,%08X,%08X,%08X\n",ordinal,esp,a1,a2,a3,a4,a5);
     if(rt->exit_processing&&(ordinal==311||ordinal==283))return 87;
+    /* QuerySysInfo describes the jar, even with a native DOS provider loaded.
+     * Keep range validation and ULONG serialization in the shared DOS core. */
+    if (ordinal == 348u)
+        return os2_core_DosQuerySysInfo(&personality,a1,a2,a3,a4);
     if (rt->native_dos.loaded && soft386_doscalls_bridge_export(&rt->native_dos, ordinal)) {
         struct Soft386GuestMemoryOps memops;
         unsigned abi_nargs = 0, abi_flags = soft386_doscalls_bridge_abi(ordinal, &abi_nargs);
@@ -2319,7 +2355,6 @@ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t
         return dispatch_event_sem(rt,ordinal,a1,a2,a3,a4);
     case 331:case 332:case 333:case 334:case 335:case 336:
         return dispatch_mutex_sem(rt,ordinal,a1,a2,a3,a4);
-    case 348:return os2_core_DosQuerySysInfo(&personality,a1,a2,a3,a4);
     case 395:return os2_nls_api_DosQueryCtryInfo(&personality,a1,a2,a3,a4);
     case 396:return os2_nls_api_DosQueryDBCSEnv(&personality,a1,a2,a3);
     case 397:return os2_nls_api_DosMapCase(&personality,a1,a2,a3);

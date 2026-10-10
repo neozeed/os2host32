@@ -70,6 +70,7 @@ EXPORTS
     WinSetClipbrdData     @854 NONAME
     WinSetDlgItemShort     @858 NONAME
     WinSetPointer          @866 NONAME
+    WinSetPointerPos       @867 NONAME
     WinSetSysModalWindow   @872 NONAME
     WinSetWindowPos        @875 NONAME
     WinSetWindowText       @877 NONAME

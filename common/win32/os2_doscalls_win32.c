@@ -742,7 +742,8 @@ static const struct Os2PersonalityOps o2_personality_ops = {
     o2p_free_memory,
     o2p_set_memory,
     os2_win32_query_local_datetime,
-    os2_win32_monotonic_milliseconds
+    os2_win32_monotonic_milliseconds,
+    os2_win32_query_memory_status
 };
 
 static struct Os2PersonalityContext o2_personality_context = {

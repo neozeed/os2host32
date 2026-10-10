@@ -1,0 +1,4 @@
+# PE diagnostic of the same source, linked to the split compatibility DLLs.
+MINGW ?= i686-w64-mingw32-gcc
+viofetch-pe.exe: VIOFETCH.C viofetch_api.h ../../VIOCALLS.dll ../../DOSCALLS.dll ../../NLS.dll
+	$(MINGW) -x c -std=c89 -O2 -Wall -Wextra -Werror -o $@ VIOFETCH.C -x none ../../libviocalls.a ../../libnls.a ../../libdoscalls.a

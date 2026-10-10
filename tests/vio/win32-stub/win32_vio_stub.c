@@ -3,8 +3,8 @@
 #include "windows.h"
 #include "win32_vio_stub.h"
 
-#define STUB_ROWS 5
-#define STUB_COLS 10
+#define STUB_ROWS 12
+#define STUB_COLS 16
 #define STUB_CELLS (STUB_ROWS * STUB_COLS)
 
 static unsigned char stub_chars[STUB_CELLS];
@@ -13,6 +13,7 @@ static COORD stub_cursor;
 static CONSOLE_CURSOR_INFO stub_cursor_info;
 static DWORD stub_error;
 static int output_token;
+static SHORT view_left, view_top;
 
 static int valid_handle(HANDLE handle)
 {
@@ -32,6 +33,7 @@ void win32_vio_stub_reset(void)
         stub_chars[i] = (unsigned char)'.';
         stub_attrs[i] = 0x07U;
     }
+    view_left = view_top = 0;
     stub_cursor.X = 0;
     stub_cursor.Y = 0;
     stub_cursor_info.dwSize = 25U;
@@ -41,22 +43,22 @@ void win32_vio_stub_reset(void)
 
 unsigned char win32_vio_stub_char(unsigned short row, unsigned short column)
 {
-    return stub_chars[(unsigned long)row * STUB_COLS + column];
+    return stub_chars[index_of((SHORT)(row + view_top), (SHORT)(column + view_left))];
 }
 
 unsigned short win32_vio_stub_attr(unsigned short row, unsigned short column)
 {
-    return stub_attrs[(unsigned long)row * STUB_COLS + column];
+    return stub_attrs[index_of((SHORT)(row + view_top), (SHORT)(column + view_left))];
 }
 
 unsigned short win32_vio_stub_cursor_row(void)
 {
-    return (unsigned short)stub_cursor.Y;
+    return (unsigned short)(stub_cursor.Y - view_top);
 }
 
 unsigned short win32_vio_stub_cursor_column(void)
 {
-    return (unsigned short)stub_cursor.X;
+    return (unsigned short)(stub_cursor.X - view_left);
 }
 
 unsigned long win32_vio_stub_cursor_size(void)
@@ -94,10 +96,10 @@ BOOL GetConsoleScreenBufferInfo(HANDLE handle,
     info->dwSize.Y = STUB_ROWS;
     info->dwCursorPosition = stub_cursor;
     info->wAttributes = 0x07U;
-    info->srWindow.Left = 0;
-    info->srWindow.Top = 0;
-    info->srWindow.Right = STUB_COLS - 1;
-    info->srWindow.Bottom = STUB_ROWS - 1;
+    info->srWindow.Left = view_left;
+    info->srWindow.Top = view_top;
+    info->srWindow.Right = view_left + 9;
+    info->srWindow.Bottom = view_top + 4;
     info->dwMaximumWindowSize = info->dwSize;
     return TRUE;
 }
@@ -322,4 +324,20 @@ BOOL WriteFile(HANDLE handle, const void *buffer, DWORD count, DWORD *done,
         ++*done;
     }
     return TRUE;
+}
+
+void win32_vio_stub_set_window(unsigned short left, unsigned short top)
+{
+    view_left = (SHORT)left;
+    view_top = (SHORT)top;
+    stub_cursor.X = view_left;
+    stub_cursor.Y = view_top;
+}
+unsigned char win32_vio_stub_buffer_char(unsigned short row, unsigned short col)
+{
+    return stub_chars[index_of((SHORT)row, (SHORT)col)];
+}
+unsigned short win32_vio_stub_buffer_attr(unsigned short row, unsigned short col)
+{
+    return stub_attrs[index_of((SHORT)row, (SHORT)col)];
 }

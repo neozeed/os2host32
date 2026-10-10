@@ -42,7 +42,7 @@ endif
 BRIDGE_CHECK_SRC = tests/bridge-check.c src/soft386_doscalls_bridge.c
 SYSTEM_BRIDGE_CHECK_SRC = tests/system-bridge-check.c src/soft386_system_bridge.c
 
-.PHONY: all win32 clean fixtures check check-quick check-ne
+.PHONY: all win32 clean fixtures check check-quick check-ne check-jar-memory
 all: $(TARGET)
 
 $(TARGET): $(SRC) $(HOST_EXTRA_SRC) $(wildcard src/*.h)
@@ -95,7 +95,7 @@ check-ne: all
 	python3 tests/check-ne-compact.py ./$(TARGET) tests/fixtures/compact-printf-ne16.exe
 	python3 tests/check-ne-huge.py ./$(TARGET) tests/fixtures/huge-printf-ne16.exe
 
-check-quick: all fixtures $(BRIDGE_CHECK) $(SYSTEM_BRIDGE_CHECK) check-ne
+check-quick: check-jar-memory all fixtures $(BRIDGE_CHECK) $(SYSTEM_BRIDGE_CHECK) check-ne
 	./$(TARGET) tests/fixtures/hello-soft386.le
 	./$(TARGET) tests/fixtures/thread-soft386.le
 	./$(TARGET) tests/fixtures/sync-soft386.le
@@ -103,14 +103,14 @@ check-quick: all fixtures $(BRIDGE_CHECK) $(SYSTEM_BRIDGE_CHECK) check-ne
 	./$(BRIDGE_CHECK)
 	./$(SYSTEM_BRIDGE_CHECK)
 
-check: check-r5c check-ne all fixtures $(BRIDGE_CHECK) $(SYSTEM_BRIDGE_CHECK) $(PM_RUNTIME_CHECK) $(PM_BRIDGE_CHECK) $(R5B_RUNTIME_CHECK) $(QUEUE_BRIDGE_CHECK)
+check: check-jar-memory check-r5c check-ne all fixtures $(BRIDGE_CHECK) $(SYSTEM_BRIDGE_CHECK) $(PM_RUNTIME_CHECK) $(PM_BRIDGE_CHECK) $(R5B_RUNTIME_CHECK) $(QUEUE_BRIDGE_CHECK)
 	python3 tests/test_r4.py ./$(TARGET) ./$(BRIDGE_CHECK) ./$(SYSTEM_BRIDGE_CHECK)
 	python3 tests/test_r5.py ./$(TARGET) ./$(PM_RUNTIME_CHECK) ./$(PM_BRIDGE_CHECK)
 	python3 tests/test_r5a.py ./$(TARGET)
 	python3 tests/test_r5b.py ./$(TARGET) ./$(R5B_RUNTIME_CHECK) ./$(QUEUE_BRIDGE_CHECK)
 
 clean:
-	rm -f net-bridge-check r5c-runtime-check telnet-profile-check net-echo.exe $(TARGET) $(WIN_TARGET) $(BRIDGE_CHECK) $(SYSTEM_BRIDGE_CHECK) $(PM_RUNTIME_CHECK) $(PM_BRIDGE_CHECK) $(R5B_RUNTIME_CHECK) $(QUEUE_BRIDGE_CHECK)
+	rm -f jar-memory-check net-bridge-check r5c-runtime-check telnet-profile-check net-echo.exe $(TARGET) $(WIN_TARGET) $(BRIDGE_CHECK) $(SYSTEM_BRIDGE_CHECK) $(PM_RUNTIME_CHECK) $(PM_BRIDGE_CHECK) $(R5B_RUNTIME_CHECK) $(QUEUE_BRIDGE_CHECK)
 	rm -f tests/fixtures/*.le tests/fixtures/*.lx tests/fixtures/*soft386.exe tests/fixtures/PMJAR.DLL tests/fixtures/OUTER.DLL tests/fixtures/INNER.DLL tests/fixtures/LEGACY.DLL
 	rm -f tests/fixtures/RESOURCE.DLL
 
@@ -126,3 +126,11 @@ check-r5c: r5c-runtime-check net-bridge-check
 
 telnet-profile-check: tests/telnet-profile-check.c $(SRC) $(wildcard src/*.h)
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/telnet-profile-check.c $(filter-out src/soft386_os2.c,$(SRC)) $(HOST_EXTRA_SRC) -o $@ $(LDLIBS) $(HOST_LIBS)
+
+jar-memory-check: tests/jar-memory-check.c $(SRC) $(HOST_EXTRA_SRC) $(wildcard src/*.h)
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/jar-memory-check.c $(filter-out src/soft386_os2.c,$(SRC)) $(HOST_EXTRA_SRC) -o $@ $(LDLIBS) $(HOST_LIBS)
+
+check-jar-memory: all jar-memory-check
+	./jar-memory-check
+	python3 tests/mkfixture-jar-memory.py tests/fixtures/jar-memory-soft386.le
+	./$(TARGET) --no-doscalls-dll --no-system-dlls tests/fixtures/jar-memory-soft386.le

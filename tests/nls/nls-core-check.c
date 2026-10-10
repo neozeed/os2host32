@@ -116,7 +116,7 @@ static const struct Os2PersonalityOps mock_ops = {
     mock_validate,
     mock_write,
     mock_map_read,
-    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
 };
 
 static void test_session_state(void)

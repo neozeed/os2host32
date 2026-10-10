@@ -170,6 +170,7 @@ static const struct PmSig signatures[]={
     {0,877,"WinSetWindowText","Ws",0,PM_ABI_NONE},
     {0,878,"WinSetWindowULong","W..",0,PM_ABI_NONE},
     {0,880,"WinShowCursor","W.",0,PM_ABI_NONE},
+    {0,867,"WinSetPointerPos","W..",0,PM_ABI_NONE},
     {0,881,"WinShowPointer","W.",0,PM_ABI_NONE},
     {0,883,"WinShowWindow","W.",0,PM_ABI_NONE},
     {0,884,"WinStartTimer","AW..",0,PM_ABI_NONE},

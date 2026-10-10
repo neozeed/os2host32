@@ -343,6 +343,7 @@ vio-win32-shim-check: tests/vio/vio-win32-shim-check.c \
 		tests/vio/win32-stub/win32_vio_stub.c dlls/viocalls/viocalls.c \
 		$(VIO_COMMON_SRC) $(VIO_WIN32_SRC)
 	./vio-win32-shim-check
+	./vio-win32-shim-check --offset
 	rm -f vio-win32-shim-check
 
 vio-static-check:
@@ -498,3 +499,13 @@ clean:
 
 c386-hack-static-check:
 	python3 tools/check_c386_hack_bridge.py
+
+.PHONY: pm-pointer-check viofetch-check
+pm-pointer-check:
+	HOSTCC="$(HOSTCC)" python3 tests/pmcompat/pointer-position-host-check.py
+
+viofetch-check:
+	$(HOSTCC) $(C89FLAGS) -Werror -Iproj/viofetch -x c -Dmain=viofetch_main -c proj/viofetch/VIOFETCH.C -o viofetch-host.o
+	$(HOSTCC) $(C89FLAGS) -Werror -Iproj/viofetch tests/vio/viofetch-host-check.c viofetch-host.o -o viofetch-host-check
+	./viofetch-host-check
+	$(RM) viofetch-host.o viofetch-host-check

@@ -11,4 +11,7 @@ os2_api_ret_t os2_win32_query_local_datetime(
 
 uint64_t os2_win32_monotonic_milliseconds(void *opaque);
 
+os2_api_ret_t os2_win32_query_memory_status(
+    void *opaque, struct Os2MemoryStatus *value);
+
 #endif

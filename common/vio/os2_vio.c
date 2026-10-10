@@ -277,8 +277,9 @@ unsigned short os2_vio_get_mode(struct Os2VioSession *session,
     mode->color = 16U;
     mode->columns = session->columns;
     mode->rows = session->rows;
-    mode->hres = 0U;
-    mode->vres = 0U;
+    /* cb can describe only the eight-byte mandatory prefix. */
+    if (mode->cb >= 10U) mode->hres = 0U;
+    if (mode->cb >= 12U) mode->vres = 0U;
     return OS2_VIO_NO_ERROR;
 }
 

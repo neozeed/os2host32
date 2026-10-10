@@ -6,6 +6,7 @@
 #include "os2_doscalls_core.h"
 
 #include <stddef.h>
+#include <string.h>
 
 #define OS2_U32_MAX 0xffffffffu
 
@@ -284,6 +285,11 @@ os2_api_ret_t os2_core_DosSetMem(
     return context->ops->set_memory(context->opaque, base, size, flags);
 }
 
+static uint32_t memory_ulong(uint64_t bytes)
+{
+    return bytes > OS2_U32_MAX ? OS2_U32_MAX : (uint32_t)bytes;
+}
+
 os2_api_ret_t os2_core_DosQuerySysInfo(
     struct Os2PersonalityContext *context,
     uint32_t first,
@@ -295,6 +301,7 @@ os2_api_ret_t os2_core_DosQuerySysInfo(
     uint32_t count;
     uint32_t index;
     os2_addr32_t output;
+    struct Os2MemoryStatus memory;
 
     if (context == NULL || context->ops == NULL)
         return OS2_PERSONALITY_ERROR_INVALID_FUNCTION;
@@ -309,6 +316,12 @@ os2_api_ret_t os2_core_DosQuerySysInfo(
     if (rc != OS2_PERSONALITY_NO_ERROR)
         return rc;
 
+    memset(&memory, 0, sizeof(memory));
+    if (first <= 21u && last >= 17u &&
+        context->ops->query_memory_status != NULL) {
+        rc = context->ops->query_memory_status(context->opaque, &memory);
+        if (rc != OS2_PERSONALITY_NO_ERROR) return rc;
+    }
     output = buffer_address;
     for (index = first; index <= last; ++index) {
         uint32_t value;
@@ -329,6 +342,20 @@ os2_api_ret_t os2_core_DosQuerySysInfo(
                     context->opaque);
             else
                 value = 0u;
+            break;
+        case 17u: /* QSV_TOTPHYSMEM */
+            value = memory_ulong(memory.total_physical);
+            break;
+        case 18u: /* QSV_TOTRESMEM: backend occupied/reserved memory */
+            value = memory_ulong(memory.total_physical > memory.available_physical
+                ? memory.total_physical - memory.available_physical : 0);
+            break;
+        case 19u: /* QSV_TOTAVAILMEM: backend available allocation budget */
+            value = memory_ulong(memory.available_commit);
+            break;
+        case 20u: /* QSV_MAXPRMEM */
+        case 21u: /* QSV_MAXSHMEM: backend single-allocation budget */
+            value = memory_ulong(memory.available_virtual);
             break;
         default:
             value = 0u;
