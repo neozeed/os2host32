@@ -3,18 +3,22 @@
  * The simulation modules are retained unchanged in spirit.  This file owns
  * only PM lifetime, painting, input, city-file I/O, and the small UI seam.
  */
+#define INCL_DOSFILEMGR
 #include "mp_ui.h"
 #include "os2bmp.h"
 #include "sim.h"
 #include "tools.h"
 #include "tiles.h"
 #include "charts.h"
+#include "notify.h"
 #include "mapgen.h"
 #include "sprite.h"
 #include "pm_ids.h"
 #include "pm_scroll.h"
 #include "pm_minimap.h"
 #include "pm_stroke.h"
+#include "pm_path.h"
+#include "pm_sound.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,7 +27,9 @@
 
 #define MP_CLASS "WinTownPM"
 #define MP_TITLE "WinTown/2"
-#define TILE_SIZE 16
+#define SOURCE_TILE_SIZE 16
+static int mapTileSize = 16;
+#define TILE_SIZE mapTileSize
 #define MP_TIMER 1
 #define TOOLBAR_WIDTH 108
 #define TOOL_BUTTON_SIZE 36
@@ -43,6 +49,8 @@ static HWND frameMain = 0;
 static HWND frameLog = 0;
 static HWND frameInfo = 0;
 static HWND hwndChart = 0, frameChart = 0;
+static HWND hwndTiles = 0, frameTiles = 0;
+static int viewedTile = 0;
 static int modalActive;
 char cityFileName[MAX_PATH];
 int toolbarWidth = TOOLBAR_WIDTH;
@@ -339,9 +347,9 @@ static void draw_city(HPS hps)
             if (tile < 0 || tile >= 960) tile = DIRT;
             p[0].x = sx; p[0].y = clientHeight - sy - TILE_SIZE;
             p[1].x = sx + TILE_SIZE; p[1].y = clientHeight - sy;
-            p[2].x = (tile % 32) * TILE_SIZE;
-            p[2].y = 480 - ((tile / 32) + 1) * TILE_SIZE;
-            p[3].x = p[2].x + TILE_SIZE; p[3].y = p[2].y + TILE_SIZE;
+            p[2].x = (tile % 32) * SOURCE_TILE_SIZE;
+            p[2].y = 480 - ((tile / 32) + 1) * SOURCE_TILE_SIZE;
+            p[3].x = p[2].x + SOURCE_TILE_SIZE; p[3].y = p[2].y + SOURCE_TILE_SIZE;
             GpiBitBlt(hps, hpsMemory, 4L, p, ROP_SRCCOPY, BBO_IGNORE);
         }
     }
@@ -440,7 +448,9 @@ static void destroy_sprites(void)
 
 static void draw_sprites(HPS hps)
 {
-    int i, t, f, x, y;
+    int i, t, f, x, y, width, height, visible, sourceVisible, progress, line;
+    POINTL ripple;
+
     SimSprite *s;
     POINTL p[4];
     for (i = 0; i < MAX_SPRITES; ++i) {
@@ -448,18 +458,44 @@ static void draw_sprites(HPS hps)
         if (!s || s->frame <= 0 || s->type < 1 || s->type > 8) continue;
         t = s->type - 1; f = (s->frame - 1) % spriteFrames[t];
         if (!spriteColors[t][f] || !spriteMasks[t][f]) continue;
-        x = toolbarWidth + s->x + s->x_offset - xOffset;
-        y = s->y + s->y_offset - yOffset;
-        if (x + s->width <= toolbarWidth || x >= clientWidth ||
-            y + s->height <= 0 || y >= pm_map_height(clientHeight)) continue;
-        p[0].x = x; p[0].y = clientHeight - y - s->height;
-        p[1].x = x + s->width; p[1].y = clientHeight - y;
+        x = toolbarWidth + (s->x + s->x_offset) * TILE_SIZE / SOURCE_TILE_SIZE - xOffset;
+        y = (s->y + s->y_offset) * TILE_SIZE / SOURCE_TILE_SIZE - yOffset;
+        width = s->width * TILE_SIZE / SOURCE_TILE_SIZE;
+        height = s->height * TILE_SIZE / SOURCE_TILE_SIZE;
+        if (x + width <= toolbarWidth || x >= clientWidth ||
+            y + height <= 0 || y >= pm_map_height(clientHeight)) continue;
+        p[0].x = x; p[0].y = clientHeight - y - height;
+        p[1].x = x + width; p[1].y = clientHeight - y;
         p[2].x = 0; p[2].y = 0;
         p[3].x = spriteWidths[t][f]; p[3].y = spriteHeights[t][f];
+        if (s->type == SPRITE_MONSTER && s->water_phase) {
+            progress = s->water_phase == 1 ? MONSTER_WATER_TICKS - s->water_ticks : s->water_ticks;
+            if (progress < 1) progress = 1;
+            visible = height * progress / MONSTER_WATER_TICKS;
+            sourceVisible = spriteHeights[t][f] * progress / MONSTER_WATER_TICKS;
+            if (visible < 1) visible = 1;
+            if (sourceVisible < 1) sourceVisible = 1;
+            p[1].y = p[0].y + visible;
+            p[2].y = spriteHeights[t][f] - sourceVisible;
+        }
         GpiSetBitmap(hpsIcons, spriteMasks[t][f]);
         GpiBitBlt(hps, hpsIcons, 4L, p, ROP_SRCAND, BBO_IGNORE);
         GpiSetBitmap(hpsIcons, spriteColors[t][f]);
         GpiBitBlt(hps, hpsIcons, 4L, p, ROP_SRCPAINT, BBO_IGNORE);
+        if (s->type == SPRITE_MONSTER && s->water_phase) {
+
+            for (line = 0; line < 3; ++line) {
+                int inset;
+                inset = width / 8 + ((s->water_ticks / 3 + line) % 3) * (width / 12);
+                ripple.x = x + inset;
+                ripple.y = clientHeight - y - height + line * 2;
+                GpiSetColor(hps, line == 1 ? CLR_BLUE : CLR_CYAN);
+                GpiMove(hps, &ripple);
+                ripple.x = x + width - inset;
+                GpiLine(hps, &ripple);
+            }
+            GpiSetColor(hps, CLR_BLACK);
+        }
     }
 }
 
@@ -908,19 +944,344 @@ static void pan(int dx, int dy)
     mp_ui_invalidate();
 }
 
+static Notification lastAlert;
+static int haveAlert;
+static unsigned char alertSeen[44];
+static int alertPopupCount;
+void mp_pm_clear_notification(void)
+{
+    memset(&lastAlert, 0, sizeof(lastAlert));
+    haveAlert = 0;
+    memset(alertSeen, 0, sizeof(alertSeen));
+    alertPopupCount = 0;
+}
+
+#ifndef MP_PORT_TEST
+static MRESULT EXPENTRY alert_proc(HWND hwnd, USHORT msg, MPARAM mp1, MPARAM mp2)
+{
+    char location[80];
+    switch (msg) {
+    case WM_INITDLG:
+        WinSetWindowText(hwnd, lastAlert.title);
+        WinSetDlgItemText(hwnd, ID_ALERT_MESSAGE, lastAlert.message);
+        WinSetDlgItemText(hwnd, ID_ALERT_DETAIL, lastAlert.explanation);
+        WinSetDlgItemText(hwnd, ID_ALERT_ADVICE, lastAlert.advice);
+        if (lastAlert.hasLocation)
+            sprintf(location, "Map location: %d, %d", lastAlert.locationX, lastAlert.locationY);
+        else strcpy(location, "No specific map location reported.");
+        WinSetDlgItemText(hwnd, ID_ALERT_LOCATION, location);
+        WinEnableWindow(WinWindowFromID(hwnd, ID_ALERT_GOTO), lastAlert.hasLocation);
+        return 0;
+    case WM_COMMAND:
+        if (SHORT1FROMMP(mp1) == ID_ALERT_GOTO && lastAlert.hasLocation) {
+            CenterMapOnLocation(lastAlert.locationX, lastAlert.locationY);
+            WinDismissDlg(hwnd, DID_OK); return 0;
+        }
+        if (SHORT1FROMMP(mp1) == DID_OK || SHORT1FROMMP(mp1) == DID_CANCEL) {
+            WinDismissDlg(hwnd, DID_OK); return 0;
+        }
+        break;
+    }
+    return WinDefDlgProc(hwnd, msg, mp1, mp2);
+}
+
+static void show_last_alert(void)
+{
+    int previousModal;
+    if (!haveAlert) {
+        mp_ui_message(hwndMain, "No emergency has been reported for this city yet.", MP_TITLE);
+        return;
+    }
+    stop_build();
+    previousModal = modalActive;
+    modalActive = 1;
+    WinDlgBox(HWND_DESKTOP, hwndMain, alert_proc, (HMODULE)0, ID_ALERT_DIALOG, NULL);
+    modalActive = previousModal;
+}
+#endif
+
+void mp_pm_show_notification(Notification *n)
+{
+    int popup;
+    if (!n) return;
+    lastAlert = *n;
+    lastAlert.title[sizeof(lastAlert.title)-1] = 0;
+    lastAlert.message[sizeof(lastAlert.message)-1] = 0;
+    lastAlert.explanation[sizeof(lastAlert.explanation)-1] = 0;
+    lastAlert.advice[sizeof(lastAlert.advice)-1] = 0;
+    lastAlert.hasLocation = n->hasLocation && n->locationX >= 0 &&
+        n->locationX < WORLD_X && n->locationY >= 0 && n->locationY < WORLD_Y;
+    if (!lastAlert.explanation[0]) {
+        switch (n->id) {
+        case 20: strcpy(lastAlert.explanation, "Fire has broken out in the city."); break;
+        case 21: strcpy(lastAlert.explanation, "A monster is damaging the city."); break;
+        case 22: strcpy(lastAlert.explanation, "A tornado is crossing the city."); break;
+        case 23: strcpy(lastAlert.explanation, "An earthquake has damaged buildings and infrastructure."); break;
+        case 24: strcpy(lastAlert.explanation, "An aircraft has crashed. Check the surrounding area for fires."); break;
+        case 25: strcpy(lastAlert.explanation, "A ship has been wrecked."); break;
+        case 30: strcpy(lastAlert.explanation, "Firebombing has started fires in the city."); break;
+        case 42: strcpy(lastAlert.explanation, "Flooding is damaging the city."); break;
+        case 43: strcpy(lastAlert.explanation, "A nuclear plant has suffered a meltdown. The area may be contaminated."); break;
+        default: strcpy(lastAlert.explanation, "Review the affected area and city services."); break;
+        }
+    }
+    if (!lastAlert.advice[0]) {
+        if (n->id == 20 || n->id == 24 || n->id == 30)
+            strcpy(lastAlert.advice, "Check fire station coverage and funding. Restore damaged roads and power lines.");
+        else if (n->id == 43)
+            strcpy(lastAlert.advice, "Inspect the affected area and restore power from another plant. Avoid contaminated tiles.");
+        else strcpy(lastAlert.advice, "Inspect the damage. Restore roads and power, then rebuild when the danger has passed.");
+    }
+    haveAlert = 1;
+    popup = n->id < 0 || n->id >= 44 || !alertSeen[n->id];
+    if (n->id >= 0 && n->id < 44) alertSeen[n->id] = 1;
+    if (popup) {
+        ++alertPopupCount;
+        pm_sound_play(PM_SOUND_ALERT);
+#ifndef MP_PORT_TEST
+        show_last_alert();
+#endif
+    }
+
+}
+
+#if defined(MP_PORT_TEST) && defined(MP_SELFTEST)
+int mp_test_alert_popups(void) { return alertPopupCount; }
+const Notification *mp_test_last_alert(void) { return haveAlert ? &lastAlert : NULL; }
+#endif
+
 #ifndef MP_PORT_TEST
 static char pathText[MAX_PATH] = "city.scn";
+/* Directory/file lists follow Microsoft OPENDLG FILE.C/FILE1.C.
+ * Keep an explicit browsing path: never change the game's working directory,
+ * and never open/create files merely to select a name. */
+static char browseDir[MAX_PATH];
+static int browseSave;
+
+static int browse_fill(HWND hwnd, const char *directory)
+{
+    FILESTATUS status;
+    FILEFINDBUF found;
+    HDIR search;
+    ULONG count, rc, drive, drives;
+    int i, entries, inserted;
+    char summary[140];
+    char pattern[MAX_PATH], driveName[4];
+    memset(&status, 0, sizeof(status));
+    rc = DosQueryPathInfo((PSZ)directory, FIL_STANDARD, &status, sizeof(status));
+    pm_trace("BROWSE-R20 path=%s query=%lu attr=%04x status-size=%u find-size=%u name-offset=%u",
+        directory, rc, (unsigned int)status.attrFile, (unsigned int)sizeof(status),
+        (unsigned int)sizeof(found), (unsigned int)((char *)found.achName-(char *)&found));
+    pm_trace("BROWSE-R20 controls dirs=%08lx files=%08lx",
+        (ULONG)WinWindowFromID(hwnd, ID_PATH_DIRS), (ULONG)WinWindowFromID(hwnd, ID_PATH_FILES));
+    if (strlen(directory) > MAX_PATH - 5 || rc || !(status.attrFile & FILE_DIRECTORY)) {
+        WinSetDlgItemText(hwnd, ID_PATH_STATUS, "Cannot read that directory.");
+        return 0;
+    }
+    strcpy(pattern, directory);
+    if (pattern[strlen(pattern)-1] != '\\') strcat(pattern, "\\");
+    strcat(pattern, "*.*");
+    search = (HDIR)0xffff; count = 1;
+    memset(&found, 0, sizeof(found));
+    entries = 0;
+    rc = DosFindFirst(pattern, &search, FILE_DIRECTORY | FILE_READONLY |
+                      FILE_HIDDEN | FILE_SYSTEM | FILE_ARCHIVED,
+                      &found, sizeof(found), &count, FIL_STANDARD);
+    pm_trace("BROWSE-R20 find pattern=%s rc=%lu count=%lu", pattern, rc, count);
+    if (rc && rc != 18 && rc != 2) {
+        WinSetDlgItemText(hwnd, ID_PATH_STATUS, "Directory listing failed; try another folder.");
+        return 0;
+    }
+    if (directory != browseDir) strcpy(browseDir, directory);
+    WinSetDlgItemText(hwnd, ID_PATH_FOLDER, browseDir);
+    WinSendDlgItemMsg(hwnd, ID_PATH_DIRS, LM_DELETEALL, 0, 0);
+    WinSendDlgItemMsg(hwnd, ID_PATH_FILES, LM_DELETEALL, 0, 0);
+    if (!rc) {
+        do {
+            found.achName[sizeof(found.achName)-1] = 0;
+            if (strcmp((char *)found.achName, ".") && strcmp((char *)found.achName, "..")) {
+                inserted = (SHORT)WinSendDlgItemMsg(hwnd,
+                    (found.attrFile & FILE_DIRECTORY) ? ID_PATH_DIRS : ID_PATH_FILES,
+                    LM_INSERTITEM, MPFROMSHORT(LIT_SORTASCENDING), MPFROMP(found.achName));
+                if (entries < 12)
+                    pm_trace("BROWSE-R20 entry name=%s attr=%04x len=%u insert=%d",
+                        found.achName, (unsigned int)found.attrFile,
+                        (unsigned int)found.cchName, inserted);
+                ++entries;
+            }
+            memset(&found, 0, sizeof(found));
+            count = 1;
+            rc = DosFindNext(search, &found, sizeof(found), &count);
+        } while (!rc && count);
+        DosFindClose(search);
+    }
+    if (!DosQueryCurrentDisk(&drive, &drives)) {
+        for (i = 0; i < 26; ++i) if (drives & (1UL << i)) {
+            driveName[0] = (char)('A' + i); driveName[1] = ':';
+            driveName[2] = '\\'; driveName[3] = 0;
+            WinSendDlgItemMsg(hwnd, ID_PATH_DIRS, LM_INSERTITEM,
+                              MPFROMSHORT(LIT_END), MPFROMP(driveName));
+        }
+    }
+    sprintf(summary, "Folders/drives: %d  Files: %d. Double-click to choose.",
+        (SHORT)WinSendDlgItemMsg(hwnd, ID_PATH_DIRS, LM_QUERYITEMCOUNT, 0, 0),
+        (SHORT)WinSendDlgItemMsg(hwnd, ID_PATH_FILES, LM_QUERYITEMCOUNT, 0, 0));
+    pm_trace("BROWSE-R20 end entries=%d rc=%lu %s", entries, rc, summary);
+    WinSetDlgItemText(hwnd, ID_PATH_STATUS, summary);
+    return 1;
+}
+
 static MRESULT EXPENTRY path_proc(HWND hwnd, USHORT msg, MPARAM mp1, MPARAM mp2)
+{
+    char text[MAX_PATH], full[MAX_PATH], current[MAX_PATH];
+    ULONG drive, drives, size, diskRc, dirRc;
+    SHORT item;
+    USHORT id;
+    FILESTATUS status;
+    switch (msg) {
+    case WM_INITDLG:
+        WinSetWindowText(hwnd, browseSave ? "Save city as" : "Open city");
+        WinSetDlgItemText(hwnd, DID_OK, browseSave ? "Save" : "Open");
+        WinSendDlgItemMsg(hwnd, ID_PATH_TEXT, EM_SETTEXTLIMIT, MPFROMSHORT(MAX_PATH-1), 0);
+        WinSendDlgItemMsg(hwnd, ID_PATH_FOLDER, EM_SETTEXTLIMIT, MPFROMSHORT(MAX_PATH-1), 0);
+        WinSetDlgItemText(hwnd, ID_PATH_TEXT, pathText);
+        if (!browseDir[0]) {
+            size = sizeof(current);
+            current[0] = 0; drive = drives = 0;
+            diskRc = DosQueryCurrentDisk(&drive, &drives);
+            dirRc = diskRc ? diskRc : DosQueryCurrentDir(drive, (PBYTE)current, &size);
+            current[sizeof(current)-1] = 0;
+            pm_trace("BROWSE-R20 cwd disk-rc=%lu drive=%lu dir-rc=%lu path=%s",
+                     diskRc, drive, dirRc, current);
+            if (!diskRc && !dirRc && strlen(current) < MAX_PATH-3)
+                sprintf(browseDir, "%c:\\%s", (int)('A'+drive-1), current);
+        }
+        if (browseDir[0]) browse_fill(hwnd, browseDir);
+        else WinSetDlgItemText(hwnd, ID_PATH_STATUS, "Enter a full folder path, then click Go.");
+        return 0;
+    case WM_CONTROL:
+        id = SHORT1FROMMP(mp1);
+        if ((id == ID_PATH_FILES || id == ID_PATH_DIRS) &&
+            (SHORT2FROMMP(mp1) == LN_SELECT || SHORT2FROMMP(mp1) == LN_ENTER)) {
+            item = (SHORT)WinSendDlgItemMsg(hwnd, id, LM_QUERYSELECTION, MPFROMSHORT(LIT_FIRST), 0);
+            if (item < 0) return 0;
+            text[0] = 0;
+            WinSendDlgItemMsg(hwnd, id, LM_QUERYITEMTEXT,
+                              MPFROM2SHORT(item, sizeof(text)), MPFROMP(text));
+            if (id == ID_PATH_FILES) {
+                WinSetDlgItemText(hwnd, ID_PATH_TEXT, text);
+                if (SHORT2FROMMP(mp1) == LN_ENTER)
+                    WinSendMsg(hwnd, WM_COMMAND, MPFROMSHORT(DID_OK), 0);
+            } else if (SHORT2FROMMP(mp1) == LN_ENTER &&
+                       pm_path_join(full, sizeof(full), browseDir, text)) browse_fill(hwnd, full);
+            return 0;
+        }
+        break;
+    case WM_COMMAND:
+        id = SHORT1FROMMP(mp1);
+        if (id == ID_PATH_UP) {
+            strcpy(full, browseDir); pm_path_parent(full);
+            if (full[0]) browse_fill(hwnd, full);
+            return 0;
+        }
+        if (id == ID_PATH_GO) {
+            WinQueryDlgItemText(hwnd, ID_PATH_FOLDER, sizeof(text), text);
+            if (pm_path_join(full, sizeof(full), browseDir, text)) browse_fill(hwnd, full);
+            else WinSetDlgItemText(hwnd, ID_PATH_STATUS, "Use a full folder path, such as C:\\cities.");
+            return 0;
+        }
+        if (id == DID_OK) {
+            WinQueryDlgItemText(hwnd, ID_PATH_TEXT, sizeof(text), text);
+            if (!pm_path_join(full, sizeof(full), browseDir, text)) {
+                WinSetDlgItemText(hwnd, ID_PATH_STATUS, "Enter a filename or full path; no wildcards."); return 0;
+            }
+            if (!DosQueryPathInfo(full, FIL_STANDARD, &status, sizeof(status))) {
+                if (status.attrFile & FILE_DIRECTORY) { browse_fill(hwnd, full); return 0; }
+            } else if (!browseSave) {
+                WinSetDlgItemText(hwnd, ID_PATH_STATUS, "File not found. Choose an existing city file."); return 0;
+            }
+            strcpy(pathText, full);
+            WinDismissDlg(hwnd, DID_OK); return 0;
+        }
+        if (id == DID_CANCEL) { WinDismissDlg(hwnd, DID_CANCEL); return 0; }
+        break;
+    }
+    return WinDefDlgProc(hwnd, msg, mp1, mp2);
+}
+
+static const char *tilesetFiles[10] = {
+    "default.bmp", "classic.bmp", "classic95.bmp", "ancientasia.bmp",
+    "dux.bmp", "futureeurope.bmp", "futureusa.bmp", "medievaltimes.bmp",
+    "mooncolony.bmp", "wildwest.bmp"
+};
+static char activeTileset[MAX_PATH] = "tilesets\\default.bmp";
+static char pendingTileset[MAX_PATH];
+static int activeTilesetIndex = 0;
+
+static void tileset_menu_sync(void)
+{
+    HWND menu;
+    int i;
+    menu = WinWindowFromID(frameMain, FID_MENU);
+    if (!menu) return;
+    for (i = 0; i < 10; ++i)
+        WinCheckMenuItem(menu, IDM_TILESET_FIRST + i, activeTilesetIndex == i);
+    WinCheckMenuItem(menu, IDM_TILESET_CUSTOM, activeTilesetIndex == -1);
+}
+
+/* Prepare and select the replacement before releasing the old bitmap. */
+static int select_tileset(const char *path, int index)
+{
+    MPBITMAP *raw;
+    HBITMAP replacement, previous;
+    raw = mp_bmp_load(path);
+    if (!raw || mp_bmp_width(raw) != 512 || mp_bmp_height(raw) != 480) {
+        pm_trace("tileset rejected: %s (expected 512x480 BMP)", path);
+        mp_bmp_free(raw);
+        mp_ui_message(hwndMain, "Cannot load that tileset. Choose a 512x480 Windows BMP using the WinTown tile layout. Current graphics are unchanged.", MP_TITLE);
+        return 0;
+    }
+    replacement = mp_bmp_create_gpi(raw, hpsMemory);
+    mp_bmp_free(raw);
+    if (!replacement || replacement == HBM_ERROR) {
+        pm_trace("tileset bitmap creation failed: %s", path);
+        mp_ui_message(hwndMain, "Cannot create the tileset bitmap. Current graphics are unchanged.", MP_TITLE);
+        return 0;
+    }
+    previous = GpiSetBitmap(hpsMemory, replacement);
+    if (previous == HBM_ERROR) {
+        GpiDeleteBitmap(replacement);
+        pm_trace("tileset selection failed: %s", path);
+        mp_ui_message(hwndMain, "Cannot select the tileset bitmap. Current graphics are unchanged.", MP_TITLE);
+        return 0;
+    }
+    if (hbmTiles) GpiDeleteBitmap(hbmTiles);
+    hbmTiles = replacement;
+    strcpy(activeTileset, path);
+    activeTilesetIndex = index;
+    tileset_menu_sync();
+    if (hwndTiles) WinInvalidateRect(hwndTiles, NULL, FALSE);
+    hoverMapX = hoverMapY = -1;
+    mp_ui_invalidate();
+    addGameLog("Tileset: %s", activeTileset);
+    pm_trace("tileset switched: %s (512x480)", activeTileset);
+    return 1;
+}
+
+static MRESULT EXPENTRY tileset_proc(HWND hwnd, USHORT msg, MPARAM mp1, MPARAM mp2)
 {
     switch (msg) {
     case WM_INITDLG:
-        WinSetDlgItemText(hwnd, ID_PATH_TEXT, pathText);
+        WinSetDlgItemText(hwnd, ID_TILESET_PATH, pendingTileset);
+        WinSendDlgItemMsg(hwnd, ID_TILESET_PATH, EM_SETTEXTLIMIT,
+                          MPFROMSHORT(MAX_PATH - 1), 0);
         return 0;
     case WM_COMMAND:
         if (SHORT1FROMMP(mp1) == DID_OK) {
-            WinQueryDlgItemText(hwnd, ID_PATH_TEXT, sizeof(pathText), pathText);
-            if (!pathText[0]) return 0;
-            WinDismissDlg(hwnd, DID_OK); return 0;
+            WinQueryDlgItemText(hwnd, ID_TILESET_PATH, sizeof(pendingTileset), pendingTileset);
+            if (pendingTileset[0] && select_tileset(pendingTileset, -1))
+                WinDismissDlg(hwnd, DID_OK);
+            return 0;
         }
         if (SHORT1FROMMP(mp1) == DID_CANCEL) {
             WinDismissDlg(hwnd, DID_CANCEL); return 0;
@@ -928,6 +1289,22 @@ static MRESULT EXPENTRY path_proc(HWND hwnd, USHORT msg, MPARAM mp1, MPARAM mp2)
         break;
     }
     return WinDefDlgProc(hwnd, msg, mp1, mp2);
+}
+
+static void choose_tileset(int index)
+{
+    char path[MAX_PATH];
+    stop_build();
+    modalActive = 1;
+    if (index >= 0 && index < 10) {
+        sprintf(path, "tilesets\\%s", tilesetFiles[index]);
+        select_tileset(path, index);
+    } else {
+        strcpy(pendingTileset, activeTileset);
+        WinDlgBox(HWND_DESKTOP, hwndMain, tileset_proc, (HMODULE)0,
+                  ID_TILESET_DIALOG, NULL);
+    }
+    modalActive = 0;
 }
 
 /* Dialog edits pending choices only; Cancel never touches simulation state. */
@@ -999,6 +1376,7 @@ static void city_file_dialog(int save)
     int ok;
     USHORT answer;
     ULONG style;
+    browseSave = save;
     modalActive = 1;
     if (WinDlgBox(HWND_DESKTOP, hwndMain, path_proc, (HMODULE)0,
                   ID_PATH_DIALOG, NULL) == DID_OK) {
@@ -1034,31 +1412,103 @@ static void city_file_dialog(int save)
     modalActive = 0;
 }
 
+/* View settings survive city changes; the recorded history does not. */
+static int chartMask = 14;
+static int chartRange = 0;
+static const char *chartLabels[15] = {
+    "Population (x100 people)", "Residential (units)", "Commercial (units)",
+    "Industrial (units)", "Funds ($1000, 0..255)", "Crime (index)",
+    "Pollution (index)", "Land value (index)", "Transport (x10 tiles)",
+    "Power (%)", "Growth (%)", "Approval (%)",
+    "R demand (index)", "C demand (index)", "I demand (index)"
+};
+static LONG chartColors[15] = {
+    CLR_BLACK, CLR_DARKGREEN, CLR_DARKBLUE, CLR_RED, CLR_BROWN,
+    CLR_DARKRED, CLR_DARKPINK, CLR_DARKCYAN, CLR_BLUE, CLR_PINK,
+    CLR_GREEN, CLR_CYAN, CLR_DARKGREEN, CLR_DARKBLUE, CLR_RED
+};
+
+static void chart_menu_sync(void)
+{
+    HWND menu;
+    int i;
+    menu = WinWindowFromID(frameChart, FID_MENU);
+    if (!menu) return;
+    for (i = 0; i < CHART_SERIES_COUNT; ++i)
+        WinCheckMenuItem(menu, IDM_CHART_SERIES_FIRST + i,
+                         (chartMask & (1 << i)) != 0);
+    WinCheckMenuItem(menu, IDM_CHART_MONTHLY, chartRange == 0);
+    WinCheckMenuItem(menu, IDM_CHART_YEARLY, chartRange == 1);
+}
+
+static long chart_value(int series, int index)
+{
+    long value;
+    if (chartRange == 0)
+        value = g_chartData->series[series].monthlyData[index];
+    else value = g_chartData->series[series].yearlyData[120 + index];
+    if (series == CHART_GROWTH_RATE) value -= 128;
+    if (series >= CHART_R_DEMAND) value = value * 16 - 2000;
+    return value;
+}
+
 static void paint_chart_window(HWND hwnd, HPS hps)
 {
     RECTL r;
     POINTL p;
-    int series, i, n, value, maximum;
-    LONG colors[3];
-    colors[0] = CLR_DARKGREEN; colors[1] = CLR_DARKBLUE; colors[2] = CLR_RED;
+    int series, i, n, selected, entry, rows;
+    LONG bottom, top, left, right;
+    long value, minimum, maximum;
+    char text[120];
     WinQueryWindowRect(hwnd, &r);
     WinFillRect(hps, &r, CLR_WHITE);
     GpiSetColor(hps, CLR_BLACK);
-    paint_text_line(hps, 8, r.yTop - 18, "Population history: R (green), C (blue), I (red)");
-    if (!g_chartData || r.yTop < 60 || r.xRight < 40) return;
-    n = GetChartDataCount(); maximum = 1;
-    for (series = 0; series < 3; ++series) for (i = 0; i < n; ++i) {
-        value = GetChartDataValue(series + CHART_RESIDENTIAL, i);
-        if (value > maximum) maximum = value;
-    }
-    for (series = 0; series < 3; ++series) {
-        GpiSetColor(hps, colors[series]);
+    paint_text_line(hps, 8, r.yTop - 18, chartRange == 0 ?
+        "10 years / monthly samples (session history)" :
+        "120 years / annual snapshots (session history)");
+    if (!g_chartData || r.yTop < 100 || r.xRight < 200) return;
+    n = chartRange == 0 ? g_chartData->monthlyCount : g_chartData->yearlyCount;
+    selected = 0; minimum = 0; maximum = 1;
+    for (series = 0; series < 15; ++series) if (chartMask & (1 << series)) {
+        ++selected;
         for (i = 0; i < n; ++i) {
-            value = GetChartDataValue(series + CHART_RESIDENTIAL, n - 1 - i);
-            if (value < 0) value = 0;
-            p.x = 8 + (LONG)i * (r.xRight - 16) / (n > 1 ? n - 1 : 1);
-            p.y = 8 + (LONG)value * (r.yTop - 42) / maximum;
-            if (i == 0) GpiMove(hps, &p); else GpiLine(hps, &p);
+            value = chart_value(series, i);
+            if (value < minimum) minimum = value;
+            if (value > maximum) maximum = value;
+        }
+    }
+    rows = (selected + 2) / 3;
+    bottom = 36 + rows * 18; top = r.yTop - 62;
+    left = 64; right = r.xRight - 12;
+    paint_text_line(hps, 8, r.yTop - 36, "Shared scale; units in legend. Series / Range menus select data.");
+    if (top <= bottom) {
+        paint_text_line(hps, 8, r.yTop - 54, "Enlarge this window to display the chart.");
+        return;
+    }
+    sprintf(text, "%ld", maximum); paint_text_line(hps, 4, top - 4, text);
+    sprintf(text, "%ld", minimum); paint_text_line(hps, 4, bottom - 4, text);
+    p.x = left; p.y = top; GpiMove(hps, &p);
+    p.y = bottom; GpiLine(hps, &p); p.x = right; GpiLine(hps, &p);
+    p.x = left;
+    p.y = bottom + (LONG)((double)(-minimum) * (top-bottom) / (maximum-minimum));
+    GpiMove(hps, &p); p.x = right; GpiLine(hps, &p);
+    paint_text_line(hps, left, bottom - 16, chartRange == 0 ? "119 months ago" : "119 years ago");
+    paint_text_line(hps, right - 48, bottom - 16, "Latest");
+    if (!selected || !n)
+        paint_text_line(hps, left + 12, top - 24, !selected ?
+            "Select a series from the Series menu." : "Waiting for history samples...");
+    entry = 0;
+    for (series = 0; series < 15; ++series) if (chartMask & (1 << series)) {
+        GpiSetColor(hps, chartColors[series]);
+        paint_text_line(hps, 8 + (entry % 3) * (r.xRight / 3),
+                        10 + (rows - 1 - entry / 3) * 18, chartLabels[series]);
+        ++entry;
+        for (i = n - 1; i >= 0; --i) {
+            value = chart_value(series, i);
+            p.x = left + (LONG)(119 - i) * (right-left) / 119;
+            p.y = bottom + (LONG)((double)(value-minimum) * (top-bottom) / (maximum-minimum));
+            if (i == n - 1) { GpiMove(hps, &p); GpiSetPel(hps, &p); }
+            else GpiLine(hps, &p);
         }
     }
 }
@@ -1272,9 +1722,122 @@ static void reopen_window(HWND frame, HWND client)
     WinInvalidateRect(client, NULL, FALSE);
 }
 
+/* The full 32x30 sheet always fits; the selected cell has a 64px preview. */
+static int tile_view_cell(int width, int height)
+{
+    int cell, vertical;
+    cell = (width - 16) / 32;
+    vertical = (height - 104) / 30;
+    if (vertical < cell) cell = vertical;
+    return cell > 0 ? cell : 0;
+}
+
+static void paint_tile_viewer(HWND hwnd, HPS hps)
+{
+    RECTL r;
+    POINTL p[4];
+    int cell, top, x, y;
+    char text[MAX_PATH + 40];
+    WinQueryWindowRect(hwnd, &r);
+    WinFillRect(hps, &r, CLR_WHITE);
+    GpiSetColor(hps, CLR_BLACK);
+    if (!hbmTiles) return;
+    cell = tile_view_cell((int)r.xRight, (int)r.yTop);
+    if (!cell) {
+        paint_text_line(hps, 8, r.yTop - 18, "Enlarge the tile viewer."); return;
+    }
+    sprintf(text, "Tile %d (0x%03X) / row %d, column %d", viewedTile,
+            viewedTile, viewedTile / 32, viewedTile % 32);
+    paint_text_line(hps, 80, r.yTop - 20, text);
+    paint_text_line(hps, 80, r.yTop - 38, "Click a tile; arrow keys select; Home/End.");
+    paint_text_line(hps, 80, r.yTop - 56, activeTileset);
+    p[0].x = 8; p[0].y = r.yTop - 72;
+    p[1].x = 72; p[1].y = r.yTop - 8;
+    p[2].x = (viewedTile % 32) * 16;
+    p[2].y = 480 - (viewedTile / 32 + 1) * 16;
+    p[3].x = p[2].x + 16; p[3].y = p[2].y + 16;
+    GpiBitBlt(hps, hpsMemory, 4L, p, ROP_SRCCOPY, BBO_IGNORE);
+    top = r.yTop - 96;
+    p[0].x = 8; p[0].y = top - 30 * cell;
+    p[1].x = 8 + 32 * cell; p[1].y = top;
+    p[2].x = 0; p[2].y = 0; p[3].x = 512; p[3].y = 480;
+    GpiBitBlt(hps, hpsMemory, 4L, p, ROP_SRCCOPY, BBO_IGNORE);
+    x = 8 + (viewedTile % 32) * cell;
+    y = top - (viewedTile / 32 + 1) * cell;
+    GpiSetColor(hps, CLR_WHITE);
+    p[0].x = x; p[0].y = y; GpiMove(hps, &p[0]);
+    p[0].x = x + cell - 1; p[0].y = y + cell - 1;
+    GpiBox(hps, DRO_OUTLINE, &p[0], 0, 0);
+}
+
+static void tile_view_click(HWND hwnd, int x, int y)
+{
+    RECTL r;
+    int cell, row, column, top;
+    WinQueryWindowRect(hwnd, &r);
+    cell = tile_view_cell((int)r.xRight, (int)r.yTop);
+    top = r.yTop - 96;
+    if (!cell || x < 8 || x >= 8 + cell * 32 ||
+        y >= top || y < top - cell * 30) return;
+    column = (x - 8) / cell; row = (top - 1 - y) / cell;
+    viewedTile = row * 32 + column;
+    WinSetFocus(HWND_DESKTOP, hwnd);
+    WinInvalidateRect(hwnd, NULL, FALSE);
+}
+
+static void zoom_menu_sync(void)
+{
+    HWND menu;
+    menu = WinWindowFromID(frameMain, FID_MENU);
+    if (!menu) return;
+    WinCheckMenuItem(menu, IDM_ZOOM_HALF, TILE_SIZE == 8);
+    WinCheckMenuItem(menu, IDM_ZOOM_NORMAL, TILE_SIZE == 16);
+    WinCheckMenuItem(menu, IDM_ZOOM_DOUBLE, TILE_SIZE == 32);
+}
+
+static void set_map_zoom(int tile)
+{
+    int nx, ny;
+    if (tile != 8 && tile != 16 && tile != 32) return;
+    stop_build();
+    nx = pm_zoom_offset(xOffset, clientWidth-toolbarWidth, TILE_SIZE, tile, WORLD_X);
+    ny = pm_zoom_offset(yOffset, pm_map_height(clientHeight), TILE_SIZE, tile, WORLD_Y);
+    mapTileSize = tile;
+    xOffset = nx; yOffset = ny;
+    hoverMapX = hoverMapY = -1;
+    clamp_view();
+    update_scrollbars();
+    zoom_menu_sync();
+    mp_ui_invalidate();
+    pm_trace("map zoom: %d%% (%d pixel tiles)", tile * 100 / SOURCE_TILE_SIZE, tile);
+}
+
 static void menu_command(USHORT command)
 {
     stop_build();
+    if (command >= IDM_TILESET_FIRST && command <= IDM_TILESET_CUSTOM) {
+        choose_tileset(command == IDM_TILESET_CUSTOM ? -1 : command - IDM_TILESET_FIRST);
+        return;
+    }
+    if (command >= IDM_ZOOM_HALF && command <= IDM_ZOOM_DOUBLE) {
+        set_map_zoom(command == IDM_ZOOM_HALF ? 8 : command == IDM_ZOOM_NORMAL ? 16 : 32);
+        return;
+    }
+    if (command >= IDM_CHART_SERIES_FIRST && command < IDM_CHART_SERIES_FIRST + 15) {
+        chartMask ^= 1 << (command - IDM_CHART_SERIES_FIRST);
+        chart_menu_sync(); WinInvalidateRect(hwndChart, NULL, FALSE); return;
+    }
+    if (command >= IDM_CHART_MONTHLY && command <= IDM_CHART_NONE) {
+        switch (command) {
+        case IDM_CHART_MONTHLY: chartRange = 0; break;
+        case IDM_CHART_YEARLY: chartRange = 1; break;
+        case IDM_CHART_RCI: chartMask = 14; break;
+        case IDM_CHART_DEMAND: chartMask = 28672; break;
+        case IDM_CHART_ALL: chartMask = 32767; break;
+        case IDM_CHART_NONE: chartMask = 0; break;
+        }
+        chart_menu_sync(); WinInvalidateRect(hwndChart, NULL, FALSE); return;
+    }
     if (command >= IDM_MINIMAP_FIRST && command < IDM_MINIMAP_FIRST + 13) {
         miniMode = command - IDM_MINIMAP_FIRST;
         WinInvalidateRect(hwndMini, NULL, FALSE);
@@ -1291,11 +1854,48 @@ static void menu_command(USHORT command)
         mp_ui_invalidate(); return;
     }
     switch (command) {
+    case IDM_DISASTER_FIRE:
+        addGameLog("Manual fire requested (requires a burnable tile).");
+        MakeFire(); break;
+    case IDM_DISASTER_FLOOD:
+        addGameLog("Manual flood requested (requires a suitable shoreline).");
+        MakeFlood(); break;
+    case IDM_DISASTER_TORNADO:
+        if (GetSprite(SPRITE_TORNADO))
+            addGameLog("A tornado is already active; no second tornado created.");
+        else MakeTornado();
+        break;
+    case IDM_DISASTER_EARTHQUAKE:
+        addGameLog("Manual earthquake triggered.");
+        MakeEarthquake(); break;
+    case IDM_DISASTER_MONSTER:
+        if (GetSprite(SPRITE_MONSTER))
+            addGameLog("Existing monster renewed; only one monster is active.");
+        MakeMonster(); break;
+    case IDM_DISASTER_MELTDOWN:
+        {
+            int x, y, found;
+            found = 0;
+            for (x = 0; x < WORLD_X - 1 && !found; ++x)
+                for (y = 0; y < WORLD_Y - 1; ++y)
+                    if ((Map[x][y] & LOMASK) == NUCLEAR) { found = 1; break; }
+            if (found) MakeMeltdown();
+            else {
+                addGameLog("Meltdown unavailable: no nuclear plant in this city.");
+                mp_ui_message(hwndMain, "There is no nuclear plant to melt down.", MP_TITLE);
+            }
+        }
+        break;
+    case IDM_DISASTER_FIREBOMB:
+        addGameLog("Manual firebombing triggered.");
+        DropFireBombs(); break;
+    case IDM_LAST_ALERT: show_last_alert(); break;
+    case IDM_TILE_VIEWER: reopen_window(frameTiles, hwndTiles); break;
     case IDM_NEW: new_city_dialog(); break;
     case IDM_OPEN: city_file_dialog(0); break;
     case IDM_SAVE: city_file_dialog(1); break;
     case IDM_MINIMAP: reopen_window(frameMini, hwndMini); break;
-    case IDM_CHART: reopen_window(frameChart, hwndChart); break;
+    case IDM_CHART: chart_menu_sync(); reopen_window(frameChart, hwndChart); break;
     case IDM_BUDGET: modalActive = 1; ShowBudgetWindowAndWait(hwndMain); modalActive = 0; break;
     case IDM_TAX_UP: if (CityTax < 20) ++CityTax; break;
     case IDM_TAX_DOWN: if (CityTax > 0) --CityTax; break;
@@ -1304,6 +1904,11 @@ static void menu_command(USHORT command)
     case IDM_POLICE_FUND: PolicePercent += 0.25f; if (PolicePercent > 1) PolicePercent = 0; break;
     case IDM_AUTOBUDGET: AutoBudget = !AutoBudget; break;
     case IDM_EXIT: WinPostMsg(hwndMain, WM_CLOSE, 0, 0); break;
+    case IDM_SOUND:
+        pm_sound_enable(!pm_sound_enabled());
+        WinCheckMenuItem(WinWindowFromID(frameMain, FID_MENU), IDM_SOUND, pm_sound_enabled());
+        break;
+    case IDM_SOUND_TEST: pm_sound_play(PM_SOUND_ALERT); break;
     case IDM_PAUSE: SetSimulationSpeed(hwndMain, SPEED_PAUSED); break;
     case IDM_SLOW: SetSimulationSpeed(hwndMain, SPEED_SLOW); break;
     case IDM_MEDIUM: SetSimulationSpeed(hwndMain, SPEED_MEDIUM); break;
@@ -1361,6 +1966,7 @@ static MRESULT EXPENTRY client_proc(HWND hwnd, USHORT msg, MPARAM mp1, MPARAM mp
         else if (hwnd == hwndLog) paint_log_window(hwnd, hps);
         else if (hwnd == hwndInfo) paint_info_window(hwnd, hps);
         else if (hwnd == hwndChart) paint_chart_window(hwnd, hps);
+        else if (hwnd == hwndTiles) paint_tile_viewer(hwnd, hps);
         else if (hwnd == hwndMini) paint_minimap(hps);
         WinEndPaint(hps);
         return 0;
@@ -1402,6 +2008,10 @@ static MRESULT EXPENTRY client_proc(HWND hwnd, USHORT msg, MPARAM mp1, MPARAM mp
         }
         return 0;
     case WM_BUTTON1DOWN:
+        if (hwnd == hwndTiles) {
+            tile_view_click(hwnd, (short)SHORT1FROMMP(mp1), (short)SHORT2FROMMP(mp1));
+            return 0;
+        }
         if (hwnd == hwndMini) {
             x = (short)SHORT1FROMMP(mp1); y = (short)SHORT2FROMMP(mp1);
             mini_rect(&r);
@@ -1431,6 +2041,8 @@ static MRESULT EXPENTRY client_proc(HWND hwnd, USHORT msg, MPARAM mp1, MPARAM mp
             result = pm_stroke_move(&buildStroke, x, y, ApplyTool);
             if (result) WinSetCapture(HWND_DESKTOP, NULLHANDLE);
         } else result = ApplyTool(x, y);
+        if (GetCurrentTool() != queryState)
+            pm_sound_play(result ? PM_SOUND_ERROR : PM_SOUND_BUILD);
         if (result == TOOLRESULT_NO_MONEY) mp_ui_message(hwnd, "Not enough money.", MP_TITLE);
         else if (result == TOOLRESULT_NEED_BULLDOZE) mp_ui_message(hwnd, "Bulldoze this area first.", MP_TITLE);
         else if (result == TOOLRESULT_FAILED) mp_ui_message(hwnd, "That tool cannot be used there.", MP_TITLE);
@@ -1467,6 +2079,19 @@ static MRESULT EXPENTRY client_proc(HWND hwnd, USHORT msg, MPARAM mp1, MPARAM mp
         }
         return 0;
     case WM_CHAR:
+        if (hwnd == hwndTiles && !(SHORT1FROMMP(mp1) & KC_KEYUP) &&
+            (SHORT1FROMMP(mp1) & KC_VIRTUALKEY)) {
+            switch (SHORT2FROMMP(mp2)) {
+            case VK_LEFT: if (viewedTile > 0) --viewedTile; break;
+            case VK_RIGHT: if (viewedTile < 959) ++viewedTile; break;
+            case VK_UP: if (viewedTile >= 32) viewedTile -= 32; break;
+            case VK_DOWN: if (viewedTile < 928) viewedTile += 32; break;
+            case VK_HOME: viewedTile = 0; break;
+            case VK_END: viewedTile = 959; break;
+            default: return WinDefWindowProc(hwnd, msg, mp1, mp2);
+            }
+            WinInvalidateRect(hwnd, NULL, FALSE); return 0;
+        }
         if (hwnd == hwndInfo && !(SHORT1FROMMP(mp1) & KC_KEYUP) &&
             (SHORT1FROMMP(mp1) & KC_VIRTUALKEY)) {
             switch (SHORT2FROMMP(mp2)) {
@@ -1519,12 +2144,14 @@ static MRESULT EXPENTRY client_proc(HWND hwnd, USHORT msg, MPARAM mp1, MPARAM mp
         else if (hwnd == hwndLog) WinShowWindow(frameLog, FALSE);
         else if (hwnd == hwndInfo) WinShowWindow(frameInfo, FALSE);
         else if (hwnd == hwndChart) WinShowWindow(frameChart, FALSE);
+        else if (hwnd == hwndTiles) WinShowWindow(frameTiles, FALSE);
         return 0;
     case WM_DESTROY:
         if (hwnd == hwndMini) { hwndMini = 0; miniDrag = 0; }
         else if (hwnd == hwndLog) hwndLog = 0;
         else if (hwnd == hwndInfo) hwndInfo = 0;
         else if (hwnd == hwndChart) hwndChart = 0;
+        else if (hwnd == hwndTiles) hwndTiles = 0;
         else if (hwnd == hwndMain) WinPostMsg(HWND_DESKTOP, WM_QUIT, 0, 0);
         return 0;
     }
@@ -1557,6 +2184,7 @@ int main(int argc, char **argv)
     if (!frameMain || !hwndMain) {
         pm_trace("main window failed; verify matching RC bound wintownpm.res"); return 1;
     }
+    zoom_menu_sync();
     hwndHScroll = WinWindowFromID(frameMain, FID_HORZSCROLL);
     hwndVScroll = WinWindowFromID(frameMain, FID_VERTSCROLL);
     pm_trace("map scrollbars: horizontal %s, vertical %s",
@@ -1569,8 +2197,12 @@ int main(int argc, char **argv)
                                   (PSZ)"WinTown Info / Evaluation", 0L, (HMODULE)0, 0, &hwndInfo);
     if (frameInfo) hwndInfoScroll = WinWindowFromID(frameInfo, FID_VERTSCROLL);
     frameFlags &= ~FCF_VERTSCROLL;
+    frameTiles = WinCreateStdWindow(HWND_DESKTOP, 0, &frameFlags, (PSZ)MP_CLASS,
+                                  (PSZ)"WinTown Tile Viewer", 0L, (HMODULE)0, 0, &hwndTiles);
+    frameFlags |= FCF_MENU;
     frameChart = WinCreateStdWindow(HWND_DESKTOP, 0, &frameFlags, (PSZ)MP_CLASS,
-                                  (PSZ)"WinTown Charts", 0L, (HMODULE)0, 0, &hwndChart);
+                                  (PSZ)"WinTown Charts", 0L, (HMODULE)0, ID_CHART_RESOURCES, &hwndChart);
+    chart_menu_sync();
     miniDC = DevOpenDC(hab, OD_MEMORY, "*", 0L, NULL, NULLHANDLE);
     size.cx = 0; size.cy = 0;
     if (miniDC) miniPS = GpiCreatePS(hab, miniDC, &size,
@@ -1580,12 +2212,13 @@ int main(int argc, char **argv)
     frameMini = WinCreateStdWindow(HWND_DESKTOP, 0, &frameFlags, (PSZ)MP_CLASS,
                                   (PSZ)"WinTown Minimap", 0L, (HMODULE)0,
                                   ID_MINIMAP_RESOURCES, &hwndMini);
-    if (!frameLog || !frameInfo || !frameChart || !frameMini) {
+    if (!frameLog || !frameInfo || !frameChart || !frameMini || !frameTiles) {
         pm_trace("auxiliary window failed; rebuild and bind wintownpm.res"); return 1;
     }
     WinSetWindowPos(frameMini, HWND_TOP, 40, 40, 390, 400,
                     SWP_MOVE | SWP_SIZE | SWP_SHOW);
-    WinSetWindowPos(frameChart, HWND_TOP, 40, 80, 580, 280, SWP_MOVE | SWP_SIZE);
+    WinSetWindowPos(frameTiles, HWND_TOP, 60, 40, 560, 650, SWP_MOVE | SWP_SIZE);
+    WinSetWindowPos(frameChart, HWND_TOP, 40, 80, 760, 420, SWP_MOVE | SWP_SIZE);
     WinSetWindowPos(frameMain, HWND_TOP, 20, 400, 640, 300,
                     SWP_MOVE | SWP_SIZE | SWP_SHOW);
     WinSetWindowPos(frameLog, HWND_TOP, 675, 400, 360, 250,
@@ -1626,16 +2259,23 @@ int main(int argc, char **argv)
         mp_ui_message(hwndMain, "GpiCreateBitmap failed for the tileset.", MP_TITLE);
         return 1;
     }
+    sprintf(activeTileset, "tilesets\\%s", tilesetName);
+    activeTilesetIndex = strcmp(tilesetName, "classic.bmp") == 0 ? 1 : 0;
+    tileset_menu_sync();
     load_toolbar();
     load_sprites();
+    pm_sound_init();
+    WinCheckMenuItem(WinWindowFromID(frameMain, FID_MENU), IDM_SOUND, pm_sound_enabled());
     create_frame_buffer(clientWidth, clientHeight);
     new_city();
     if (argc > 1 && !loadFile(argv[1]))
         mp_ui_message(hwndMain, "Could not load the city named on the command line.", MP_TITLE);
     while (WinGetMsg(hab, &qmsg, NULLHANDLE, 0, 0)) WinDispatchMsg(hab, &qmsg);
     CleanupSimTimer(hwndMain);
+    pm_sound_stop();
     WinDestroyWindow(frameMini);
     GpiDestroyPS(miniPS); DevCloseDC(miniDC);
+    WinDestroyWindow(frameTiles);
     WinDestroyWindow(frameChart);
     WinDestroyWindow(frameLog);
     WinDestroyWindow(frameInfo);
@@ -1664,3 +2304,4 @@ int main(int argc, char **argv)
 #endif
     return 0;
 }
+

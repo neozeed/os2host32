@@ -29,11 +29,9 @@ void DoEarthQuake(void)
 
 void CreateNotificationDialog(Notification *n)
 {
-    if (!n) return;
-    /* doMessage already appended the alert once; a rich PM dialog is a
-     * later UI stage. Do not duplicate the same event in the game log. */
-    mp_ui_invalidate();
-    /* Keep the simulator's timer out of a nested modal message loop. */
+    extern void mp_pm_show_notification(Notification *n);
+    /* The message core logs once; the UI owns a copy for later review. */
+    mp_pm_show_notification(n);
 }
 
 int ShowBudgetWindowAndWait(HWND hwnd)
@@ -65,3 +63,4 @@ int loadScenarioFromResource(int id, char *name)
     sprintf(path, "cities/%s.scn", files[index]);
     return mp_load_scenario_file(path);
 }
+

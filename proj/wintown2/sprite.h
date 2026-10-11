@@ -95,9 +95,13 @@
 #define HELICOPTER_WANDER_RANGE         60      /* Random movement range */
 #define HELICOPTER_WANDER_OFFSET        30      /* Center offset for wander */
 
+#define MONSTER_WATER_TICKS 24
+
 /* Sprite structure */
 typedef struct SimSprite {
     int type;           /* Sprite type (train, ship, etc.) */
+    int water_phase; /* monster: 0 walking, 1 surfacing, 2 submerging */
+    int water_ticks;
     int frame;          /* Current animation frame */
     int x, y;          /* Position in world coordinates */
     int width, height; /* Sprite dimensions */

@@ -208,6 +208,7 @@ O2APIRET os2_dos_Dos16Sleep(struct Os2DosSession *, O2ULONG);
 O2APIRET os2_dos_DosFindClose(struct Os2DosSession *, O2ULONG);
 O2APIRET os2_dos_DosFindFirst(struct Os2DosSession *, const char *, O2ULONG *, O2ULONG, void *, O2ULONG, O2ULONG *, O2ULONG);
 O2APIRET os2_dos_DosFindNext(struct Os2DosSession *, O2ULONG, void *, O2ULONG, O2ULONG *);
+O2APIRET os2_dos_DosWaitThread(struct Os2DosSession *, O2ULONG *, O2ULONG);
 O2APIRET os2_dos_DosCreateThread(struct Os2DosSession *, O2ULONG *, O2THREADFN, O2ULONG, O2ULONG, O2ULONG);
 O2APIRET os2_dos_DosCreateEventSem(struct Os2DosSession *, const char *, O2ULONG *, O2ULONG, O2ULONG);
 O2APIRET os2_dos_DosOpenEventSem(struct Os2DosSession *, const char *, O2ULONG *);

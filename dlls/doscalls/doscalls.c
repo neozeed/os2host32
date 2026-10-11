@@ -571,3 +571,6 @@ O2APIRET __cdecl DosSetPriority(O2ULONG scope, O2ULONG prtyClass,
 {
     return os2_dos_DosSetPriority(dos_session(), scope, prtyClass, delta, porTid);
 }
+
+O2APIRET __cdecl DosWaitThread(O2ULONG *ptid, O2ULONG option)
+{ return os2_dos_DosWaitThread(dos_session(), ptid, option); }

@@ -27,6 +27,19 @@ static int pm_scroll_clamp(int position, int limit)
     return position > limit ? limit : position;
 }
 
+/* Keep the world point at the viewport center while changing tile size.
+ * Clamp only after rescaling, including an oversized/minimized viewport. */
+static int pm_zoom_offset(int offset, int visible, int oldTile,
+                          int newTile, int worldTiles)
+{
+    long position;
+    if (visible < 1) visible = 1;
+    position = ((long)offset + visible / 2) * newTile / oldTile;
+    position -= visible / 2;
+    return pm_scroll_clamp((int)position,
+                          pm_scroll_limit(worldTiles * newTile, visible));
+}
+
 static int pm_scroll_position(int position, int visible, int limit,
                               int action, int thumb, int tile)
 {

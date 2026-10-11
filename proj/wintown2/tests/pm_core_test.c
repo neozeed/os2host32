@@ -315,6 +315,37 @@ int mp_selftest(void)
     assert(mp_bmp_width(bmp) == 48); mp_bmp_free(bmp);
     bmp = mp_bmp_load("assets/resident.bmp"); assert(bmp); mp_bmp_free(bmp);
     puts("PASS bitmap decoding: current tileset, toolbar, 24-bit sprite");
+    bmp = mp_bmp_load("tilesets/default.bmp"); assert(bmp);
+    assert(mp_bmp_width(bmp) == 512 && mp_bmp_height(bmp) == 480);
+    mp_bmp_free(bmp);
+    bmp = mp_bmp_load("tilesets/classic.bmp"); assert(bmp);
+    assert(mp_bmp_width(bmp) == 512 && mp_bmp_height(bmp) == 480);
+    mp_bmp_free(bmp);
+    bmp = mp_bmp_load("tilesets/classic95.bmp"); assert(bmp);
+    assert(mp_bmp_width(bmp) == 512 && mp_bmp_height(bmp) == 480);
+    mp_bmp_free(bmp);
+    bmp = mp_bmp_load("tilesets/ancientasia.bmp"); assert(bmp);
+    assert(mp_bmp_width(bmp) == 512 && mp_bmp_height(bmp) == 480);
+    mp_bmp_free(bmp);
+    bmp = mp_bmp_load("tilesets/dux.bmp"); assert(bmp);
+    assert(mp_bmp_width(bmp) == 512 && mp_bmp_height(bmp) == 480);
+    mp_bmp_free(bmp);
+    bmp = mp_bmp_load("tilesets/futureeurope.bmp"); assert(bmp);
+    assert(mp_bmp_width(bmp) == 512 && mp_bmp_height(bmp) == 480);
+    mp_bmp_free(bmp);
+    bmp = mp_bmp_load("tilesets/futureusa.bmp"); assert(bmp);
+    assert(mp_bmp_width(bmp) == 512 && mp_bmp_height(bmp) == 480);
+    mp_bmp_free(bmp);
+    bmp = mp_bmp_load("tilesets/medievaltimes.bmp"); assert(bmp);
+    assert(mp_bmp_width(bmp) == 512 && mp_bmp_height(bmp) == 480);
+    mp_bmp_free(bmp);
+    bmp = mp_bmp_load("tilesets/mooncolony.bmp"); assert(bmp);
+    assert(mp_bmp_width(bmp) == 512 && mp_bmp_height(bmp) == 480);
+    mp_bmp_free(bmp);
+    bmp = mp_bmp_load("tilesets/wildwest.bmp"); assert(bmp);
+    assert(mp_bmp_width(bmp) == 512 && mp_bmp_height(bmp) == 480);
+    mp_bmp_free(bmp);
+    puts("PASS all ten tilesets decode at 512x480");
 
     check_15bit_growth();
     check_overwrite();
@@ -344,7 +375,93 @@ int mp_selftest(void)
     MoveSprites();
     assert(retired->type == SPRITE_UNDEFINED);
     puts("PASS retired sprite cleanup");
+    {
+        Notification alert;
+        const Notification *saved;
+        extern const Notification *mp_test_last_alert(void);
+        extern int mp_test_alert_popups(void);
+        extern void mp_pm_clear_notification(void);
+        mp_pm_clear_notification();
+        memset(&alert, 0, sizeof(alert));
+        alert.id = 20; alert.hasLocation = 1;
+        alert.locationX = 0; alert.locationY = 0;
+        strcpy(alert.message, "Test fire");
+        CreateNotificationDialog(&alert);
+        saved = mp_test_last_alert();
+        assert(saved && saved->hasLocation && saved->explanation[0] && saved->advice[0]);
+        strcpy(alert.message, "Changed caller");
+        assert(strcmp(saved->message, "Test fire") == 0);
+        alert.locationX = WORLD_X;
+        CreateNotificationDialog(&alert);
+        assert(!mp_test_last_alert()->hasLocation);
+        assert(mp_test_alert_popups() == 1);
+        ClearMes();
+        CreateNotificationDialog(&alert);
+        assert(mp_test_alert_popups() == 1);
+        alert.id = 21;
+        CreateNotificationDialog(&alert);
+        assert(mp_test_alert_popups() == 2);
+        mp_pm_clear_notification();
+        assert(mp_test_last_alert() == NULL);
+        CreateNotificationDialog(&alert);
+        assert(mp_test_alert_popups() == 1);
+        mp_pm_clear_notification();
+        puts("PASS alerts: owned copy, details/advice, location bounds and city reset");
+    }
+
+    {
+        SimSprite *monster;
+        int mx, my, step;
+        InitSprites();
+        for (mx = 0; mx < WORLD_X; ++mx)
+            for (my = 0; my < WORLD_Y; ++my) Map[mx][my] = RIVER;
+        monster = NewSprite(SPRITE_MONSTER, 20 * 16, 20 * 16);
+        assert(monster != NULL);
+        monster->dest_x = 90 * 16; monster->dest_y = 70 * 16;
+        assert(monster->water_phase == 1);
+        for (step = 0; step < MONSTER_WATER_TICKS + 20; ++step) {
+            DoMonsterSprite(monster);
+            assert(monster->frame > 0 && !monster->flag);
+        }
+        MakeMonster();
+        assert(GetSpriteCount() == 1 && GetSprite(SPRITE_MONSTER) == monster);
+        monster->flag = 1;
+        monster->dest_x = 90 * 16; monster->dest_y = 70 * 16;
+        DoMonsterSprite(monster); assert(monster->frame > 0 && monster->water_phase == 2);
+        for (step = 0; step < MONSTER_WATER_TICKS; ++step) DoMonsterSprite(monster);
+        assert(monster->frame == 0);
+        InitSprites();
+        monster = NewSprite(SPRITE_MONSTER, 20 * 16, 20 * 16);
+        monster->dest_x = 90 * 16; monster->dest_y = 70 * 16;
+        monster->water_phase = 0;
+        monster->count = 1;
+        DoMonsterSprite(monster); assert(monster->frame > 0 && monster->water_phase == 2);
+        MakeMonster(); assert(monster->water_phase == 1 && !monster->flag);
+        for (step = 0; step < MONSTER_WATER_TICKS; ++step) DoMonsterSprite(monster);
+        assert(monster->frame > 0);
+        InitSprites();
+        puts("PASS monster: survives water emergence, single instance, return/expiry submergence");
+    }
+
+    ClearChartData();
+    assert(g_chartData->monthlyCount == 0 && g_chartData->yearlyCount == 0);
+    CityTime = 4; ResPop = 80;
+    UpdateChartData();
+    assert(g_chartData->monthlyCount == 1 && g_chartData->yearlyCount == 0);
+    assert(g_chartData->series[CHART_RESIDENTIAL].monthlyData[0] == 10);
+    CityTime = 48; ResPop = 160;
+    UpdateChartData();
+    assert(g_chartData->monthlyCount == 2 && g_chartData->yearlyCount == 1);
+    assert(g_chartData->series[CHART_RESIDENTIAL].monthlyData[1] == 10);
+    assert(g_chartData->series[CHART_RESIDENTIAL].yearlyData[120] == 20);
+    for (i = 0; i < 130; ++i) { CityTime += 48; UpdateChartData(); }
+    assert(g_chartData->monthlyCount == 120 && g_chartData->yearlyCount == 120);
+    ClearChartData();
+    assert(g_chartData->monthlyCount == 0 && g_chartData->yearlyCount == 0);
+    assert(g_chartData->series[CHART_RESIDENTIAL].yearlyData[120] == 0);
+    puts("PASS chart history: monthly/yearly counts, newest-first order, bounds, reset");
     CleanupChartSystem();
     puts("All hosted C89 core checks passed (PM rendering requires target runtime).");
     return 0;
 }
+

@@ -17,6 +17,19 @@ BEGIN
         MENUITEM "~Slow\tCtrl+L", IDM_SLOW
         MENUITEM "~Normal\tCtrl+M", IDM_MEDIUM
         MENUITEM "~Fast\tCtrl+F", IDM_FAST
+        MENUITEM SEPARATOR
+        MENUITEM "Sound ~on/off", IDM_SOUND
+        MENUITEM "~Test sound", IDM_SOUND_TEST
+    END
+    SUBMENU "~Disasters", 19
+    BEGIN
+        MENUITEM "~Fire", IDM_DISASTER_FIRE
+        MENUITEM "F~lood", IDM_DISASTER_FLOOD
+        MENUITEM "~Tornado", IDM_DISASTER_TORNADO
+        MENUITEM "~Earthquake", IDM_DISASTER_EARTHQUAKE
+        MENUITEM "~Monster", IDM_DISASTER_MONSTER
+        MENUITEM "~Nuclear meltdown", IDM_DISASTER_MELTDOWN
+        MENUITEM "Fire~bombing", IDM_DISASTER_FIREBOMB
     END
     SUBMENU "~Tools", 12
     BEGIN
@@ -44,6 +57,8 @@ BEGIN
         MENUITEM "~Info", IDM_INFO
         MENUITEM "~Charts", IDM_CHART
         MENUITEM "~Minimap", IDM_MINIMAP
+        MENUITEM "~Tile viewer", IDM_TILE_VIEWER
+        MENUITEM "Last ~alert", IDM_LAST_ALERT
     END
     SUBMENU "~Budget", 15
     BEGIN
@@ -65,6 +80,27 @@ BEGIN
         MENUITEM "Detroit", 305
         MENUITEM "Boston", 306
         MENUITEM "Rio de Janeiro", 307
+    END
+    SUBMENU "~View", 17
+    BEGIN
+        MENUITEM "Zoom ~50%", IDM_ZOOM_HALF
+        MENUITEM "Zoom ~100%", IDM_ZOOM_NORMAL
+        MENUITEM "Zoom ~200%", IDM_ZOOM_DOUBLE
+        SUBMENU "~Tileset", 18
+        BEGIN
+            MENUITEM "Default", 650
+            MENUITEM "Classic", 651
+            MENUITEM "Classic 95", 652
+            MENUITEM "Ancient Asia", 653
+            MENUITEM "Dux", 654
+            MENUITEM "Future Europe", 655
+            MENUITEM "Future USA", 656
+            MENUITEM "Medieval Times", 657
+            MENUITEM "Moon Colony", 658
+            MENUITEM "Wild West", 659
+            MENUITEM SEPARATOR
+            MENUITEM "~Custom BMP...", IDM_TILESET_CUSTOM
+        END
     END
     SUBMENU "~Help", 14
     BEGIN
@@ -94,13 +130,22 @@ END
 
 DLGTEMPLATE ID_PATH_DIALOG
 BEGIN
-    DIALOG "City file", ID_PATH_DIALOG, 20, 20, 240, 65,
+    DIALOG "City file", ID_PATH_DIALOG, 20, 20, 340, 210,
            WS_VISIBLE, FCF_TITLEBAR | FCF_SYSMENU
     BEGIN
-        LTEXT "File path (relative to the game directory):", -1, 8, 46, 224, 10
-        ENTRYFIELD "", ID_PATH_TEXT, 8, 30, 224, 12, ES_AUTOSCROLL
-        DEFPUSHBUTTON "OK", DID_OK, 110, 7, 55, 14
-        PUSHBUTTON "Cancel", DID_CANCEL, 175, 7, 55, 14
+        LTEXT "Folder:", -1, 8, 190, 30, 10
+        ENTRYFIELD "", ID_PATH_FOLDER, 40, 188, 205, 12, ES_AUTOSCROLL
+        PUSHBUTTON "Go", ID_PATH_GO, 250, 187, 36, 14
+        PUSHBUTTON "Up", ID_PATH_UP, 290, 187, 40, 14
+        LTEXT "Folders / drives", -1, 8, 171, 130, 10
+        LTEXT "Files (.scn / .cty cities)", -1, 150, 171, 180, 10
+        CONTROL "", ID_PATH_DIRS, 8, 66, 130, 103, WC_LISTBOX, WS_VISIBLE | WS_TABSTOP
+        CONTROL "", ID_PATH_FILES, 150, 66, 180, 103, WC_LISTBOX, WS_VISIBLE | WS_TABSTOP
+        LTEXT "Filename:", -1, 8, 49, 44, 10
+        ENTRYFIELD "", ID_PATH_TEXT, 55, 47, 275, 12, ES_AUTOSCROLL
+        LTEXT "", ID_PATH_STATUS, 8, 24, 322, 20
+        DEFPUSHBUTTON "Open", DID_OK, 210, 5, 55, 16
+        PUSHBUTTON "Cancel", DID_CANCEL, 275, 5, 55, 16
     END
 END
 
@@ -142,3 +187,64 @@ BEGIN
         PUSHBUTTON "Cancel", DID_CANCEL, 212, 7, 58, 16
     END
 END
+
+MENU ID_CHART_RESOURCES
+BEGIN
+    SUBMENU "~Series", 30
+    BEGIN
+        MENUITEM "Population", 600
+        MENUITEM "Residential", 601
+        MENUITEM "Commercial", 602
+        MENUITEM "Industrial", 603
+        MENUITEM "Funds", 604
+        MENUITEM "Crime", 605
+        MENUITEM "Pollution", 606
+        MENUITEM "Land value", 607
+        MENUITEM "Transport", 608
+        MENUITEM "Power", 609
+        MENUITEM "Growth", 610
+        MENUITEM "Approval", 611
+        MENUITEM "Residential demand", 612
+        MENUITEM "Commercial demand", 613
+        MENUITEM "Industrial demand", 614
+        MENUITEM SEPARATOR
+        MENUITEM "RCI preset", IDM_CHART_RCI
+        MENUITEM "Demand preset", IDM_CHART_DEMAND
+        MENUITEM "All series", IDM_CHART_ALL
+        MENUITEM "Clear selection", IDM_CHART_NONE
+    END
+    SUBMENU "~Range", 31
+    BEGIN
+        MENUITEM "~10 years (monthly)", IDM_CHART_MONTHLY
+        MENUITEM "~120 years (annual)", IDM_CHART_YEARLY
+    END
+END
+
+DLGTEMPLATE ID_TILESET_DIALOG
+BEGIN
+    DIALOG "Choose tileset", ID_TILESET_DIALOG, 20, 20, 270, 85,
+           WS_VISIBLE, FCF_TITLEBAR | FCF_SYSMENU
+    BEGIN
+        LTEXT "512x480 Windows BMP in the WinTown tile layout", -1, 8, 65, 254, 10
+        LTEXT "Path (relative to the game directory, or full path):", -1, 8, 50, 254, 10
+        ENTRYFIELD "", ID_TILESET_PATH, 8, 33, 254, 12, ES_AUTOSCROLL
+        DEFPUSHBUTTON "Load", DID_OK, 140, 8, 55, 14
+        PUSHBUTTON "Cancel", DID_CANCEL, 205, 8, 55, 14
+    END
+END
+
+DLGTEMPLATE ID_ALERT_DIALOG
+BEGIN
+    DIALOG "City emergency", ID_ALERT_DIALOG, 20, 20, 310, 180,
+           WS_VISIBLE, FCF_TITLEBAR | FCF_SYSMENU
+    BEGIN
+        LTEXT "", ID_ALERT_MESSAGE, 10, 145, 290, 24
+        LTEXT "", ID_ALERT_DETAIL, 10, 101, 290, 40
+        LTEXT "Suggested action:", -1, 10, 86, 290, 12
+        LTEXT "", ID_ALERT_ADVICE, 10, 43, 290, 40
+        LTEXT "", ID_ALERT_LOCATION, 10, 28, 290, 12
+        PUSHBUTTON "Go to location", ID_ALERT_GOTO, 115, 7, 100, 16
+        DEFPUSHBUTTON "Close", DID_OK, 225, 7, 75, 16
+    END
+END
+

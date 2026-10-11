@@ -81,6 +81,12 @@ int MakeMonster() {
     monster = GetSprite(SPRITE_MONSTER);
     if (monster) {
         monster->count = 1000;
+        monster->flag = 0;
+        if (monster->water_phase == 2) {
+            monster->water_phase = 1;
+            monster->water_ticks = MONSTER_WATER_TICKS - monster->water_ticks;
+            if (monster->water_ticks < 1) monster->water_ticks = 1;
+        }
         monster->dest_x = PolMaxX << 4;
         monster->dest_y = PolMaxY << 4;
         return 0;
@@ -106,7 +112,12 @@ int MakeMonster() {
         monster->dest_y = PolMaxY << 4;
     }
 
-    ShowNotification(NOTIF_MONSTER_SIGHTED);
+    if (monster) {
+        addGameLog("Monster spawned at (%d,%d), frame %d", x, y, monster->frame);
+        ShowNotificationAt(NOTIF_MONSTER_SIGHTED, x, y);
+    } else {
+        addGameLog("Monster could not spawn: no free sprite slot.");
+    }
     InvalidateRect(hwndMain, NULL, FALSE);
     return 0;
 }
@@ -126,3 +137,4 @@ int MakeTornado() {
     InvalidateRect(hwndMain, NULL, FALSE);
     return 0;
 }
+

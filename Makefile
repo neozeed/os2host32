@@ -155,6 +155,7 @@ cmd32os2.exe: shell/cmd32os2.c shell/cmdparse.c shell/cmdparse.h \
 		shell/cmd32os2.c shell/cmdparse.c shell/cmdbatch.c shell/cmdfile.c \
 		shell/cmdos2_win32.c shell/cmdos2_session_win32.c shell/cmdos2_env.c
 
+DOSCALLS.dll: common/win32/os2_thread_wait.h
 DOSCALLS.dll: dlls/doscalls/doscalls.c dlls/doscalls/doscalls.def \
               $(DOSCALLS_SESSION_SRC) $(DOSCALLS_WIN32_SRC) \
               $(DOSCALLS_CORE_SRC) $(WIN32_COMMON_SRC) $(NLS_CORE_SRC) $(NLS_WIN32_SRC) \
@@ -513,3 +514,9 @@ viofetch-check:
 .PHONY: pm-mouse-check
 pm-mouse-check:
 	HOSTCC="$(HOSTCC)" python3 tests/pmcompat/mouse-input-host-check.py
+
+.PHONY: thread-wait-check
+thread-wait-check:
+	$(HOSTCC) $(C89FLAGS) -o thread-wait-check tests/doscalls/thread-wait-check.c
+	./thread-wait-check
+	$(RM) thread-wait-check

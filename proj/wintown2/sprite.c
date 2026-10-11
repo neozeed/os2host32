@@ -66,6 +66,8 @@ void InitSprites(void) {
     
     for (i = 0; i < MAX_SPRITES; i++) {
         GlobalSprites[i].type = SPRITE_UNDEFINED;
+        GlobalSprites[i].water_phase = 0;
+        GlobalSprites[i].water_ticks = 0;
         GlobalSprites[i].frame = 0;
         GlobalSprites[i].x = 0;
         GlobalSprites[i].y = 0;
@@ -116,6 +118,7 @@ SimSprite* NewSprite(int type, int x, int y) {
     sprite->type = type;
     sprite->x = x;
     sprite->y = y;
+    sprite->water_phase = 0; sprite->water_ticks = 0;
     sprite->frame = 0;
     sprite->orig_x = x;
     sprite->orig_y = y;
@@ -217,6 +220,11 @@ SimSprite* NewSprite(int type, int x, int y) {
             break;
             
         case SPRITE_MONSTER:
+            if (BOUNDS_CHECK(x >> 4, y >> 4) &&
+                (Map[x >> 4][y >> 4] & LOMASK) == RIVER) {
+                sprite->water_phase = 1;
+                sprite->water_ticks = MONSTER_WATER_TICKS;
+            }
             sprite->width = 48;
             sprite->height = 48;
             sprite->x_offset = 24;
@@ -1081,6 +1089,19 @@ void DoMonsterSprite(SimSprite *sprite) {
     int i;
     SimSprite *s;
 
+    if (sprite->water_phase) {
+        /* Hold position and animate the directional walking triplet while
+         * the renderer raises/lowers the body through the waterline. */
+        d = (sprite->frame - 1) / 3;
+        if (d > 3) d = 0;
+        sprite->frame = d * 3 + 1 + ((sprite->water_ticks / 3) % 3);
+        if (--sprite->water_ticks <= 0) {
+            if (sprite->water_phase == 2) sprite->frame = 0;
+            sprite->water_phase = 0;
+        }
+        return;
+    }
+
     if (sprite->sound_count > 0) sprite->sound_count--;
 
     if (sprite->control < 0) {
@@ -1122,7 +1143,10 @@ void DoMonsterSprite(SimSprite *sprite) {
                         sprite->dest_x = sprite->orig_x;
                         sprite->dest_y = sprite->orig_y;
                     } else {
-                        sprite->frame = 0;
+                        if (GetChar(sprite->x + sprite->x_hot, sprite->y + sprite->y_hot) == RIVER) {
+                            sprite->water_phase = 2;
+                            sprite->water_ticks = MONSTER_WATER_TICKS;
+                        } else sprite->frame = 0;
                         return;
                     }
                 }
@@ -1165,9 +1189,14 @@ void DoMonsterSprite(SimSprite *sprite) {
 
     if (sprite->count > 0) sprite->count--;
     c = GetChar(sprite->x + sprite->x_hot, sprite->y + sprite->y_hot);
-    if ((c == -1) ||
-        ((c == RIVER) && (sprite->count != 0) && (sprite->control == -1))) {
+    if (c == -1) {
         sprite->frame = 0;
+        return;
+    }
+    if (c == RIVER && (sprite->flag || sprite->count == 0) && sprite->control == -1) {
+        sprite->water_phase = 2;
+        sprite->water_ticks = MONSTER_WATER_TICKS;
+        return;
     }
 
     for (i = 0; i < MAX_SPRITES; i++) {
@@ -1302,3 +1331,4 @@ void MoveSprite(SimSprite *sprite, int movementType) {
         sprite->y = newY;
     }
 }
+

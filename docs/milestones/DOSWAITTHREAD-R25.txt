@@ -1,0 +1,35 @@
+DOSCALLS R25 - native DosWaitThread @349
+Apply over the current R24 host source. Build/install:
+  make DOSCALLS.dll
+Replace the DOSCALLS.dll actually loaded by os2host32. Keep R22 PMWIN and R24
+QUECALLS. No WinTown rebuild is required for this missing-import correction.
+The jar already handles DOSCALLS.349 in its guest scheduler; it needs no new
+callback or marshalling implementation and no rebuild for this fix.
+
+The native DosCreateThread implementation previously discarded its Win32
+thread handle immediately. It now retains the handle in a locked table so
+DosWaitThread can join a thread even if it exits before the caller waits.
+Wait supports a specific TID or zero (any tracked non-self thread), WAIT and
+NOWAIT, returns 294 when NOWAIT finds a running thread, and 309 for invalid,
+self, or already reaped threads. Invalid parameters return 87. Successful
+wait publishes the completed TID and releases the retained handle.
+Temporary duplicate handles protect concurrent waiters; a competing reaper
+returns invalid-thread rather than closing a reused slot. The table has 64
+unreaped thread slots; a full table returns not-enough-memory on creation.
+Threads that are never joined retain their slot until process termination.
+
+Changes preserve the R21 bitmap/browser-related DOSCALLS fixes. Public veneer,
+common backend dispatch, header, .def export and build dependency are updated.
+No PMWIN or QUECALLS source is replaced by this package.
+
+Checks passed: common DOSCALLS, public veneer, architecture/export guard, API
+catalogue, strict C89 helper tests for completed-before-wait, NOWAIT, any-thread,
+invalid/self waits and temporary-handle cleanup. The actual Win32 wait helper
+runs against deterministic API stubs; no Windows compiler/runtime available.
+
+Target smoke: tests/doscalls/thread-wait-os2.c; build with the existing C/386
+console recipe and OS2386.LIB. Run on both hosts. Expected:
+  THREAD-R25 wait rc=0 completed=1
+Then run WinTown, test sound and exit while a tone is playing.
+
+Source only; changes.patch is an alternative to copying the overlay files.

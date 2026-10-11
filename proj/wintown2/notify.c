@@ -214,6 +214,7 @@ void SendMesAt(int Mnum, int x, int y) {
 
 /* Clear message system */
 void ClearMes(void) {
+
     MessagePort = 0;
     MesNum = 0;
     LastMesTime = 0;
@@ -526,3 +527,4 @@ void InitNotificationSystem(void) {
 }
 
 #endif
+

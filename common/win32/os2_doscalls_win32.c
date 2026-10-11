@@ -1459,6 +1459,8 @@ O2APIRET __cdecl o2win_DosFindNext(O2ULONG hdir, void *findbuf,
     return O2_NO_ERROR;
 }
 
+#include "os2_thread_wait.h"
+
 /* 311 */
 O2APIRET __cdecl o2win_DosCreateThread(O2ULONG *ptid, O2THREADFN fn,
                                  O2ULONG param, O2ULONG flags,
@@ -1468,6 +1470,7 @@ O2APIRET __cdecl o2win_DosCreateThread(O2ULONG *ptid, O2THREADFN fn,
     HANDLE h;
     DWORD tid;
     DWORD winflags;
+    unsigned int slot;
 
     if (!ptid || !fn)
         return O2_ERROR_INVALID_PARAMETER;
@@ -1483,14 +1486,27 @@ O2APIRET __cdecl o2win_DosCreateThread(O2ULONG *ptid, O2THREADFN fn,
     if (flags & 1UL)
         winflags |= CREATE_SUSPENDED;
 
+    o2_threads_init();
+    EnterCriticalSection(&o2_threads_lock);
+    for (slot = 0; slot < O2_THREAD_SLOTS; ++slot)
+        if (!o2_threads[slot].handle) break;
+    if (slot == O2_THREAD_SLOTS) {
+        LeaveCriticalSection(&o2_threads_lock);
+        HeapFree(GetProcessHeap(), 0, ts);
+        return 8UL;
+    }
     h = CreateThread(NULL, (DWORD)stackSize, o2_thread_start, ts,
                      winflags, &tid);
     if (!h) {
+        DWORD error = GetLastError();
+        LeaveCriticalSection(&o2_threads_lock);
         HeapFree(GetProcessHeap(), 0, ts);
-        return (O2APIRET)GetLastError();
+        return (O2APIRET)error;
     }
+    o2_threads[slot].handle = h;
+    o2_threads[slot].tid = tid;
     *ptid = (O2ULONG)tid;
-    CloseHandle(h);
+    LeaveCriticalSection(&o2_threads_lock);
     return O2_NO_ERROR;
 }
 
@@ -4472,6 +4488,10 @@ static O2APIRET r2_dispatch(void *opaque, unsigned int call_id,
         struct Os2DosArgs_DosFindNext *a;
         a = (struct Os2DosArgs_DosFindNext *)call_args;
         return (O2APIRET)o2win_DosFindNext(a->hdir, a->findbuf, a->cbBuf, a->pCount);
+    }
+    case OS2_DOS_CALL_DOSWAITTHREAD: {
+        struct Os2DosArgs_DosWaitThread *a = (struct Os2DosArgs_DosWaitThread *)call_args;
+        return o2win_DosWaitThread(a->ptid, a->option);
     }
     case OS2_DOS_CALL_DOSCREATETHREAD: {
         struct Os2DosArgs_DosCreateThread *a;

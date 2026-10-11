@@ -99,3 +99,4 @@ EXPORTS
     O2NlsQueryCtryInfo
     O2NlsQueryDBCSEnv
     O2NlsMapCase
+    DosWaitThread      @349 NONAME

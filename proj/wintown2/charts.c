@@ -211,6 +211,12 @@ void UpdateChartData(void) {
     AddChartDataPoint(CHART_C_DEMAND, cDemandValue);
     AddChartDataPoint(CHART_I_DEMAND, iDemandValue);
     
+    if (g_chartData->monthlyCount < CHART_SHORT_RANGE)
+        ++g_chartData->monthlyCount;
+    if (CityTime > 0 && CityTime % 48 == 0 &&
+        g_chartData->yearlyCount < CHART_LONG_RANGE)
+        ++g_chartData->yearlyCount;
+
     g_chartData->needsRedraw = 1;
 }
 
@@ -336,6 +342,7 @@ void ClearChartData(void) {
         g_chartData->series[i].minValue = 0;
     }
     
+    g_chartData->monthlyCount = g_chartData->yearlyCount = 0;
     g_chartData->needsRedraw = 1;
 }
 
@@ -969,3 +976,4 @@ void DrawChartLegend(HDC hdc) {
     DeleteObject(hFont);
 }
 #endif
+

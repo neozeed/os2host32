@@ -20,9 +20,11 @@ def need(cond, msg):
     if not cond:
         errors.append(msg)
 
-need(hashlib.sha256(def_text).hexdigest() ==
-     "1675df8a6723f40a1344b90c9ebeb398312b9439cb8000008e3ff903ccb7d4c1",
+need(hashlib.sha256(b"".join(line for line in def_text.splitlines(keepends=True) if b"DosWaitThread" not in line).replace(b"\r\n", b"\n")).hexdigest() ==
+     "bd61b6bd5ccb246e463affc6bd4ba3d4c98025a695b08966d7a7aec6ad8c0de1",
      "DOSCALLS .def changed; historical export names/ordinals must remain frozen")
+need(re.search(rb"^\s*DosWaitThread\s+@349\s+NONAME\s*$", def_text, re.MULTILINE) is not None,
+     "DosWaitThread @349 missing")
 need("windows.h" not in veneer.lower(), "public DOSCALLS veneer includes windows.h")
 for api in ("GetStdHandle", "CreateFileA", "CloseHandle", "VirtualAlloc",
             "CreateProcessA", "CreateEventA", "WaitForSingleObject"):

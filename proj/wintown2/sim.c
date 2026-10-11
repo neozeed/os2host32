@@ -257,6 +257,12 @@ void DoSimInit(void) {
     RandomlySeedRand();
 
     ClearMes();
+#ifdef OS2_PM
+    {
+        extern void mp_pm_clear_notification(void);
+        mp_pm_clear_notification();
+    }
+#endif
 
     /* Initialize simulation counters */
     Scycle = 0;
@@ -786,3 +792,4 @@ void CleanupSimTimer(HWND hwnd) {
         SimTimerID = 0;
     }
 }
+

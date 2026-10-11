@@ -104,6 +104,7 @@ typedef struct {
 /* Main chart data structure */
 typedef struct {
     ChartSeries series[CHART_SERIES_COUNT];
+    int monthlyCount, yearlyCount;       /* Valid session samples, up to 120 */
     int currentRange;                    /* CHART_RANGE_10_YEARS or CHART_RANGE_120_YEARS */
     int visibilityMask;                  /* Bitmask of visible series */
     int needsRedraw;                     /* Flag indicating chart needs redraw */

@@ -1646,3 +1646,11 @@ O2APIRET os2_dos_DosSetPriority(struct Os2DosSession *session, O2ULONG scope, O2
     call_args.porTid = porTid;
     return dispatch_call(session, OS2_DOS_CALL_DOSSETPRIORITY, &call_args);
 }
+
+O2APIRET os2_dos_DosWaitThread(struct Os2DosSession *s, O2ULONG *ptid, O2ULONG option)
+{
+    struct Os2DosArgs_DosWaitThread a;
+    if (!ptid || option > 1UL) return 87UL;
+    a.ptid = ptid; a.option = option;
+    return dispatch_call(s, OS2_DOS_CALL_DOSWAITTHREAD, &a);
+}

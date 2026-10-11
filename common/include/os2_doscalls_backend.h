@@ -87,7 +87,8 @@ enum Os2DosCallId {
     OS2_DOS_CALL_DOSSETPRIORITY = 81,
     OS2_DOS_CALL_DOSGETRESOURCE = 82,
     OS2_DOS_CALL_DOSFREERESOURCE = 83,
-    OS2_DOS_CALL_COUNT = 84
+    OS2_DOS_CALL_DOSWAITTHREAD = 84,
+    OS2_DOS_CALL_COUNT = 85
 };
 
 struct Os2DosArgs_DosSetSigHandler {
@@ -155,6 +156,8 @@ struct Os2DosArgs_DosFindNext {
     O2ULONG cbBuf;
     O2ULONG *pCount;
 };
+
+struct Os2DosArgs_DosWaitThread { O2ULONG *ptid; O2ULONG option; };
 
 struct Os2DosArgs_DosCreateThread {
     O2ULONG *ptid;
