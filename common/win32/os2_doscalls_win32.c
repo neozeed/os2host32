@@ -957,7 +957,8 @@ static void fill_findbuf_beta2(unsigned char *p, O2ULONG cb,
     O2ULONG attr;
     size_t n, room;
     /* Microsoft/IBM OS/2 2.0 Beta-2 FILEFINDBUF is the original packed
-       279-byte layout used by OPENDLG.DLL: no oNextEntryOffset and a
+       279-byte layout used by OPENDLG.DLL (280 with C/386 tail padding):
+       no oNextEntryOffset and a
        USHORT attrFile. */
     if (cb < 24UL) return;
     memset(p,0,(size_t)cb);
@@ -1424,7 +1425,7 @@ O2APIRET __cdecl o2win_DosFindFirst(const char *filespec, O2ULONG *phdir,
     }
     *phdir = oh;
     *pCount = 1;
-    if (cbBuf == 279UL)
+    if (cbBuf == 279UL || cbBuf == 280UL)
         fill_findbuf_beta2((unsigned char *)findbuf, cbBuf, &fd);
     else
         fill_findbuf3((unsigned char *)findbuf, cbBuf, &fd);
@@ -1451,7 +1452,7 @@ O2APIRET __cdecl o2win_DosFindNext(O2ULONG hdir, void *findbuf,
         return (O2APIRET)e;
     }
     *pCount = 1;
-    if (cbBuf == 279UL)
+    if (cbBuf == 279UL || cbBuf == 280UL)
         fill_findbuf_beta2((unsigned char *)findbuf, cbBuf, &fd);
     else
         fill_findbuf3((unsigned char *)findbuf, cbBuf, &fd);

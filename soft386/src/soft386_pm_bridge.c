@@ -556,7 +556,9 @@ enum PmMsgAbi {
     PM_MSG_SCALAR=0,
     PM_MSG_HPOINTER_MP1=1,
     PM_MSG_HPOINTER_RESULT=2,
-    PM_MSG_MENUITEM_OUT=3
+    PM_MSG_MENUITEM_OUT=3,
+    PM_MSG_STRING_MP2=4,
+    PM_MSG_LISTTEXT_OUT=5
 };
 struct PmMsgSig { uint16_t msg; uint8_t abi; };
 static const struct PmMsgSig message_abi[]={
@@ -564,6 +566,8 @@ static const struct PmMsgSig message_abi[]={
     {0x100,PM_MSG_HPOINTER_MP1},   /* SM_SETHANDLE */
     {0x124,PM_MSG_SCALAR},         /* BM_QUERYCHECK */
     {0x143,PM_MSG_SCALAR},         /* EM_SETTEXTLIMIT */
+    {0x161,PM_MSG_STRING_MP2},      /* LM_INSERTITEM */
+    {0x168,PM_MSG_LISTTEXT_OUT},    /* LM_QUERYITEMTEXT */
     {0x160,PM_MSG_SCALAR},         /* LM_QUERYITEMCOUNT */
     {0x164,PM_MSG_SCALAR},         /* LM_SELECTITEM */
     {0x165,PM_MSG_SCALAR},         /* LM_QUERYSELECTION */
@@ -578,6 +582,8 @@ static int marshal_message(struct Soft386PmBridge *b,struct Marshal *c,uintptr_t
 {
     const struct PmMsgSig *s=message_signature(c->guest[msg]);(void)mp2;
     if(!s)return 0;
+    if(s->abi==PM_MSG_STRING_MP2)return string(c,mp2,a,0);
+    if(s->abi==PM_MSG_LISTTEXT_OUT)return buffer(c,mp2,a,(c->guest[mp1]>>16)&0xffffu,0,1,0);
     if(s->abi==PM_MSG_HPOINTER_MP1)return native_handle(b,c->guest[mp1],S386_HPOINTER,&a[mp1]);
     if(s->abi==PM_MSG_MENUITEM_OUT)return buffer(c,mp2,a,16,0,1,0);
     return 1;
@@ -948,6 +954,10 @@ uint32_t soft386_pm_dispatch(struct Soft386PmBridge *b,const struct Soft386Guest
     case 844:result=(uint16_t)raw_result;break;
     case 923:result=(uint16_t)raw_result;retire_window(b,b->dialog_window);break;
     case 903:case 920:{const struct PmMsgSig *ms=message_signature(c.guest[ordinal==903?2:1]);
+        if(ms&&ms->abi==PM_MSG_LISTTEXT_OUT){unsigned ix=ordinal==903?4:3;
+            if((int32_t)result<0)c.size[ix]=0;
+            else if(result<c.size[ix])c.size[ix]=result+1;
+        }
         if(ms&&ms->abi==PM_MSG_HPOINTER_RESULT)result=guest_handle(b,raw_result,S386_HPOINTER);
         else if(ms&&ms->abi==PM_MSG_MENUITEM_OUT){unsigned ix=ordinal==903?4:3;uint8_t *mi=c.buffer[ix];if(result&&mi)put32(mi+8,guest_handle(b,get32(mi+8),S386_HWND));}
         break;}

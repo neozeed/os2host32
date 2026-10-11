@@ -1,3 +1,4 @@
+#include "pm_dialog_class.h"
 /*
  * pmwin.c - small Win32-backed OS/2 Presentation Manager personality.
  *
@@ -1653,7 +1654,7 @@ static HWND pm_create_dialog_template(O2ULONG module,
         if (item_off + 30UL > size)
             break;
         it = b + item_off;
-        cls = pm_rd16(it + 6);
+        cls = (WORD)pm_dialog_class(b, size, pm_rd16(it + 4), pm_rd16(it + 6));
         id = pm_rd16(it + 24);
         cch = pm_rd16(it + 8);
         off_text = pm_rd16(it + 10);
@@ -1711,11 +1712,14 @@ static HWND pm_create_dialog_template(O2ULONG module,
                     ws |= PMCOMPAT_TBS_VERT;
             }
         }
+        pm_trace("DLG-R21 class length/offset/resolved", pm_rd16(it+4), pm_rd16(it+6), cls);
         child = CreateWindowExA(0, klass, text ? text : "", ws,
                                 x, y, cx, cy, hwnd,
                                 (HMENU)(UINT_PTR)id, g_instance, NULL);
         if (child && font)
             SendMessageA(child, WM_SETFONT, (WPARAM)font, TRUE);
+        if (cls == O2_WC_LISTBOX || cls == 0)
+            pm_trace("DLG-R21 list/unknown id/class/native", id, cls, (unsigned long)(ULONG_PTR)child);
         if (child && cls == O2_WC_SLIDER && pm_is_trackbar(child)) {
             SendMessageA(child, PMCOMPAT_TBM_SETRANGE, TRUE, MAKELONG(0, 99));
             SendMessageA(child, PMCOMPAT_TBM_SETTICFREQ, 10, 0);
@@ -3917,6 +3921,14 @@ O2MRESULT __cdecl WinSendDlgItemMsg(O2HWND hwndDlg, O2USHORT idItem,
     if (!wh)
         return 0;
     child = GetDlgItem(wh, (int)idItem);
+    if (msg == O2_LM_QUERYITEMCOUNT) {
+        char class_name[64];
+        class_name[0] = 0;
+        if (child) GetClassNameA(child, class_name, sizeof(class_name));
+        if (pm_trace_enabled())
+            fprintf(stderr, "PMWIN: DLG-R21 list count id=%u hwnd=%08lx class=%s\n",
+                    (unsigned int)idItem, (unsigned long)(ULONG_PTR)child, class_name);
+    }
     if (!child)
         return 0;
     {
@@ -4696,6 +4708,17 @@ O2HWND __cdecl WinLoadDlg(O2HWND parent, O2HWND owner,
     return guest_hwnd(hwnd);
 }
 
+/* Private jar hook: the modal owner is parked while another guest thread
+ * runs a bounded quantum. Native callers leave this hook unset. */
+typedef int (__cdecl *PM_SCHEDULER_HOOK)(void *);
+static PM_SCHEDULER_HOOK g_scheduler_hook;
+static void *g_scheduler_opaque;
+void __cdecl OS2PM_SetSchedulerHook(PM_SCHEDULER_HOOK hook, void *opaque)
+{
+    g_scheduler_hook = hook;
+    g_scheduler_opaque = opaque;
+}
+
 /* 923 */
 O2USHORT __cdecl WinDlgBox(O2HWND parent, O2HWND owner,
                            O2PFNWP dlgProc, O2ULONG module,
@@ -4775,7 +4798,19 @@ O2USHORT __cdecl WinDlgBox(O2HWND parent, O2HWND owner,
     }
 
     while (!dlg.done) {
-        gm = GetMessageA(&m, NULL, 0, 0);
+        if (g_scheduler_hook) {
+            if (g_scheduler_hook(g_scheduler_opaque))
+                break;
+            if (dlg.done)
+                break;
+            if (!PeekMessageA(&m, NULL, 0, 0, PM_REMOVE)) {
+                MsgWaitForMultipleObjects(0, NULL, FALSE, 1, QS_ALLINPUT);
+                continue;
+            }
+            gm = m.message == WM_QUIT ? 0 : 1;
+        } else {
+            gm = GetMessageA(&m, NULL, 0, 0);
+        }
         if (gm <= 0) {
             if (gm == 0)
                 PostQuitMessage((int)m.wParam);

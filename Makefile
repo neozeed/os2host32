@@ -226,7 +226,7 @@ PMCTLS.dll: dlls/pmctls/pmctls.c dlls/pmctls/pmctls.def
 MSG.dll: dlls/msg/msg.c dlls/msg/msg.def common/msg/os2_msg.c common/include/os2_msg.h
 	$(MINGW) $(C89FLAGS) $(COMMON_CPPFLAGS) -shared -o $@ dlls/msg/msg.c common/msg/os2_msg.c dlls/msg/msg.def
 
-PMWIN.dll: dlls/pmwin/pmwin.c dlls/pmwin/pmwin.def dlls/pmwin/pm_accel.h dlls/pmwin/pm_text.h dlls/pmwin/pm_queue.h dlls/pmwin/pm_track.h common/pm/os2_track.c common/include/os2_track.h dlls/pm-common/pmcompat.h
+PMWIN.dll: dlls/pmwin/pmwin.c dlls/pmwin/pm_dialog_class.h dlls/pmwin/pmwin.def dlls/pmwin/pm_accel.h dlls/pmwin/pm_text.h dlls/pmwin/pm_queue.h dlls/pmwin/pm_track.h common/pm/os2_track.c common/include/os2_track.h dlls/pm-common/pmcompat.h
 	$(MINGW) $(C89FLAGS) -Idlls/pm-common -shared -o $@ \
 		dlls/pmwin/pmwin.c common/pm/os2_track.c $(COMMON_CPPFLAGS) dlls/pmwin/pmwin.def -luser32 -lgdi32 \
 		-Wl,--out-implib,libpmwin.a

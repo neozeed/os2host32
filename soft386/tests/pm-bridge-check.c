@@ -41,7 +41,10 @@ static uint32_t sendmsg(uintptr_t w,uintptr_t msg,uintptr_t mp1,uintptr_t mp2){
     if(msg==0x192){assert(w==0xe1313131&&mp1==0x1000d&&mp2==0x40004000);calls++;return 1;}
     assert(0);return 0;
 }
-static uint32_t senddlg(uintptr_t w,uintptr_t id,uintptr_t msg,uintptr_t mp1,uintptr_t mp2){assert(w==1&&id==99&&msg==0x164&&mp1==3&&mp2==1);calls++;return 73;}
+static uint32_t senddlg(uintptr_t w,uintptr_t id,uintptr_t msg,uintptr_t mp1,uintptr_t mp2){assert(w==1&&id==99);calls++;
+    if(msg==0x161){assert(mp1==0xffff);hostptr(mp2,10);assert(!strcmp((char *)mp2,"jason.scn"));return 4;}
+    if(msg==0x168){assert(mp1==0x00200004);hostptr(mp2,32);strcpy((char *)mp2,"jason.scn");return 9;}
+    assert(msg==0x164&&mp1==3&&mp2==1);return 73;}
 static uint32_t untyped_export(void){calls++;return 0x55aa55aa;}
 static uint32_t windowfromid(uintptr_t w,uintptr_t id){assert(w==1&&id==0x8005);calls++;return 0xe1212121;}
 static uintptr_t errorinfo(uintptr_t hab){assert(hab==1);calls++;return 0;}
@@ -119,6 +122,13 @@ int main(void){struct Soft386PmBridge b;uint32_t hab,hps,hbm,n,saved[7],hmq,hini
     /* Message semantics live in PMWIN.  The bridge only proves the MPARAM ABI
        is scalar/handle-safe, then forwards the call unchanged. */
     assert(RUN(0,920,1,0x160,0,0)==37);assert(RUN(0,903,1,99,0x164,3,1)==73);
+    strcpy((char *)ram+14000,"jason.scn");
+    assert(RUN(0,903,1,99,0x161,0xffff,14000)==4);
+    memset(ram+14100,0xa5,33);
+    assert(RUN(0,903,1,99,0x168,0x00200004,14100)==9);
+    assert(!memcmp(ram+14100,"jason.scn\0",10)&&ram[14110]==0xa5&&ram[14132]==0xa5);
+    {unsigned before=calls;assert(!RUN(0,903,1,99,0x161,0xffff,16384));assert(calls==before);
+     assert(!RUN(0,903,1,99,0x168,0x00200004,16380));assert(calls==before);}
     /* H2D: MM_QUERYITEM marshals its MENUITEM output and tokenizes the
        returned submenu before a later scalar MM_SETITEMATTR uses it. */
     {uint32_t menu=RUN(0,899,1,0x8005),submenu;assert(menu&&menu!=0xe1212121);memset(ram+15000,0xcc,16);

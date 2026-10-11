@@ -120,3 +120,4 @@ EXPORTS
     OS2PM_RegisterResource
     OS2PM_QueryResource
     OS2PM_UnregisterModuleResources
+    OS2PM_SetSchedulerHook
