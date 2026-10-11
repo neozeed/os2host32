@@ -1,0 +1,56 @@
+OS2HOST32 QUECALLS R24 - purge, close, query + soft386 marshalling
+Apply over the supplied 2bc833b host snapshot with proven R21/R22 changes.
+This overlay touches queue implementation/bridge/tests/catalogue only.
+Keep R22 PMWIN and DOSCALLS; no PM/GPI changes are included.
+
+Build/install BOTH:
+  make QUECALLS.dll
+  make -C soft386 win32
+Replace the runtime QUECALLS.dll and soft386_os2.exe. Close running guests first.
+
+New 32-bit exports:
+  DosPurgeQueue @10: owner-only purge, clears metadata and availability.
+  DosCloseQueue @11: owner destroys queue; writer loses its own access.
+  DosQueryQueue @12: checked output count (ULONG, four bytes in guest).
+Existing @9/@14/@15/@16 exports remain unchanged. Peek @13 is still unsupported.
+
+Close follows IBM OS/2 2.0 Control Program Programming Reference, DosCloseQueue,
+page 2-28: owner close deletes the queue and invalidates other users; writer
+close only ends that process's access. Reopening does not delay owner close.
+Reference: https://ftpmirror.your.org/pub/misc/bitsavers/pdf/ibm/pc/os2/OS2_2.x/IBM_OS2_2.0_Technical_Library_1992/S10G-6263-00_OS2_2.0_Control_Program_Programming_Reference_199203.pdf
+
+Blocked native readers are awakened on owner close. Their event is retained
+until all waiting readers have returned, then released exactly once. Queue
+names/slots can be reused without resurrecting old handles. Payload addresses
+remain opaque integers; purge/close do not free or dereference guest values.
+
+Jar: added named-ordinal lookup and signatures for all three calls, validates
+queue tokens and output ranges, stages query count in host memory and copies
+four bytes on success only. Close invalidates the token; reused slots receive
+fresh tokens. WAIT reads still yield through the existing guest scheduler.
+No new callbacks are involved.
+
+Existing scope remains process-local queues in the native backend. This does
+not implement system-wide cross-process IPC or shared payload memory.
+
+Validation passed: common queue tests, DLL veneer tests, Win32 backend shim,
+queue export/architecture guard, API catalogue guard and jar boundary suite.
+New checks cover purge ownership, opaque values, query bounds, closed client
+access, owner reopen then close, close during a blocked read, event lifetime,
+same-name recreation, stale native/guest handles and four-byte query copyout.
+The waiting-reader test simulates the close from the backend wait hook; live
+Windows concurrency and DLL execution still need target confirmation.
+No Windows toolchain available here; package contains source, not binaries.
+
+Target smoke source: tests/queue/queue-lifecycle-os2.c (beta-header C89 checked).
+Build with your usual C/386 + OS2386.LIB console executable workflow, then run
+through os2host32 and soft386. Every QUEUE-R24 line should say PASS.
+
+WinTown: original R23 now has the missing APIs; R23A remains compatible but
+avoids them. To exercise the new calls in WinTown if R23A is already installed,
+optional-wintown-r23 contains the original R23 sound source/test. Copy those
+into the WinTown tree, rebuild and bind resources as usual. This is optional.
+Test Test sound, mute, and quit while a tone is active on both hosts. Retest
+SarienPM, and retain the proven TelnetPM R22 checkpoint.
+
+changes.patch is an alternative to copying the host overlay, not a second step.

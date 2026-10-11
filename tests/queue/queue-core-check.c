@@ -10,7 +10,9 @@ struct FakeBackend {
     Os2QueueNative next_token;
     int available[64];
     unsigned int set_calls;
-    unsigned int wait_calls;
+    unsigned int wait_calls, destroy_calls;
+    struct Os2QueueSession *close_session;
+    Os2QueueHandle close_handle;
 };
 
 static int failures;
@@ -55,6 +57,7 @@ static int fake_create(void *opaque, Os2QueueNative *token)
 static void fake_destroy(void *opaque, Os2QueueNative token)
 {
     struct FakeBackend *f = (struct FakeBackend *)opaque;
+    ++f->destroy_calls;
     if (token < (Os2QueueNative)64U)
         f->available[(unsigned int)token] = 0;
 }
@@ -75,6 +78,13 @@ static enum Os2QueueWaitResult fake_wait(void *opaque, Os2QueueNative token,
     struct FakeBackend *f = (struct FakeBackend *)opaque;
     (void)wait;
     ++f->wait_calls;
+    if (f->close_session) {
+        unsigned int destroyed = f->destroy_calls;
+        check(os2_queue_DosCloseQueue(f->close_session, f->close_handle) == 0,
+              "close succeeds while a reader is blocked");
+        check(f->destroy_calls == destroyed, "wait event retained until reader returns");
+        f->close_session = NULL;
+    }
     if (token == 0U || token >= (Os2QueueNative)64U)
         return OS2_QUEUE_WAIT_FAILED;
     return f->available[(unsigned int)token] ?
@@ -249,6 +259,38 @@ int main(void)
     check(backend.wait_calls == 0U,
           "no backend wait needed when tests have data or NOWAIT");
 
+    {
+        Os2QueueHandle h, alias, fresh;
+        Os2QueueU32 count, owner;
+        unsigned int destroyed;
+        check(!os2_queue_DosCreateQueue(&session, &h, 0, "\\QUEUES\\lifecycle"), "create lifecycle");
+        check(!os2_queue_DosOpenQueue(&session, &owner, &alias, "\\QUEUES\\lifecycle") && alias == h, "owner reopen");
+        check(!os2_queue_DosWriteQueue(&session, h, 1, 4, 0xffffffffUL, 0), "opaque write");
+        count = 99;
+        check(!os2_queue_DosQueryQueue(&session, h, &count) && count == 1, "query count");
+        backend.pid = 4321;
+        check(!os2_queue_DosOpenQueue(&session, &owner, &alias, "\\QUEUES\\lifecycle"), "client open");
+        check(os2_queue_DosPurgeQueue(&session, h) == 330, "nonowner purge denied");
+        check(!os2_queue_DosQueryQueue(&session, h, &count) && count == 1, "client query");
+        check(!os2_queue_DosCloseQueue(&session, h), "client close does not destroy queue");
+        check(os2_queue_DosQueryQueue(&session,h,&count)==337, "closed client cannot query");
+        check(os2_queue_DosWriteQueue(&session,h,1,4,440,0)==337, "closed client cannot write");
+        backend.pid = 1234;
+        check(!os2_queue_DosPurgeQueue(&session, h), "owner purge");
+        check(!os2_queue_DosQueryQueue(&session, h, &count) && count == 0, "purged count");
+        check(read_nowait(&session, h, &req, &data, &pri) == 342, "purge empties queue");
+        check(!os2_queue_DosQueryQueue(&session, h, &count), "owner can query before close");
+        destroyed = backend.destroy_calls;
+        backend.close_session = &session; backend.close_handle = h;
+        check(os2_queue_DosReadQueue(&session,h,&request,&length,&data,0,0,&pri,0)==337,
+              "blocked reader wakes with invalid handle after owner close");
+        check(backend.destroy_calls == destroyed + 1, "last reader destroys event exactly once");
+        count = 77;
+        check(os2_queue_DosQueryQueue(&session,h,&count)==337 && count==77, "invalid query preserves output");
+        check(!os2_queue_DosCreateQueue(&session,&fresh,0,"\\QUEUES\\lifecycle") && fresh!=h, "name/slot reuse gives fresh handle");
+        check(os2_queue_DosCloseQueue(&session,h)==337, "stale close cannot destroy replacement");
+        check(!os2_queue_DosCloseQueue(&session,fresh), "close replacement");
+    }
     os2_queue_session_destroy(&session);
     check(backend.lock_depth == 0U, "destroy leaves lock balanced");
 

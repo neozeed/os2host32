@@ -109,3 +109,10 @@ O2APIRET __cdecl DosReadQueue(O2HQUEUE hq, O2REQUESTDATA *request,
     }
     return rc;
 }
+
+O2APIRET __cdecl DosPurgeQueue(O2HQUEUE hq)
+{ return os2_queue_DosPurgeQueue(queue_session(), hq); }
+O2APIRET __cdecl DosCloseQueue(O2HQUEUE hq)
+{ return os2_queue_DosCloseQueue(queue_session(), hq); }
+O2APIRET __cdecl DosQueryQueue(O2HQUEUE hq, O2ULONG *count)
+{ return os2_queue_DosQueryQueue(queue_session(), hq, count); }

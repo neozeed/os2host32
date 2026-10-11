@@ -67,7 +67,10 @@ struct Os2QueueEntry {
 };
 
 struct Os2QueueObject {
-    int used;
+    int used; /* 0 free, 1 live, 2 closed while readers unwind */
+    Os2QueueHandle handle;
+    unsigned int waiters;
+    struct { Os2QueueU32 pid, count; } refs[OS2_QUEUE_MAX_QUEUES];
     char name[OS2_QUEUE_NAME_MAX];
     Os2QueueU32 discipline;
     Os2QueueU32 owner_pid;
@@ -77,6 +80,7 @@ struct Os2QueueObject {
 };
 
 struct Os2QueueSession {
+    Os2QueueHandle serial;
     void *backend_opaque;
     const struct Os2QueueBackendOps *backend;
     struct Os2QueueObject queues[OS2_QUEUE_MAX_QUEUES];
@@ -123,6 +127,10 @@ Os2QueueApiRet os2_queue_try_read(struct Os2QueueSession *session,
                                   Os2QueueU32 *data_value,
                                   Os2QueueU32 element,
                                   unsigned char *priority);
+
+Os2QueueApiRet os2_queue_DosPurgeQueue(struct Os2QueueSession *, Os2QueueHandle);
+Os2QueueApiRet os2_queue_DosCloseQueue(struct Os2QueueSession *, Os2QueueHandle);
+Os2QueueApiRet os2_queue_DosQueryQueue(struct Os2QueueSession *, Os2QueueHandle, Os2QueueU32 *);
 
 Os2QueueU32 os2_queue_count(struct Os2QueueSession *session,
                             Os2QueueHandle hq);

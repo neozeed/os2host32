@@ -10,6 +10,9 @@
 #define __cdecl
 #endif
 
+Os2QueueApiRet DosPurgeQueue(Os2QueueHandle);
+Os2QueueApiRet DosCloseQueue(Os2QueueHandle);
+Os2QueueApiRet DosQueryQueue(Os2QueueHandle, Os2QueueU32 *);
 static struct Os2QueueSession session;
 static int available[32];
 static Os2QueueNative next_token;
@@ -110,6 +113,11 @@ int main(void)
           (uintptr_t)data == (uintptr_t)440UL && priority == 7U,
           "veneer preserves returned queue fields and opaque pointer value");
 
+    check(DosQueryQueue(hq, &cb) == 0 && cb == 0, "veneer query");
+    check(DosWriteQueue(hq, 1, 4, (void *)(uintptr_t)440, 0) == 0, "write before purge");
+    check(DosPurgeQueue(hq) == 0, "veneer purge");
+    check(DosQueryQueue(hq, &cb) == 0 && cb == 0, "query after purge");
+    check(DosCloseQueue(hq) == 0, "veneer close");
     os2_queue_session_destroy(&session);
     if (failures != 0) {
         fprintf(stderr, "queue-veneer-check: %d failure(s)\n", failures);

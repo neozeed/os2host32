@@ -19,6 +19,9 @@
 #define QUE_TOKEN_BASE 0x6e000001u
 uint32_t soft386_queue_named_ordinal(const char *name)
 {
+    if(!strcmp(name,"DosPurgeQueue"))return 10;
+    if(!strcmp(name,"DosCloseQueue"))return 11;
+    if(!strcmp(name,"DosQueryQueue"))return 12;
     if(!strcmp(name,"DosReadQueue"))return 9;
     if(!strcmp(name,"DosWriteQueue"))return 14;
     if(!strcmp(name,"DosOpenQueue"))return 15;
@@ -49,16 +52,19 @@ static uint32_t queue_token(struct Soft386QueueBridge *b,uint32_t native)
 {
     unsigned i;
     if(!native)return 0;
-    for(i=0;i<S386_QUEUE_HANDLES;i++)if(b->native[i]==native)return QUE_TOKEN_BASE+i;
-    for(i=0;i<S386_QUEUE_HANDLES;i++)if(!b->native[i]){b->native[i]=native;return QUE_TOKEN_BASE+i;}
+    for(i=0;i<S386_QUEUE_HANDLES;i++)if(b->native[i]==native)return b->tokens[i];
+    for(i=0;i<S386_QUEUE_HANDLES;i++)if(!b->native[i]){
+        if(b->serial>=0x00ffffffu)return 0;
+        b->native[i]=native;b->tokens[i]=QUE_TOKEN_BASE+b->serial++;
+        return b->tokens[i];}
     return 0;
 }
 static int output(const struct Soft386GuestMemoryOps *m,uint32_t p,uint32_t n){return p&&m->valid(m->opaque,p,n,1);}
 uint32_t soft386_queue_dispatch(struct Soft386QueueBridge *b,const struct Soft386GuestMemoryOps *m,uint32_t ordinal,uint32_t esp,int *handled)
 {
-    uint32_t a[8],count=ordinal==9?8:(ordinal==14?5:3),i,rc,native=0,token,owner=0,length=0,request[2]={0};
+    uint32_t a[8],count=ordinal==9?8:(ordinal==14?5:(ordinal==10||ordinal==11?1:(ordinal==12?2:3))),slot=0,i,rc,native=0,token,owner=0,length=0,request[2]={0};
     uintptr_t data=0;unsigned char priority=0;char name[260];void *fn;
-    int known=ordinal==9||ordinal==14||ordinal==15||ordinal==16;
+    int known=ordinal==9||ordinal==10||ordinal==11||ordinal==12||ordinal==14||ordinal==15||ordinal==16;
     if(handled)*handled=0;b->waiting=0;
     if(!soft386_queue_export(b,ordinal)){
         if(b->trace)fprintf(stderr,"soft386: service QUECALLS.%u native export missing\n",ordinal);
@@ -77,7 +83,10 @@ uint32_t soft386_queue_dispatch(struct Soft386QueueBridge *b,const struct Soft38
     if(ordinal==16){if(!output(m,a[0],4)||!a[2]||!m->read_cstr(m->opaque,a[2],name,sizeof(name)))return QUE_INVALID_PARAMETER;}
     else if(ordinal==15){if(!output(m,a[0],4)||!output(m,a[1],4)||!a[2]||!m->read_cstr(m->opaque,a[2],name,sizeof(name)))return QUE_INVALID_PARAMETER;}
     else{
-        if(a[0]<QUE_TOKEN_BASE||a[0]-QUE_TOKEN_BASE>=S386_QUEUE_HANDLES||!(native=b->native[a[0]-QUE_TOKEN_BASE]))return QUE_INVALID_HANDLE;
+        for(slot=0;slot<S386_QUEUE_HANDLES;slot++)if(b->native[slot]&&b->tokens[slot]==a[0])break;
+        if(slot==S386_QUEUE_HANDLES)return QUE_INVALID_HANDLE;
+        native=b->native[slot];
+        if(ordinal==12&&!output(m,a[1],4))return QUE_INVALID_PARAMETER;
         if(ordinal==9){
             if(!output(m,a[1],8)||!output(m,a[2],4)||!output(m,a[3],4)||!output(m,a[6],1)||a[7])return QUE_INVALID_PARAMETER;
             if(a[5]>1)return 433;
@@ -87,6 +96,16 @@ uint32_t soft386_queue_dispatch(struct Soft386QueueBridge *b,const struct Soft38
     if(b->trace)fprintf(stderr,"soft386: native QUECALLS.%u [marshalled; scheduler owns waits]\n",ordinal);
     if(ordinal==16)rc=((uint32_t (__cdecl *)(uint32_t *,uint32_t,const char *))fn)(&native,a[1],name);
     else if(ordinal==15)rc=((uint32_t (__cdecl *)(uint32_t *,uint32_t *,const char *))fn)(&owner,&native,name);
+    else if(ordinal==10||ordinal==11){
+        rc=((uint32_t (__cdecl *)(uint32_t))fn)(native);
+        if(!rc&&ordinal==11){b->native[slot]=0;b->tokens[slot]=0;}
+        return rc;
+    }
+    else if(ordinal==12){
+        rc=((uint32_t (__cdecl *)(uint32_t,uint32_t *))fn)(native,&length);
+        if(!rc&&!m->write(m->opaque,a[1],&length,4))return QUE_INVALID_PARAMETER;
+        return rc;
+    }
     else if(ordinal==14)return ((uint32_t (__cdecl *)(uint32_t,uint32_t,uint32_t,uintptr_t,uint32_t))fn)(native,a[1],a[2],(uintptr_t)a[3],a[4]);
     else{
         rc=((uint32_t (__cdecl *)(uint32_t,uint32_t *,uint32_t *,uintptr_t *,uint32_t,uint32_t,unsigned char *,uint32_t))fn)(native,request,&length,&data,a[4],1,&priority,0);
@@ -100,7 +119,11 @@ uint32_t soft386_queue_dispatch(struct Soft386QueueBridge *b,const struct Soft38
         return 0;
     }
     if(rc)return rc;
-    token=queue_token(b,native);if(!token)return 334;
+    token=queue_token(b,native);if(!token){
+        void *closefn=b->module.get_proc(b->module.opaque,11);
+        if(closefn)((uint32_t (__cdecl *)(uint32_t))closefn)(native);
+        return 334;
+    }
     owner=b->pid?b->pid:1;
     if(ordinal==15&&!m->write(m->opaque,a[0],&owner,4))return QUE_INVALID_PARAMETER;
     if(!m->write(m->opaque,ordinal==15?a[1]:a[0],&token,4))return QUE_INVALID_PARAMETER;
@@ -109,5 +132,5 @@ uint32_t soft386_queue_dispatch(struct Soft386QueueBridge *b,const struct Soft38
 void soft386_queue_close(struct Soft386QueueBridge *b)
 {
     if(b->module.close&&b->module.opaque)b->module.close(b->module.opaque);
-    memset(&b->module,0,sizeof(b->module));memset(b->native,0,sizeof(b->native));b->waiting=0;
+    memset(&b->module,0,sizeof(b->module));memset(b->native,0,sizeof(b->native));memset(b->tokens,0,sizeof(b->tokens));b->waiting=0;
 }

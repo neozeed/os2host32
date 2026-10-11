@@ -4,3 +4,6 @@ EXPORTS
     DosWriteQueue      @14 NONAME
     DosOpenQueue       @15 NONAME
     DosCreateQueue     @16 NONAME
+    DosPurgeQueue      @10 NONAME
+    DosCloseQueue      @11 NONAME
+    DosQueryQueue      @12 NONAME

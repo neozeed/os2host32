@@ -6,6 +6,7 @@ struct Soft386QueueBridge {
     struct Soft386NativeModule module;
     const char *path;
     uint32_t native[S386_QUEUE_HANDLES], pid;
+    uint32_t tokens[S386_QUEUE_HANDLES], serial;
     int disabled, trace, waiting;
 };
 uint32_t soft386_queue_named_ordinal(const char *);

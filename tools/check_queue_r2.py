@@ -21,17 +21,19 @@ def need(condition, message):
     if not condition:
         errors.append(message)
 
-need(hashlib.sha256(def_bytes).hexdigest() ==
-     "edccc8b6d80c1076dfdf637230f3575d3ed8a98791ad5617933001ebfafcbd75",
-     "QUECALLS .def changed; four historical export ordinals must remain frozen")
-
 expected = {
     "DosReadQueue": 9,
+    "DosPurgeQueue": 10,
+    "DosCloseQueue": 11,
+    "DosQueryQueue": 12,
     "DosWriteQueue": 14,
     "DosOpenQueue": 15,
     "DosCreateQueue": 16,
 }
 def_text = def_bytes.decode("ascii")
+exports = re.findall(r"^\s*(\w+)\s+@(\d+)\s+NONAME\s*$", def_text, re.MULTILINE)
+need(len(exports) == len(expected) and dict((n, int(o)) for n, o in exports) == expected,
+     "queue export set differs from the seven supported names/ordinals")
 for name, ordinal in expected.items():
     need(re.search(r"^\s*%s\s+@%d\s+NONAME\s*$" % (name, ordinal),
                    def_text, re.MULTILINE) is not None,
@@ -94,4 +96,4 @@ if errors:
     for error in errors:
         print("QUEUE-R2 CHECK FAIL: " + error, file=sys.stderr)
     sys.exit(1)
-print("QUEUE-R2 static architecture check: PASS (4 frozen exports)")
+print("QUEUE-R2 static architecture check: PASS (4 preserved + 3 lifecycle exports)")

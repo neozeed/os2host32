@@ -70,15 +70,12 @@ static int queue_flags_valid(Os2QueueU32 flags)
 static struct Os2QueueObject *queue_from_handle_locked(
     struct Os2QueueSession *session, Os2QueueHandle hq)
 {
-    Os2QueueU32 index;
-    if (hq == 0UL)
-        return NULL;
-    index = hq - 1UL;
-    if (index >= (Os2QueueU32)OS2_QUEUE_MAX_QUEUES)
-        return NULL;
-    if (!session->queues[index].used)
-        return NULL;
-    return &session->queues[index];
+    unsigned int i;
+    if (!hq) return NULL;
+    for (i = 0; i < OS2_QUEUE_MAX_QUEUES; ++i)
+        if (session->queues[i].used == 1 && session->queues[i].handle == hq)
+            return &session->queues[i];
+    return NULL;
 }
 
 static struct Os2QueueObject *find_queue_locked(struct Os2QueueSession *session,
@@ -87,10 +84,10 @@ static struct Os2QueueObject *find_queue_locked(struct Os2QueueSession *session,
 {
     unsigned int i;
     for (i = 0U; i < OS2_QUEUE_MAX_QUEUES; ++i) {
-        if (session->queues[i].used &&
+        if (session->queues[i].used == 1 &&
             queue_name_equal(session->queues[i].name, name)) {
             if (handle != NULL)
-                *handle = (Os2QueueHandle)(i + 1U);
+                *handle = session->queues[i].handle;
             return &session->queues[i];
         }
     }
@@ -231,6 +228,10 @@ Os2QueueApiRet os2_queue_DosCreateQueue(struct Os2QueueSession *session,
         return OS2_QUEUE_ERROR_QUE_NO_MEMORY;
     }
 
+    if (session->serial == UINT32_MAX) {
+        session->backend->unlock(session->backend_opaque);
+        return OS2_QUEUE_ERROR_QUE_NO_MEMORY;
+    }
     availability = OS2_QUEUE_NATIVE_INVALID;
     if (!session->backend->create_availability(session->backend_opaque,
                                                 &availability)) {
@@ -246,7 +247,10 @@ Os2QueueApiRet os2_queue_DosCreateQueue(struct Os2QueueSession *session,
     queue->owner_pid = session->backend->current_pid(session->backend_opaque);
     queue->availability = availability;
     queue->used = 1;
-    *phq = (Os2QueueHandle)(i + 1U);
+    queue->handle = ++session->serial;
+    queue->refs[0].pid = queue->owner_pid;
+    queue->refs[0].count = 1;
+    *phq = queue->handle;
     session->backend->unlock(session->backend_opaque);
     return OS2_QUEUE_NO_ERROR;
 }
@@ -258,6 +262,8 @@ Os2QueueApiRet os2_queue_DosOpenQueue(struct Os2QueueSession *session,
 {
     struct Os2QueueObject *queue;
     Os2QueueHandle hq;
+    unsigned int i, free_slot;
+    Os2QueueU32 pid;
 
     if (!queue_ready(session) || owner_pid == NULL || phq == NULL)
         return OS2_QUEUE_ERROR_INVALID_PARAMETER;
@@ -270,6 +276,19 @@ Os2QueueApiRet os2_queue_DosOpenQueue(struct Os2QueueSession *session,
         session->backend->unlock(session->backend_opaque);
         return OS2_QUEUE_ERROR_QUE_NAME_NOT_EXIST;
     }
+    pid = session->backend->current_pid(session->backend_opaque);
+    free_slot = OS2_QUEUE_MAX_QUEUES;
+    for (i = 0; i < OS2_QUEUE_MAX_QUEUES; ++i) {
+        if (queue->refs[i].count && queue->refs[i].pid == pid) break;
+        if (!queue->refs[i].count) free_slot = i;
+    }
+    if (i == OS2_QUEUE_MAX_QUEUES) i = free_slot;
+    if (i == OS2_QUEUE_MAX_QUEUES) {
+        session->backend->unlock(session->backend_opaque);
+        return OS2_QUEUE_ERROR_QUE_NO_MEMORY;
+    }
+    queue->refs[i].pid = pid;
+    queue->refs[i].count = 1;
     *owner_pid = queue->owner_pid;
     *phq = hq;
     session->backend->unlock(session->backend_opaque);
@@ -305,6 +324,15 @@ Os2QueueApiRet os2_queue_DosWriteQueue(struct Os2QueueSession *session,
     if (queue == NULL) {
         session->backend->unlock(session->backend_opaque);
         return OS2_QUEUE_ERROR_QUE_INVALID_HANDLE;
+    }
+    {
+        unsigned int i;
+        for (i = 0; i < OS2_QUEUE_MAX_QUEUES; ++i)
+            if (queue->refs[i].count && queue->refs[i].pid == entry.pid) break;
+        if (i == OS2_QUEUE_MAX_QUEUES) {
+            session->backend->unlock(session->backend_opaque);
+            return OS2_QUEUE_ERROR_QUE_INVALID_HANDLE;
+        }
     }
     if (queue->count >= (Os2QueueU32)OS2_QUEUE_DEPTH) {
         session->backend->unlock(session->backend_opaque);
@@ -395,12 +423,24 @@ Os2QueueApiRet os2_queue_DosReadQueue(struct Os2QueueSession *session,
             return rc;
         }
         availability = queue->availability;
+        if (wait == OS2_QUEUE_DCWW_WAIT) ++queue->waiters;
         session->backend->unlock(session->backend_opaque);
 
         if (wait == OS2_QUEUE_DCWW_NOWAIT)
             return OS2_QUEUE_ERROR_QUE_EMPTY;
         wr = session->backend->wait_available(session->backend_opaque,
                                               availability, 1);
+        session->backend->lock(session->backend_opaque);
+        --queue->waiters;
+        if (queue->used == 2) {
+            if (!queue->waiters) {
+                session->backend->destroy_availability(session->backend_opaque, availability);
+                memset(queue, 0, sizeof(*queue));
+            }
+            session->backend->unlock(session->backend_opaque);
+            return OS2_QUEUE_ERROR_QUE_INVALID_HANDLE;
+        }
+        session->backend->unlock(session->backend_opaque);
         if (wr == OS2_QUEUE_WAIT_FAILED)
             return OS2_QUEUE_ERROR_QUE_INVALID_HANDLE;
         if (wr == OS2_QUEUE_WAIT_EMPTY)
@@ -421,4 +461,74 @@ Os2QueueU32 os2_queue_count(struct Os2QueueSession *session,
     count = queue != NULL ? queue->count : 0UL;
     session->backend->unlock(session->backend_opaque);
     return count;
+}
+
+/* Payload values are metadata: purge/close never free or follow them. */
+Os2QueueApiRet os2_queue_DosQueryQueue(struct Os2QueueSession *s,
+                                       Os2QueueHandle h, Os2QueueU32 *count)
+{
+    struct Os2QueueObject *q;
+    if (!queue_ready(s) || !count) return OS2_QUEUE_ERROR_INVALID_PARAMETER;
+    s->backend->lock(s->backend_opaque);
+    q = queue_from_handle_locked(s, h);
+    if (q) {
+        unsigned int i;
+        Os2QueueU32 pid = s->backend->current_pid(s->backend_opaque);
+        for (i = 0; i < OS2_QUEUE_MAX_QUEUES; ++i)
+            if (q->refs[i].count && q->refs[i].pid == pid) break;
+        if (i == OS2_QUEUE_MAX_QUEUES) q = NULL;
+    }
+    if (q) *count = q->count;
+    s->backend->unlock(s->backend_opaque);
+    return q ? 0 : OS2_QUEUE_ERROR_QUE_INVALID_HANDLE;
+}
+Os2QueueApiRet os2_queue_DosPurgeQueue(struct Os2QueueSession *s, Os2QueueHandle h)
+{
+    struct Os2QueueObject *q;
+    Os2QueueApiRet rc;
+    if (!queue_ready(s)) return OS2_QUEUE_ERROR_INVALID_PARAMETER;
+    s->backend->lock(s->backend_opaque);
+    q = queue_from_handle_locked(s, h);
+    rc = OS2_QUEUE_ERROR_QUE_INVALID_HANDLE;
+    if (q) {
+        if (q->owner_pid != s->backend->current_pid(s->backend_opaque))
+            rc = OS2_QUEUE_ERROR_QUE_PROC_NOT_OWNED;
+        else if (s->backend->set_available(s->backend_opaque, q->availability, 0)) {
+            q->count = 0;
+            memset(q->entries, 0, sizeof(q->entries));
+            rc = 0;
+        }
+    }
+    s->backend->unlock(s->backend_opaque);
+    return rc;
+}
+Os2QueueApiRet os2_queue_DosCloseQueue(struct Os2QueueSession *s, Os2QueueHandle h)
+{
+    struct Os2QueueObject *q;
+    Os2QueueU32 pid;
+    unsigned int i;
+    Os2QueueApiRet rc;
+    if (!queue_ready(s)) return OS2_QUEUE_ERROR_INVALID_PARAMETER;
+    s->backend->lock(s->backend_opaque);
+    q = queue_from_handle_locked(s, h);
+    rc = OS2_QUEUE_ERROR_QUE_INVALID_HANDLE;
+    pid = s->backend->current_pid(s->backend_opaque);
+    if (q) for (i = 0; i < OS2_QUEUE_MAX_QUEUES; ++i) {
+        if (!q->refs[i].count || q->refs[i].pid != pid) continue;
+        if (pid == q->owner_pid && q->waiters &&
+            !s->backend->set_available(s->backend_opaque, q->availability, 1)) break;
+        q->refs[i].count = 0;
+        rc = 0;
+        if (pid == q->owner_pid && !q->refs[i].count) {
+            q->used = 2;
+            q->count = 0;
+            if (!q->waiters) {
+                s->backend->destroy_availability(s->backend_opaque, q->availability);
+                memset(q, 0, sizeof(*q));
+            }
+        }
+        break;
+    }
+    s->backend->unlock(s->backend_opaque);
+    return rc;
 }
