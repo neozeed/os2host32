@@ -14,6 +14,8 @@
 #include "os2_doscalls_core.h"
 #include "soft386_doscalls_bridge.h"
 #include "soft386_system_bridge.h"
+#include "soft386_ne_kbd.h"
+#include "soft386_ne_file.h"
 #include "soft386_pm_bridge.h"
 #include "soft386_queue_bridge.h"
 #include "soft386_net_bridge.h"
@@ -32,6 +34,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1523,11 +1526,43 @@ static uint64_t soft_monotonic_milliseconds(void *opaque)
     return monotonic_ms();
 }
 
+/* The jar owns this memory namespace on every host.  Report only space
+ * alloc_guest can use: reusable whole blocks and the untouched tail when
+ * an unused allocation-table entry remains.  There is no split/coalesce
+ * or automatic arena growth in this allocator. */
+static os2_api_ret_t soft_query_memory_status(void *opaque,
+                                               struct Os2MemoryStatus *value)
+{
+    struct Runtime *rt = (struct Runtime *)opaque;
+    uint64_t free_bytes = 0;
+    uint32_t largest = 0, i, tail;
+    int spare_slot = 0;
+    if (!rt || !value) return OS2_PERSONALITY_ERROR_INVALID_PARAMETER;
+    for (i = 0; i < MAX_ALLOCS; ++i) {
+        const struct GuestAlloc *ga = &rt->allocs[i];
+        if (!ga->base) spare_slot = 1;
+        else if (!ga->used) {
+            free_bytes += ga->size;
+            if (ga->size > largest) largest = ga->size;
+        }
+    }
+    if (spare_slot && rt->alloc_next >= GUEST_ALLOC_BASE &&
+        rt->alloc_next < GUEST_ALLOC_LIMIT) {
+        tail = GUEST_ALLOC_LIMIT - align_up(rt->alloc_next, 0x1000u);
+        free_bytes += tail;
+        if (tail > largest) largest = tail;
+    }
+    value->total_physical = RAM_SIZE;
+    value->available_physical = free_bytes;
+    value->available_commit = free_bytes;
+    value->available_virtual = largest;
+    return OS2_PERSONALITY_NO_ERROR;
+}
 static const struct Os2PersonalityOps soft_personality_ops = {
     soft_validate_memory, soft_write_memory, soft_map_read_memory,
     soft_query_handle_type, soft_write_handle, soft_set_file_pointer,
     soft_allocate_memory, soft_free_memory, soft_set_memory,
-    soft_query_local_datetime, soft_monotonic_milliseconds
+    soft_query_local_datetime, soft_monotonic_milliseconds, soft_query_memory_status
 };
 
 static uint32_t hostcall_stub(struct Runtime *rt, uint32_t module, uint32_t ordinal)
@@ -2243,6 +2278,10 @@ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t
     os2_personality_context_set_nls(&personality,&rt->nls_state);
     if(rt->trace_hc)fprintf(stderr,"soft386: DOSCALLS.%u ESP=%08X args=%08X,%08X,%08X,%08X,%08X\n",ordinal,esp,a1,a2,a3,a4,a5);
     if(rt->exit_processing&&(ordinal==311||ordinal==283))return 87;
+    /* QuerySysInfo describes the jar, even with a native DOS provider loaded.
+     * Keep range validation and ULONG serialization in the shared DOS core. */
+    if (ordinal == 348u)
+        return os2_core_DosQuerySysInfo(&personality,a1,a2,a3,a4);
     if (rt->native_dos.loaded && soft386_doscalls_bridge_export(&rt->native_dos, ordinal)) {
         struct Soft386GuestMemoryOps memops;
         unsigned abi_nargs = 0, abi_flags = soft386_doscalls_bridge_abi(ordinal, &abi_nargs);
@@ -2316,7 +2355,6 @@ static uint32_t dispatch_doscalls(struct Runtime *rt, uint32_t ordinal, uint32_t
         return dispatch_event_sem(rt,ordinal,a1,a2,a3,a4);
     case 331:case 332:case 333:case 334:case 335:case 336:
         return dispatch_mutex_sem(rt,ordinal,a1,a2,a3,a4);
-    case 348:return os2_core_DosQuerySysInfo(&personality,a1,a2,a3,a4);
     case 395:return os2_nls_api_DosQueryCtryInfo(&personality,a1,a2,a3,a4);
     case 396:return os2_nls_api_DosQueryDBCSEnv(&personality,a1,a2,a3);
     case 397:return os2_nls_api_DosMapCase(&personality,a1,a2,a3);
@@ -2573,7 +2611,7 @@ struct NeImage16 {
     uint16_t import_ord[256],import_mod[256];unsigned nimport;
     uint16_t next_alloc_sel;uint32_t next_alloc_base;
     uint32_t signal_handler[16];uint16_t signal_action[16];
-    int hfile[64];uint16_t hmode[64];
+    int hfile[64];uint8_t hfile_owns[64];uint16_t hmode[64];
     uint16_t open_cleanup;
     uint16_t guest_pid,guest_tid,guest_ppid;
 };
@@ -2601,9 +2639,24 @@ static uint32_t ne_stack32(struct Runtime *rt,const CPUI386_State *st,uint16_t a
 static uint32_t ne_arg_fp(struct Runtime *rt,const CPUI386_State *st,uint16_t add){return ne_stack32(rt,st,add);}
 static int ne_put16_far(struct Runtime *rt,uint32_t fp,uint16_t v){uint32_t a=ne_far_linear(rt,fp,2);if(a==UINT32_MAX)return 0;wr16(rt->ram+a,v);return 1;}
 static int ne_put32_far(struct Runtime *rt,uint32_t fp,uint32_t v){uint32_t a=ne_far_linear(rt,fp,4);if(a==UINT32_MAX)return 0;wr32(rt->ram+a,v);return 1;}
-static unsigned ne_cleanup_bytes(const struct NeImage16 *n,uint32_t ord)
+/* Byte counts were audited against sdk/os2h/bsedos16.h (16-bit Pascal
+ * declarations).  An unknown import must NOT default to a zero-byte cleanup:
+ * that silently leaves arguments on the guest stack. */
+static unsigned ne_dos_cleanup_bytes(uint32_t ord)
 {
-    switch(ord){case 5:return 4;case 8:return 8;case 33:return 4;case 14:return 16;case 41:return 4;case 72:return 8;case 137:return 12;case 58:return 12;case 59:return 2;case 60:return 4;case 61:return 6;case 68:return 6;case 70:return 26;case 91:return 8;case 94:return 4;case 130:return 10;case 75:return 12;case 34:return 8;case 38:return 4;case 49:return 4;case 92:return 4;case 77:return 10;case 85:return 2;case 89:return 10;case 138:return 12;case 140:return 8;case 141:return 4;case 142:return 8;case 144:return 24;default:return 0;}
+    switch(ord){case 5:return 4;case 8:return 8;case 33:return 4;case 14:return 16;case 41:return 4;case 43:return 6;case 52:return 8;case 72:return 8;case 137:return 12;case 58:return 12;case 59:return 2;case 60:return 8;case 61:return 6;case 68:return 6;case 70:return 26;case 91:return 8;case 94:return 4;case 130:return 10;case 75:return 12;case 34:return 8;case 38:return 4;case 39:return 2;case 49:return 4;case 92:return 4;case 77:return 10;case 83:return 10;case 85:return 2;case 89:return 10;case 138:return 12;case 140:return 8;case 141:return 4;case 142:return 8;case 144:return 24;case 120:return 2;default:return UINT_MAX;}
+}
+static unsigned ne_import_cleanup_bytes(const struct NeImage16 *n,unsigned mod,uint32_t ord)
+{
+    const char *name=n->module_name[mod];
+    if(strcmp(name,"DOSCALLS")==0)return ne_dos_cleanup_bytes(ord);
+    if(strcmp(name,"NLS")==0){
+        if(ord==1u)return 10u; /* DosCaseMap(USHORT,PCOUNTRYCODE,PCHAR) */
+        if(ord==4u)return 10u; /* DosGetDBCSEv(USHORT,PCOUNTRYCODE,PCHAR) */
+    }
+    if(strcmp(name,"KBDCALLS")==0&&ord==13u)return 2u;
+    if(strcmp(name,"MSG")==0&&ord==2u)return 26u;
+    return UINT_MAX;
 }
 static uint16_t ne_alloc_segment(struct Runtime *rt,struct NeImage16 *n,uint16_t cb)
 {
@@ -2613,8 +2666,13 @@ static uint16_t ne_alloc_segment(struct Runtime *rt,struct NeImage16 *n,uint16_t
 /* Guest-local HFILE map. 0/1/2 designate the process standard streams. */
 static int ne_file_fd(struct NeImage16 *n,uint16_t h)
 {
-    if(h<3u)return (int)h;
     return h<64u?n->hfile[h]:-1;
+}
+static void ne_release_file(struct NeImage16 *n,uint16_t h)
+{
+    if(h>=64u)return;
+    if(n->hfile[h]>=0&&n->hfile_owns[h])NE_HOST_CLOSE(n->hfile[h]);
+    n->hfile[h]=-1;n->hfile_owns[h]=0;
 }
 static uint32_t ne_file_error(void)
 {
@@ -2638,17 +2696,130 @@ static int ne_file_path(struct Runtime *rt,uint32_t fp,char *out,size_t cap)
     }
     out[cap-1]=0;return 0;
 }
+/* pEnv is an OS/2 double-NUL-terminated environment block, not a far
+ * pointer to a C array.  Preserve the guest's explicit block: Microsoft's
+ * C/386 stages pass _C_FILE_INFO and MSC_CMD_FLAGS through this interface. */
+static char *ne_exec_copy_env(struct Runtime *rt,uint32_t fp,
+                              size_t *out_bytes,unsigned *out_entries)
+{
+    size_t pos,entry_start=0,limit;
+    unsigned count=0;
+    char *block;
+    uint16_t off=(uint16_t)fp,sel=(uint16_t)(fp>>16);
+    if(!fp||!sel)return NULL;
+    limit=0x10000u-off;
+    block=(char *)malloc(limit?limit:1u);
+    if(!block)return NULL;
+    for(pos=0;pos<limit;pos++){
+        uint32_t a=ne_far_linear(rt,((uint32_t)sel<<16)|(uint16_t)(off+pos),1u);
+        char ch;
+        if(a==UINT32_MAX)break;
+        ch=(char)rt->ram[a];block[pos]=ch;
+        if(ch==0){
+            if(pos==1u && entry_start==0u && block[0]==0){
+                *out_bytes=2u;*out_entries=0u;
+                return block;
+            }
+            if(pos==entry_start){
+                /* A zero after the final entry's NUL terminates the block. */
+                if(pos==0){
+                    if(limit<2u)break;
+                    continue;
+                }
+                *out_bytes=pos+1u;*out_entries=count;
+                return block;
+            }
+            count++;
+            if(count>2048u)break;
+            entry_start=pos+1u;
+        }
+    }
+    free(block);
+    return NULL;
+}
+
+static void ne_exec_trace_env(const struct Runtime *rt,const char *block,
+                              size_t bytes,unsigned count)
+{
+    size_t off=0;unsigned i;
+    if(!rt->trace_hc)return;
+    if(!block){fprintf(stderr,"soft386: NE EXEC environment=inherit\n");return;}
+    fprintf(stderr,"soft386: NE EXEC environment=explicit entries=%u bytes=%lu\n",
+            count,(unsigned long)bytes);
+    for(i=0;i<count&&off<bytes;i++){
+        const char *item=block+off,*eq=strchr(item,'=');
+        size_t z=strlen(item),name_len=eq?(size_t)(eq-item):z;
+        fprintf(stderr,"soft386: NE EXEC env name=%.*s value_len=%lu\n",
+                (int)(name_len>64u?64u:name_len),item,
+                (unsigned long)(eq?z-name_len-1u:0u));
+        off+=z+1u;
+    }
+}
+
+#ifdef _WIN32
+static int ne_env_item_compare(const void *a,const void *b)
+{
+    return _stricmp(*(const char * const *)a,*(const char * const *)b);
+}
+/* CreateProcess requires an ANSI double-NUL environment block, with entries
+ * sorted case-insensitively.  Preserve each full name=value string verbatim. */
+static char *ne_exec_windows_env(const char *block,size_t bytes,unsigned count)
+{
+    const char **entries;char *sorted;size_t off=0,used=0;unsigned i;
+    if(!block)return NULL;
+    entries=(const char **)malloc((count?count:1u)*sizeof(*entries));
+    if(!entries)return NULL;
+    for(i=0;i<count;i++){
+        size_t z;
+        if(off>=bytes){free(entries);return NULL;}
+        entries[i]=block+off;z=strlen(entries[i])+1u;off+=z;
+    }
+    qsort(entries,count,sizeof(*entries),ne_env_item_compare);
+    sorted=(char *)malloc(bytes+1u);
+    if(!sorted){free(entries);return NULL;}
+    for(i=0;i<count;i++){
+        size_t z=strlen(entries[i])+1u;
+        memcpy(sorted+used,entries[i],z);used+=z;
+    }
+    sorted[used++]=0;
+    if(!count)sorted[used++]=0;
+    free(entries);
+    return sorted;
+}
+#endif
+
 /* OS/2 1.x synchronous child-process bridge.  A separate Soft386 vessel is
  * essential: NE selectors, CPU state and guest HFILEs must not be shared.
  * Only EXEC_SYNC is supported; never execute guest NE bytes as host PE code. */
-static uint32_t ne_exec_sync_child(struct Runtime *rt,const char *program,
-                                  const char *tail,uint32_t resultfp)
+static uint32_t ne_exec_sync_child(struct Runtime *rt,struct NeImage16 *n,
+                                  const char *program,
+                                  const char *tail,const char *guest_env,
+                                  size_t env_bytes,unsigned env_entries,
+                                  uint32_t resultfp)
 {
     char cmd[8192],resolved[4096];
     int code=0;
     const char *loader=getenv("OS2HOST32_LOADER");
-    if(!loader||!loader[0])return 2u;
-    if(strlen(program)>=sizeof(resolved))return 206u;
+    char self_loader[4096];
+    if(!loader||!loader[0]){
+#ifdef _WIN32
+        DWORD z=GetModuleFileNameA(NULL,self_loader,sizeof(self_loader));
+        if(z>0&&z<sizeof(self_loader))loader=self_loader;
+#else
+        ssize_t z=readlink("/proc/self/exe",self_loader,sizeof(self_loader)-1u);
+        if(z>0&&(size_t)z<sizeof(self_loader)){
+            self_loader[z]=0;loader=self_loader;
+        }
+#endif
+    }
+    if(!loader||!loader[0]){
+        if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC FAIL stage=bootstrap reason=OS2HOST32_LOADER_unset api_rc=2\n");
+        return 2u;
+    }
+    if(strlen(program)>=sizeof(resolved)){
+        if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC FAIL stage=filename reason=too_long api_rc=206\n");
+        return 206u;
+    }
     strcpy(resolved,program);
     /* OS/2 searches for a named executable; RC passes "RCPP" without .EXE.
      * Prefer the current directory, then let an explicit path stand as-is.
@@ -2663,7 +2834,7 @@ static uint32_t ne_exec_sync_child(struct Runtime *rt,const char *program,
             strcat(resolved,".EXE");
         }
         if(stat(resolved,&sb)!=0){
-            if(rt->trace_hc)fprintf(stderr,"soft386: NE child file not found: %s\n",resolved);
+            if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC FAIL stage=stat path=%s errno=%d api_rc=2\n",resolved,errno);
             return 2u;
         }
     }
@@ -2672,41 +2843,107 @@ static uint32_t ne_exec_sync_child(struct Runtime *rt,const char *program,
 #ifdef _WIN32
     {
         STARTUPINFOA si;PROCESS_INFORMATION pi;DWORD ec=0;
+        HANDLE child_std[3]={NULL,NULL,NULL};unsigned si_index;
+        char *win_env=NULL;
         size_t z;BOOL ok;
+        if(guest_env){
+            win_env=ne_exec_windows_env(guest_env,env_bytes,env_entries);
+            if(!win_env)return 8u;
+        }
         /* Quote executable and guest filename; preserve guest tail verbatim. */
         z=strlen(loader)+strlen(resolved)+strlen(tail)+32;
-        if(z>=sizeof(cmd))return 206u;
+        if(z>=sizeof(cmd)){
+            if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC FAIL stage=command_line api_rc=206\n");
+            free(win_env);return 206u;
+        }
         snprintf(cmd,sizeof(cmd),"\"%s\" --run \"%s\" %s",loader,resolved,tail);
         memset(&si,0,sizeof(si));memset(&pi,0,sizeof(pi));si.cb=sizeof(si);
-        si.dwFlags=STARTF_USESTDHANDLES;si.hStdInput=GetStdHandle(STD_INPUT_HANDLE);
-        si.hStdOutput=GetStdHandle(STD_OUTPUT_HANDLE);si.hStdError=GetStdHandle(STD_ERROR_HANDLE);
-        ok=CreateProcessA(loader,cmd,NULL,NULL,TRUE,0,NULL,NULL,&si,&pi);
-        if(!ok){DWORD e=GetLastError();if(rt->trace_hc)fprintf(stderr,"soft386: NE child CreateProcess failed=%lu\n",(unsigned long)e);return e==ERROR_FILE_NOT_FOUND||e==ERROR_PATH_NOT_FOUND?2u:5u;}
+        si.dwFlags=STARTF_USESTDHANDLES;
+        for(si_index=0;si_index<3u;si_index++){
+            int fd=ne_file_fd(n,(uint16_t)si_index);
+            intptr_t raw=fd>=0?_get_osfhandle(fd):-1;
+            if(rt->trace_hc)fprintf(stderr,
+                "soft386: NE EXEC inherit std%u guest_fd=%d native=%p\n",
+                si_index,fd,raw==-1?NULL:(void *)raw);
+            if(raw!=-1){
+                if(!DuplicateHandle(GetCurrentProcess(),(HANDLE)raw,
+                      GetCurrentProcess(),&child_std[si_index],0,TRUE,
+                      DUPLICATE_SAME_ACCESS)){
+                    DWORD err=GetLastError();unsigned j;
+                    for(j=0;j<si_index;j++)if(child_std[j])CloseHandle(child_std[j]);
+                    free(win_env);
+                    if(rt->trace_hc)fprintf(stderr,
+                        "soft386: NE EXEC inherit failed std%u winerror=%lu\n",
+                        si_index,(unsigned long)err);
+                    return 6u;
+                }
+            }else child_std[si_index]=INVALID_HANDLE_VALUE;
+        }
+        si.hStdInput=child_std[0];si.hStdOutput=child_std[1];
+        si.hStdError=child_std[2];
+        if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC CreateProcess application=%s command=%s\n",loader,cmd);
+        ok=CreateProcessA(loader,cmd,NULL,NULL,TRUE,0,win_env,NULL,&si,&pi);
+        for(si_index=0;si_index<3u;si_index++)
+            if(child_std[si_index]&&child_std[si_index]!=INVALID_HANDLE_VALUE)
+                CloseHandle(child_std[si_index]);
+        free(win_env);
+        if(!ok){DWORD e=GetLastError();uint32_t rc=e==ERROR_FILE_NOT_FOUND||e==ERROR_PATH_NOT_FOUND?2u:5u;
+            if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC FAIL stage=CreateProcess winerror=%lu api_rc=%u\n",(unsigned long)e,(unsigned)rc);return rc;}
         WaitForSingleObject(pi.hProcess,INFINITE);GetExitCodeProcess(pi.hProcess,&ec);
         CloseHandle(pi.hThread);CloseHandle(pi.hProcess);code=(int)ec;
+        if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC child_exited exit_code=%lu\n",(unsigned long)ec);
     }
 #else
     {
         pid_t pid;int status;
         /* POSIX diagnostic runner, same isolated-child principle. */
         char *args[128];unsigned count=0;char copy[4096];char *v;
+        char **envv=NULL;
         if(strlen(tail)>=sizeof(copy))return 206u;
+        if(guest_env){
+            unsigned i;size_t off=0;
+            envv=(char **)calloc((size_t)env_entries+1u,sizeof(*envv));
+            if(!envv)return 8u;
+            for(i=0;i<env_entries;i++){
+                envv[i]=(char *)guest_env+off;
+                off+=strlen(envv[i])+1u;
+            }
+        }
         strcpy(copy,tail);args[count++]=(char*)loader;args[count++]="--run";args[count++]=resolved;
         v=strtok(copy," \t");while(v&&count+1<128){args[count++]=v;v=strtok(NULL," \t");}args[count]=NULL;
-        pid=fork();if(pid<0)return 8u;
-        if(pid==0){execv(loader,args);_exit(127);}
-        if(waitpid(pid,&status,0)<0)return 5u;
+        pid=fork();if(pid<0){free(envv);return 8u;}
+        if(pid==0){
+            /* Snapshot all three sources before dup2 to handle swaps/cycles. */
+            int inherited[3],j,fd;
+            for(j=0;j<3;j++){
+                fd=ne_file_fd(n,(uint16_t)j);
+                inherited[j]=fd<0?-1:fcntl(fd,F_DUPFD,3);
+                if(fd>=0&&inherited[j]<0)_exit(126);
+            }
+            for(j=0;j<3;j++){
+                if(inherited[j]<0)close(j);
+                else if(dup2(inherited[j],j)<0)_exit(126);
+            }
+            for(j=0;j<3;j++)if(inherited[j]>=0)close(inherited[j]);
+            if(envv)execve(loader,args,envv);
+            else execv(loader,args);
+            _exit(127);
+        }
+        if(waitpid(pid,&status,0)<0){free(envv);return 5u;}
+        free(envv);
         code=WIFEXITED(status)?WEXITSTATUS(status):255;
     }
 #endif
-    if(!ne_put32_far(rt,resultfp,((uint32_t)(code&0xffffu)<<16)))return 87u;
-    if(rt->trace_hc)fprintf(stderr,"soft386: NE DosExecPgm completed rc=%d\n",code);
+    if(!ne_put32_far(rt,resultfp,((uint32_t)(code&0xffffu)<<16))){
+        if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC FAIL stage=result_write fp=%04X:%04X api_rc=87\n",(unsigned)(resultfp>>16),(unsigned)(resultfp&65535u));
+        return 87u;
+    }
+    if(rt->trace_hc)fprintf(stderr,"soft386: NE DosExecPgm completed api_rc=0 child_exit=%d\n",code);
     return 0u;
 }
 static uint32_t dispatch_dos16(struct Runtime *rt,struct NeImage16 *n,uint32_t ord,const CPUI386_State *st)
 {
-    struct Os2PersonalityContext personality;uint32_t fp,a,tmp=NE_INFO_BASE+0x800u,actual=0;uint16_t h,cb,sel,flags;
-    os2_personality_context_init(&personality,rt,&soft_personality_ops);os2_personality_context_set_nls(&personality,&rt->nls_state);
+    uint32_t fp,a;uint16_t h,cb,sel,flags;
     if(rt->trace_hc)fprintf(stderr,"soft386: DOS16.%u SS:SP=%04X:%04X\n",(unsigned)ord,(unsigned)st->seg[CPUI386_SEG_SS],(unsigned)((uint16_t)st->gpr[4]));
     switch(ord){
     case 5: /* DosExit(action,result), Pascal order */
@@ -2741,6 +2978,15 @@ static uint32_t dispatch_dos16(struct Runtime *rt,struct NeImage16 *n,uint32_t o
         flags=ne_stack16(rt,st,4);(void)flags;fp=ne_arg_fp(rt,st,6);cb=ne_stack16(rt,st,10);sel=ne_alloc_segment(rt,n,cb);if(!sel)return 8;if(!ne_put16_far(rt,fp,sel))return 87;return 0;
     case 38: /* DosReallocSeg(size,selector) */
         sel=ne_stack16(rt,st,4);cb=ne_stack16(rt,st,6);if((sel&7u)||sel+7u>=GUEST_GDT_BYTES)return 6;put_desc16(rt->ram+GUEST_GDT+sel,ne_selector_base(rt,sel),(uint16_t)((cb?cb:0x10000u)-1u),0x92);return 0;
+    case 39: { /* DosFreeSeg(SEL): free a dynamically allocated descriptor. */
+        uint16_t segment=ne_stack16(rt,st,4);
+        if((segment&7u)!=0u || segment<NE_ALLOC_SEL_BASE ||
+           segment>=n->next_alloc_sel || (uint32_t)segment+7u>=GUEST_GDT_BYTES ||
+           (rt->ram+GUEST_GDT+segment)[5]==0u)return 6u;
+        memset(rt->ram+GUEST_GDT+segment,0,8u);
+        if(rt->trace_hc)fprintf(stderr,"soft386: DOS16 FreeSeg sel=%04X\n",(unsigned)segment);
+        return 0u;
+    }
     case 14: { /* DosSetSigHandler(handler,old_handler,old_action,action,signal) */
         uint16_t signo=ne_stack16(rt,st,4),action=ne_stack16(rt,st,6);
         uint32_t prev_action=ne_arg_fp(rt,st,8),prev_handler=ne_arg_fp(rt,st,12);
@@ -2754,6 +3000,44 @@ static uint32_t dispatch_dos16(struct Runtime *rt,struct NeImage16 *n,uint32_t o
     }
     case 41: /* DosGetHugeShift(PUSHORT): selectors are eight bytes apart. */
         return ne_put16_far(rt,ne_arg_fp(rt,st,4),3u)?0u:87u;
+    case 43: { /* DosCreateCSAlias(SEL dataSel, PSEL codeSel), Pascal 6 bytes. */
+        uint32_t dst=ne_arg_fp(rt,st,4),linear;
+        uint16_t data_sel=ne_stack16(rt,st,8),alias=n->next_alloc_sel;
+        const uint8_t *d;
+        if(ne_far_linear(rt,dst,2)==UINT32_MAX)return 87u;
+        if((data_sel&7u)!=0u || data_sel<NE_SEG_SEL_BASE ||
+           (uint32_t)data_sel+7u>=GUEST_GDT_BYTES)return 5u;
+        d=rt->ram+GUEST_GDT+data_sel;
+        if(d[5]!=0x92u)return 5u; /* Only valid private data segments. */
+        linear=desc_base(d);
+        if(linear>=RAM_SIZE || alias+7u>=GUEST_GDT_BYTES)return 8u;
+        put_desc16(rt->ram+GUEST_GDT+alias,linear,rd16(d),0x9a);
+        if(!ne_put16_far(rt,dst,alias))return 87u;
+        n->next_alloc_sel=(uint16_t)(alias+8u);
+        if(rt->trace_hc)fprintf(stderr,"soft386: DOS16 CreateCSAlias data=%04X code=%04X base=%08X\n",
+                                (unsigned)data_sel,(unsigned)alias,(unsigned)linear);
+        return 0u;
+    }
+    case 52: { /* DosDevConfig(PVOID out, USHORT item, USHORT reserved). */
+        uint16_t reserved=ne_stack16(rt,st,4),item=ne_stack16(rt,st,6);
+        uint32_t dst=ne_far_linear(rt,ne_arg_fp(rt,st,8),1u);
+        uint8_t value;
+        if(dst==UINT32_MAX||reserved!=0u)return 87u;
+        switch(item){
+            case 0: value=0;break; /* printers */
+            case 1: value=0;break; /* serial ports */
+            case 2: value=0;break; /* floppy drives */
+            case 3: value=1;break; /* x87 present: Tiny386 FPU enabled */
+            case 4: value=0;break; /* PC submodel */
+            case 5: value=0xfc;break; /* PC model: AT-compatible */
+            case 6: value=1;break; /* non-monochrome display */
+            default:return 87u;
+        }
+        rt->ram[dst]=value;
+        if(rt->trace_hc)fprintf(stderr,"soft386: DOS16 DevConfig item=%u value=%u\n",
+                                (unsigned)item,(unsigned)value);
+        return 0u;
+    }
     case 72: { /* DosQCurDisk(PUSHORT drive,PULONG logicalMap) */
         uint32_t drive=3u,logical=4u;
 #ifdef _WIN32
@@ -2802,13 +3086,27 @@ static uint32_t dispatch_dos16(struct Runtime *rt,struct NeImage16 *n,uint32_t o
           (unsigned)n->guest_pid,(unsigned)n->guest_tid,(unsigned)n->guest_ppid);
         return 0;
     }
-    case 75: { /* DosQFileMode(path,PUSHORT attr, reserved) */
-        char path[1024];struct stat sb;uint32_t attrfp=ne_arg_fp(rt,st,4);
-        if(!ne_file_path(rt,ne_arg_fp(rt,st,8),path,sizeof(path))||
-           ne_far_linear(rt,attrfp,2)==UINT32_MAX)return 87;
-        if(stat(path,&sb)<0)return ne_file_error();
-        return ne_put16_far(rt,attrfp,(uint16_t)((S_ISDIR(sb.st_mode)?0x10u:0x20u)|
-            ((sb.st_mode&S_IWUSR)?0:1u)))?0:87;
+    case 75: { /* DosQFileMode(PSZ path, PUSHORT attr, ULONG reserved) */
+        char path[1024]={0};struct stat sb;
+        /* 16-bit Pascal ABI: reserved ULONG @+4, pusAttr far @+8,
+           pszFName far @+12 (return CS:IP occupies +0..+3). */
+        uint32_t attrfp=ne_arg_fp(rt,st,8);
+        uint32_t pathfp=ne_arg_fp(rt,st,12);
+        uint16_t attr=0;
+        int rc=0;
+        if(ne_far_linear(rt,attrfp,2)==UINT32_MAX ||
+           !ne_file_path(rt,pathfp,path,sizeof(path)))rc=87;
+        else if(stat(path,&sb)<0)rc=ne_file_error();
+        else {
+            attr=(uint16_t)((S_ISDIR(sb.st_mode)?0x10u:0x20u)|
+                             ((sb.st_mode&S_IWUSR)?0u:1u));
+            if(!ne_put16_far(rt,attrfp,attr))rc=87;
+        }
+        if(rt->trace_hc)fprintf(stderr,
+            "soft386: DOS16 QFileMode path=%s attr=%04X rc=%d attrfp=%04X:%04X\n",
+            (rc==87 && !path[0])?"<invalid>":path,(unsigned)attr,rc,
+            (unsigned)(attrfp>>16),(unsigned)(attrfp&0xffffu));
+        return (uint32_t)rc;
     }
     case 70: { /* DosOpen(path,handle,action,size,attr,flags,mode,reserved) */
         char path[1024];int fd=-1,oflags,exists,slot;
@@ -2845,7 +3143,13 @@ static uint32_t dispatch_dos16(struct Runtime *rt,struct NeImage16 *n,uint32_t o
         }
         if(access>2u)return 87;
         if(rt->trace_hc)fprintf(stderr,"soft386: DOS16 open frame=%u path=%s\n",(unsigned)n->open_cleanup,path);
-        slot=3;while(slot<64&&n->hfile[slot]>=0)slot++;
+        /* The guest HFILE namespace includes 0, 1 and 2.  In particular,
+         * the Microsoft RC 2.01 CRT closes HFILE 1 and uses DosOpen to
+         * attach a new stdout file before starting RCPP.  Starting this
+         * search at 3 makes the child inherit a CLOSED stdout even when
+         * every Pascal frame and DosDupHandle operation is correct.
+         * Never confuse the guest slot with the CRT's native descriptor. */
+        slot=0;while(slot<64&&n->hfile[slot]>=0)slot++;
         if(slot>=64)return 4;
         oflags=(access==0?O_RDONLY:(access==1?O_WRONLY:O_RDWR))|NE_O_BINARY;
         /* OS/2 existence flags: bits 0-3 existing-file action;
@@ -2863,53 +3167,185 @@ static uint32_t dispatch_dos16(struct Runtime *rt,struct NeImage16 *n,uint32_t o
             if(access==0u)oflags=(oflags&~O_RDONLY)|O_RDWR;
         }
         fd=NE_HOST_OPEN(path,oflags,0666);
-        if(fd<0)return ne_file_error();
-        n->hfile[slot]=fd;n->hmode[slot]=(uint16_t)((mode&~7u)|access);
+        if(fd<0){uint32_t rc=ne_file_error();
+            if(rt->trace_hc)fprintf(stderr,"soft386: DOS16 open failed path=%s errno=%d rc=%u\n",path,errno,(unsigned)rc);
+            return rc;}
+        n->hfile[slot]=fd;n->hfile_owns[slot]=1u;n->hmode[slot]=(uint16_t)((mode&~7u)|access);
         ne_put16_far(rt,out_handle,(uint16_t)slot);
         ne_put16_far(rt,out_action,(uint16_t)(exists?((openflag&15u)==2u?3u:1u):2u));
         if(rt->trace_hc)fprintf(stderr,"soft386: DOS16 open file=%s h=%d flags=%04X mode=%04X\n",path,slot,(unsigned)openflag,(unsigned)mode);
         return 0;
     }
-    case 61: { /* DosDupHandle(old HFILE, PHFILE): 16-bit Pascal, 6 bytes */
-        uint32_t dest=ne_arg_fp(rt,st,4);uint16_t oldh=ne_stack16(rt,st,8);
-        uint32_t da=ne_far_linear(rt,dest,2);uint16_t wanted;int fd,copy;
+    case 61: { /* DosDupHandle(old HFILE, PHFILE): Pascal 6 bytes */
+        uint32_t dest=ne_arg_fp(rt,st,4);
+        uint16_t oldh=ne_stack16(rt,st,8),wanted;
+        uint32_t da=ne_far_linear(rt,dest,2);
+        int fd,copy;uint32_t rc=0u;
         if(da==UINT32_MAX)return 87u;
-        wanted=rd16(rt->ram+da);fd=ne_file_fd(n,oldh);if(fd<0)return 6u;
-        if(wanted==0xffffu){for(wanted=3;wanted<64&&n->hfile[wanted]>=0;wanted++);if(wanted>=64)return 4u;}
-        else if(wanted<3||wanted>=64)return 6u;
-        copy=dup(fd);if(copy<0)return ne_file_error();
-        if(n->hfile[wanted]>=0)NE_HOST_CLOSE(n->hfile[wanted]);
-        n->hfile[wanted]=copy;wr16(rt->ram+da,wanted);return 0u;
+        wanted=rd16(rt->ram+da);fd=ne_file_fd(n,oldh);
+        if(fd<0)rc=6u;
+        else if(wanted==0xffffu){
+            /* OS/2 returns the lowest available guest HFILE, including
+             * closed standard-handle slots. */
+            for(wanted=0;wanted<64&&n->hfile[wanted]>=0;wanted++);
+            if(wanted>=64)rc=4u;
+        }else if(wanted>=64u)rc=6u;
+        if(!rc&&wanted!=oldh){
+            copy=dup(fd);
+            if(copy<0)rc=ne_file_error();
+            else{
+                ne_release_file(n,wanted);
+                n->hfile[wanted]=copy;n->hfile_owns[wanted]=1u;
+                n->hmode[wanted]=n->hmode[oldh];
+            }
+        }
+        if(!rc)wr16(rt->ram+da,wanted);
+        if(rt->trace_hc)fprintf(stderr,
+            "soft386: DOS16 DupHandle old=%u fd=%d wanted=%u newfd=%d rc=%u\n",
+            (unsigned)oldh,fd,(unsigned)wanted,
+            wanted<64u?n->hfile[wanted]:-1,(unsigned)rc);
+        return rc;
+    }
+    case 120: { /* DosError(USHORT fEnable), OS/2 1.x 16-bit ABI */
+        uint16_t fEnable=ne_stack16(rt,st,4);
+        if(rt->trace_hc)fprintf(stderr,"soft386: DOS16 DosError flags=%04X rc=%u\n",(unsigned)fEnable,(unsigned)((fEnable&~3u)?87u:0u));
+        return (fEnable&~3u)?87u:0u;
     }
     case 144: { /* DosExecPgm(obj,cb,flag,args,env,result,program) */
-        char program[1024],tail[4096];uint32_t pgmfp=ne_arg_fp(rt,st,4);
+        char program[1024],tail[4096],*guest_env=NULL;
+        size_t env_bytes=0;unsigned env_entries=0;uint32_t pgmfp=ne_arg_fp(rt,st,4);
         uint32_t resultfp=ne_arg_fp(rt,st,8),argfp=ne_arg_fp(rt,st,16);
-        uint16_t flag=ne_stack16(rt,st,20);uint32_t a;size_t ix;
+        uint16_t flag=ne_stack16(rt,st,20);size_t ix;
         if(!ne_file_path(rt,pgmfp,program,sizeof(program)))return 87u;
         if(ne_far_linear(rt,resultfp,4)==UINT32_MAX)return 87u;
         tail[0]=0;
-        if(argfp){a=ne_far_linear(rt,argfp,1);if(a==UINT32_MAX)return 87u;
-            for(ix=0;ix<sizeof(tail)-1;ix++){uint32_t b=ne_far_linear(rt,argfp,(uint32_t)ix+1);if(b==UINT32_MAX)return 87u;tail[ix]=(char)rt->ram[b+ix];if(!tail[ix])break;}
-            tail[sizeof(tail)-1]=0;
-            /* OS/2 argument block: argv[0] string, then command tail. */
-            if(ix+1<sizeof(tail)){size_t p=ix+1;uint32_t b=ne_far_linear(rt,argfp,(uint32_t)p+1);if(b!=UINT32_MAX&&rt->ram[b+p]){
-                size_t j=0;while(p+j<sizeof(tail)-1){b=ne_far_linear(rt,argfp,(uint32_t)(p+j)+1);if(b==UINT32_MAX)break;tail[j]=(char)rt->ram[b+p+j];if(!tail[j++])break;}tail[j]=0;
-            }}
+        if(argfp){
+            /* DosExecPgm's argument block contains two consecutive strings:
+             * argv[0] followed by the command tail.  In particular, an empty
+             * second string must NOT cause argv[0] to become a tail argument. */
+            size_t first_len=0,second_off;
+            uint32_t b;
+            for(first_len=0;first_len<sizeof(tail)-1;first_len++){
+                b=ne_far_linear(rt,argfp,(uint32_t)first_len+1);
+                if(b==UINT32_MAX)return 87u;
+                if(!rt->ram[b+first_len])break;
+            }
+            if(first_len>=sizeof(tail)-1)return 206u;
+            second_off=first_len+1;
+            for(ix=0;ix<sizeof(tail)-1;ix++){
+                b=ne_far_linear(rt,argfp,(uint32_t)(second_off+ix)+1);
+                if(b==UINT32_MAX)return 87u;
+                tail[ix]=(char)rt->ram[b+second_off+ix];
+                if(!tail[ix])break;
+            }
+            if(ix>=sizeof(tail)-1)return 206u;
+            tail[ix]=0;
+            if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC argument_block argv0_len=%lu tail_len=%lu\n",(unsigned long)first_len,(unsigned long)ix);
         }
-        if(rt->trace_hc)fprintf(stderr,"soft386: NE DosExecPgm flag=%u program=%s args=%s\n",flag,program,tail);
-        if(flag!=0u)return 87u; /* only EXEC_SYNC, until async scheduler exists */
-        return ne_exec_sync_child(rt,program,tail,resultfp);
+        if(rt->trace_hc)fprintf(stderr,"soft386: NE DosExecPgm flag=%u program=%s args=%s programfp=%04X:%04X argsfp=%04X:%04X envfp=%04X:%04X resultfp=%04X:%04X\n",flag,program,tail,(unsigned)(pgmfp>>16),(unsigned)(pgmfp&65535u),(unsigned)(argfp>>16),(unsigned)(argfp&65535u),(unsigned)(ne_arg_fp(rt,st,12)>>16),(unsigned)(ne_arg_fp(rt,st,12)&65535u),(unsigned)(resultfp>>16),(unsigned)(resultfp&65535u));
+        if(flag!=0u){if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC FAIL stage=flags flag=%u api_rc=87\n",(unsigned)flag);return 87u;} /* only EXEC_SYNC */
+        if(ne_arg_fp(rt,st,12)){
+            guest_env=ne_exec_copy_env(rt,ne_arg_fp(rt,st,12),&env_bytes,&env_entries);
+            if(!guest_env){
+                if(rt->trace_hc)fprintf(stderr,"soft386: NE EXEC FAIL stage=environment reason=invalid_block api_rc=87\n");
+                return 87u;
+            }
+        }
+        ne_exec_trace_env(rt,guest_env,env_bytes,env_entries);
+        {
+            uint32_t rc=ne_exec_sync_child(rt,n,program,tail,guest_env,env_bytes,env_entries,resultfp);
+            free(guest_env);
+            return rc;
+        }
     }
-    case 59: { /* DosClose(HFILE) */
-        int fd;h=ne_stack16(rt,st,4);fd=ne_file_fd(n,h);
-        if(fd<0)return 6;
-        if(h<3u)return 0; /* don't close host process stdio */
-        if(NE_HOST_CLOSE(fd)<0)return ne_file_error();
-        n->hfile[h]=-1;return 0;
+    case 59: { /* DosClose(HFILE) - closing a guest standard handle
+                 * must not close the Soft386 host process's own stream. */
+        int fd;uint32_t rc=0;
+        h=ne_stack16(rt,st,4);fd=ne_file_fd(n,h);
+        if(fd<0)rc=6u;
+        else {ne_release_file(n,h);}
+        if(rt->trace_hc)fprintf(stderr,
+            "soft386: DOS16 Close h=%u fd=%d rc=%u\n",(unsigned)h,fd,(unsigned)rc);
+        return rc;
     }
-    case 60: { /* DosDelete(PSZ) */
-        char path[1024];if(!ne_file_path(rt,ne_arg_fp(rt,st,4),path,sizeof(path)))return 87;
-        return NE_HOST_UNLINK(path)<0?ne_file_error():0;
+    case 60: { /* DosDelete(PSZ, ULONG reserved), 8 Pascal bytes.
+                * The low stack dword is RESERVED, not the filename! */
+        char path[1024];uint32_t rc;
+        uint32_t reserved=ne_stack32(rt,st,4),pathfp=ne_arg_fp(rt,st,8);
+        if(reserved||!ne_file_path(rt,pathfp,path,sizeof(path))){
+            if(rt->trace_hc)fprintf(stderr,
+                "soft386: DOS16 Delete invalid reserved=%08X pathfp=%04X:%04X rc=87\n",
+                (unsigned)reserved,(unsigned)(pathfp>>16),(unsigned)(pathfp&65535u));
+            return 87u;
+        }
+        errno=0;
+        if(NE_HOST_UNLINK(path)<0){int saved=errno;rc=ne_file_error();
+            if(rt->trace_hc)fprintf(stderr,
+                "soft386: DOS16 Delete path=%s errno=%d rc=%u\n",
+                path,saved,(unsigned)rc);
+        }else{rc=0u;
+            if(rt->trace_hc)fprintf(stderr,"soft386: DOS16 Delete path=%s rc=0\n",path);
+        }
+        return rc;
+    }
+    case 83: { /* DosSetFileInfo(HFILE, USHORT, PVOID, USHORT)
+                * Pascal stack: cb@+4, info@+6, level@+10, hfile@+12.
+                * Level 1: 22-byte FILESTATUS. Level 2: 12-byte EAOP with
+                * a far pointer to a variable-length FEALIST. */
+        uint16_t length=ne_stack16(rt,st,4);
+        uint32_t infofp=ne_arg_fp(rt,st,6),offset;
+        uint16_t level=ne_stack16(rt,st,10),handle=ne_stack16(rt,st,12);
+        int fd=ne_file_fd(n,handle);uint32_t rc,cbList=0,fea_fp=0,fea_at=UINT32_MAX;
+        uint32_t error_offset=0;
+        offset=ne_far_linear(rt,infofp,level==2u?12u:22u);
+        if(fd<0)rc=6u;
+        else if(level==1u){
+            if(length<22u)rc=122u;
+            else if(offset==UINT32_MAX)rc=87u;
+            else rc=soft386_ne_set_file_info(fd,level,rt->ram+offset,length);
+        }else if(level==2u){
+            if(length<12u)rc=122u;
+            else if(offset==UINT32_MAX)rc=87u;
+            else {
+                fea_fp=rd32(rt->ram+offset+4u); /* EAOP.fpFEAList */
+                fea_at=ne_far_linear(rt,fea_fp,4u);
+                if(fea_at==UINT32_MAX)rc=87u;
+                else {
+                    cbList=rd32(rt->ram+fea_at);
+                    if(cbList<4u||cbList>65535u)rc=255u;
+                    else if((uint32_t)(uint16_t)fea_fp+cbList>65536u||
+                            ne_far_linear(rt,fea_fp,cbList)==UINT32_MAX)rc=87u;
+                    else {
+                        if(rt->trace_hc&&cbList>4u){
+                            const uint8_t *p=rt->ram+fea_at;
+                            uint32_t at=4u;unsigned reported=0;
+                            while(at+4u<=cbList&&reported<8u){
+                                uint32_t name_len=p[at+1u],value_len=rd16(p+at+2u);
+                                uint32_t span=4u+name_len+1u+value_len;
+                                if(span>cbList-at)break;
+                                fprintf(stderr,"soft386: DOS16 EA entry offset=%lu name=%.*s "
+                                    "value_len=%lu flags=%02X\n",
+                                    (unsigned long)at,(int)name_len,(const char *)(p+at+4u),
+                                    (unsigned long)value_len,(unsigned)p[at]);
+                                at+=span;reported++;
+                            }
+                        }
+                        rc=soft386_ne_set_file_eas(fd,rt->ram+fea_at,cbList,
+                                                    &error_offset);
+                    }
+                    if(rc&&error_offset)wr32(rt->ram+offset+8u,error_offset);
+                }
+            }
+        }else rc=124u;
+        if(rt->trace_hc)fprintf(stderr,
+            "soft386: DOS16.83 SetFileInfo h=%u fd=%d level=%u cb=%u attr=%04X "
+            "fea=%04X:%04X list=%lu ea_error=%lu rc=%u\n",
+            (unsigned)handle,fd,(unsigned)level,(unsigned)length,
+            level==1u&&length>=22u&&offset!=UINT32_MAX?
+                rd16(rt->ram+offset+20u):0u,
+            (unsigned)(fea_fp>>16),(unsigned)(fea_fp&65535u),
+            (unsigned long)cbList,(unsigned long)error_offset,(unsigned)rc);
+        return rc;
     }
     case 58: { /* DosChgFilePtr(HFILE,LONG,USHORT,PULONG) */
         int fd;int32_t distance=(int32_t)ne_stack32(rt,st,10);
@@ -2945,20 +3381,57 @@ static uint32_t dispatch_dos16(struct Runtime *rt,struct NeImage16 *n,uint32_t o
     case 92: /* DosGetVersion(PUSHORT): major in high byte, minor low. */
         if(!ne_put16_far(rt,ne_arg_fp(rt,st,4),0x0200u))return 87;
         return 0;
-    case 77: /* DosQHandType(hfile,PUSHORT type,PUSHORT attr) */
-        if(!ne_put16_far(rt,ne_arg_fp(rt,st,4),0)||!ne_put16_far(rt,ne_arg_fp(rt,st,8),(ne_stack16(rt,st,12)<=2)?1u:0u))return 87;return 0;
+    case 77: { /* DosQHandType(hfile,PUSHORT type,PUSHORT attr).
+                * The type describes the OBJECT, not the numeric guest HFILE.
+                * RC can close guest stdout then reopen it as a disk file. */
+        uint32_t attrfp=ne_arg_fp(rt,st,4),typefp=ne_arg_fp(rt,st,8);
+        uint16_t gh=ne_stack16(rt,st,12),type=0u;
+        int fd=ne_file_fd(n,gh);
+        if(fd<0)return 6u;
+        if(ne_far_linear(rt,attrfp,2u)==UINT32_MAX||
+           ne_far_linear(rt,typefp,2u)==UINT32_MAX)return 87u;
+#ifdef _WIN32
+        {
+            intptr_t native=_get_osfhandle(fd);
+            DWORD ft;
+            if(native==-1)return 6u;
+            ft=GetFileType((HANDLE)native);
+            if(ft==FILE_TYPE_CHAR)type=1u;
+            else if(ft==FILE_TYPE_PIPE)type=2u;
+            else if(ft!=FILE_TYPE_DISK)return 6u;
+        }
+#else
+        {
+            struct stat sb;
+            if(fstat(fd,&sb)<0)return ne_file_error();
+            if(S_ISCHR(sb.st_mode))type=1u;
+            else if(S_ISFIFO(sb.st_mode)||S_ISSOCK(sb.st_mode))type=2u;
+        }
+#endif
+        if(!ne_put16_far(rt,attrfp,0u)||
+           !ne_put16_far(rt,typefp,type))return 87u;
+        if(rt->trace_hc)fprintf(stderr,"soft386: DOS16 QHandType h=%u fd=%d type=%u rc=0\n",
+            (unsigned)gh,fd,(unsigned)type);
+        return 0u;
+    }
     case 85: return 0; /* DosSetMaxFH */
     case 89: /* DosSetVec(vec,routine,old) - enough for CRT signal bootstrap */
         if(!ne_put32_far(rt,ne_arg_fp(rt,st,4),0))return 87;return 0;
-    case 138: /* DosWrite(hfile,buf,len,actual) */
-        fp=ne_arg_fp(rt,st,4);cb=ne_stack16(rt,st,8);a=ne_far_linear(rt,ne_arg_fp(rt,st,10),cb);h=ne_stack16(rt,st,14);if(a==UINT32_MAX)return 87;
-        if(ne_file_fd(n,h)<0)return 6;
-        if(rt->trace_hc&&h>=3u)fprintf(stderr,"soft386: DOS16 write h=%u len=%u\n",(unsigned)h,(unsigned)cb);
-        if(h>=3u){int wrote=cb?NE_HOST_WRITE(ne_file_fd(n,h),rt->ram+a,(unsigned)cb):0;
-            if(wrote<0)return ne_file_error();
-            return ne_put16_far(rt,fp,(uint16_t)wrote)?0:87;
-        }
-        wr32(rt->ram+tmp,0);actual=os2_core_DosWrite(&personality,h,a,cb,tmp);if(!ne_put16_far(rt,fp,(uint16_t)rd32(rt->ram+tmp)))return 87;return actual;
+    case 138: { /* DosWrite(hfile,buf,len,actual) - ALL guest HFILEs,
+                  * including 0/1/2, use the guest-local mapping. */
+        int fd,wrote;uint32_t rc;
+        fp=ne_arg_fp(rt,st,4);cb=ne_stack16(rt,st,8);
+        a=ne_far_linear(rt,ne_arg_fp(rt,st,10),cb);h=ne_stack16(rt,st,14);
+        if(a==UINT32_MAX||ne_far_linear(rt,fp,2u)==UINT32_MAX)return 87u;
+        fd=ne_file_fd(n,h);if(fd<0)return 6u;
+        wrote=cb?NE_HOST_WRITE(fd,rt->ram+a,(unsigned)cb):0;
+        if(wrote<0)rc=ne_file_error();
+        else rc=ne_put16_far(rt,fp,(uint16_t)wrote)?0u:87u;
+        if(rt->trace_hc)fprintf(stderr,
+            "soft386: DOS16 Write h=%u fd=%d cb=%u actual=%d rc=%u\n",
+            (unsigned)h,fd,(unsigned)cb,wrote,(unsigned)rc);
+        return rc;
+    }
     case 140: /* DosSemRequest(HSEM,LONG) */
         fp=ne_stack32(rt,st,8);a=ne_far_linear(rt,fp,4);if(a==UINT32_MAX)return 6;if(rd32(rt->ram+a)!=0)return 121;wr32(rt->ram+a,1);return 0;
     case 141: /* DosSemClear(HSEM) */
@@ -2968,19 +3441,60 @@ static uint32_t dispatch_dos16(struct Runtime *rt,struct NeImage16 *n,uint32_t o
     default:fprintf(stderr,"soft386: unsupported DOS16.%u\n",(unsigned)ord);return 1;
     }
 }
-/* 16-bit NLS.DLL ordinal 4: DosGetDBCSEv(cb, COUNTRYCODE FAR*, byte FAR*).
- * Pascal stack order is buffer, countrycode, cb (10 bytes).  The NLS
- * profiles and SBCS/DBCS policy remain owned by the existing common core. */
+/* OS/2 1.x NLS.DLL ordinals (sdk/os2h/bseord.h):
+ *   .1 DosCaseMap(usLen, COUNTRYCODE FAR*, char FAR*)
+ *   .4 DosGetDBCSEv(cb, COUNTRYCODE FAR*, char FAR*)
+ * Both use ten bytes of Pascal arguments.  As usual for 16-bit Pascal,
+ * the rightmost argument is closest to the far return address:
+ *   SS:SP+4 buffer FP, +8 COUNTRYCODE FP, +12 USHORT length.
+ * COUNTRYCODE is two USHORT fields, unlike the 32-bit 8-byte API form.
+ * Reuse the common NLS session profile/table; do not call a host locale API.
+ */
 static uint32_t dispatch_nls16(struct Runtime *rt,uint32_t ord,const CPUI386_State *st)
 {
-    uint32_t buf,cc,a,b,rc;uint16_t cb;uint32_t country,codepage;
+    uint32_t buf,cc,a,b,rc,country,codepage;uint16_t cb;
     if(rt->trace_hc)fprintf(stderr,"soft386: NLS16.%u SS:SP=%04X:%04X\n",(unsigned)ord,(unsigned)st->seg[CPUI386_SEG_SS],(unsigned)((uint16_t)st->gpr[4]));
-    if(ord!=4u){fprintf(stderr,"soft386: unsupported NLS16.%u\n",(unsigned)ord);return 1u;}
+    if(ord!=1u&&ord!=4u){fprintf(stderr,"soft386: unsupported NLS16.%u\n",(unsigned)ord);return 1u;}
     buf=ne_arg_fp(rt,st,4);cc=ne_arg_fp(rt,st,8);cb=ne_stack16(rt,st,12);
-    a=ne_far_linear(rt,cc,4);b=ne_far_linear(rt,buf,cb);
-    if(a==UINT32_MAX||b==UINT32_MAX||!cb)return 87u;
+    /* Reject segment-offset overflow before consulting the guest RAM mapping.
+     * A 16-bit far buffer never silently wraps onto another segment. */
+    if((uint32_t)(uint16_t)cc+4u>0x10000u ||
+       (cb && (uint32_t)(uint16_t)buf+(uint32_t)cb>0x10000u))return 87u;
+    a=ne_far_linear(rt,cc,4u);
+    b=cb?ne_far_linear(rt,buf,cb):UINT32_MAX;
+    if(a==UINT32_MAX || (cb&&b==UINT32_MAX) || (ord==4u&&!cb))return 87u;
     country=rd16(rt->ram+a);codepage=rd16(rt->ram+a+2u);
+    if(ord==1u){
+        rc=os2_nls_map_case(&rt->nls_state,country,codepage,
+                            cb?rt->ram+b:NULL,cb);
+        if(rt->trace_hc)fprintf(stderr,
+            "soft386: NLS16.1 DosCaseMap len=%u country=%u cp=%u rc=%u\n",
+            (unsigned)cb,(unsigned)country,(unsigned)codepage,(unsigned)rc);
+        return rc;
+    }
     rc=os2_nls_query_dbcs_env(&rt->nls_state,country,codepage,cb,rt->ram+b);
+    if(rt->trace_hc)fprintf(stderr,
+        "soft386: NLS16.4 DosGetDBCSEv len=%u country=%u cp=%u rc=%u\n",
+        (unsigned)cb,(unsigned)country,(unsigned)codepage,(unsigned)rc);
+    return rc;
+}
+/* OS/2 1.x KBDCALLS.13: KbdFlushBuffer(HKBD), a single USHORT.
+ * 16-bit Pascal argument order is SS:SP+4 for HKBD, with a two-byte
+ * callee cleanup.  No guest pointers are passed to host keyboard code.
+ * Backend semantics are shared with the existing KBDCALLS R2 veneer. */
+static uint32_t dispatch_kbd16(struct Runtime *rt,uint32_t ord,const CPUI386_State *st)
+{
+    uint16_t hkbd;
+    uint32_t rc;
+    if(ord!=13u){
+        fprintf(stderr,"soft386: unsupported KBD16.%u\n",(unsigned)ord);
+        return 1u;
+    }
+    hkbd=ne_stack16(rt,st,4);
+    rc=soft386_ne_kbd_flush(hkbd);
+    if(rt->trace_hc)
+        fprintf(stderr,"soft386: KBD16.13 KbdFlushBuffer hkbd=%04X rc=%u\n",
+                (unsigned)hkbd,(unsigned)rc);
     return rc;
 }
 /* MSG.2 discovery: inspect the *unmodified* far-call frame before choosing
@@ -3052,7 +3566,14 @@ static uint32_t dispatch_msg16(struct Runtime *rt,uint32_t ord,const CPUI386_Sta
 }
 static int ne_return_from_stub(struct Runtime *rt,const struct NeImage16 *n,uint32_t ord,uint32_t rc,CPUI386_State *st,unsigned mod)
 {
-    uint32_t sb=ne_selector_base(rt,(uint16_t)st->seg[CPUI386_SEG_SS]);uint16_t sp=(uint16_t)st->gpr[4],rip,rcs;unsigned clean=(strcmp(n->module_name[mod],"MSG")==0&&ord==2u)?26u:((strcmp(n->module_name[mod],"NLS")==0&&ord==4u)?10u:ne_cleanup_bytes(n,ord));
+    uint32_t sb=ne_selector_base(rt,(uint16_t)st->seg[CPUI386_SEG_SS]);
+    uint16_t sp=(uint16_t)st->gpr[4],rip,rcs;
+    unsigned clean=ne_import_cleanup_bytes(n,mod,ord);
+    if(clean==UINT_MAX){
+        fprintf(stderr,"soft386: NE missing audited Pascal cleanup for %s.%u\n",
+                n->module_name[mod],(unsigned)ord);
+        return 0;
+    }
     if(sb==UINT32_MAX)return 0;rip=rd16(rt->ram+sb+sp);rcs=rd16(rt->ram+sb+(uint16_t)(sp+2u));sp=(uint16_t)(sp+4u+clean);
     st->gpr[0]=(st->gpr[0]&0xffff0000u)|(rc&0xffffu);st->gpr[4]=(st->gpr[4]&0xffff0000u)|sp;st->seg[CPUI386_SEG_CS]=rcs;st->ip=rip;st->next_ip=rip;return cpui386_set_state(rt->cpu,st);
 }
@@ -3064,10 +3585,23 @@ static uint16_t ne_stub_for(struct Runtime *rt,struct NeImage16 *n,uint16_t mod,
     rt->ram[NE_STUB_BASE+off]=0x66;rt->ram[NE_STUB_BASE+off+1]=0xB8;wr32(rt->ram+NE_STUB_BASE+off+2,HC_DOS16|i);rt->ram[NE_STUB_BASE+off+6]=0x66;rt->ram[NE_STUB_BASE+off+7]=0xE7;rt->ram[NE_STUB_BASE+off+8]=(uint8_t)HOSTCALL_PORT;rt->ram[NE_STUB_BASE+off+9]=0xF4;
     return (uint16_t)off;
 }
+/* NE relocation target 2 is an import by NAME, with t2 an offset into
+ * the length-prefixed imported-name table.  Resolve only audited names; do
+ * not silently turn unknown symbols into arbitrary ordinal calls. */
+static uint16_t ne_named_import_ordinal(const struct NeImage16 *n,
+                                        uint16_t mod,const uint8_t *name,unsigned len)
+{
+    static const char dbcs[]="DOSGETDBCSEV";
+    if(strcmp(n->module_name[mod],"NLS")==0 &&
+       len==sizeof(dbcs)-1u && memcmp(name,dbcs,sizeof(dbcs)-1u)==0)
+        return 4u;
+    return 0xffffu;
+}
 static int parse_ne16(struct Runtime *rt,struct NeImage16 *n,uint8_t *file,uint32_t file_size)
 {
     uint32_t i,pos,end,fo,fs,alloc;uint16_t off,ln,fl,minalloc,count,j;uint8_t srctype,tflags;uint16_t src,t1,t2,stub;
-    memset(n,0,sizeof(*n));n->guest_pid=1u;n->guest_tid=1u;n->guest_ppid=0u;for(i=0;i<64u;i++)n->hfile[i]=-1;n->file=file;n->file_size=file_size;n->ne=rd32(file+0x3c);if(n->ne+0x40u>file_size)return 0;
+    memset(n,0,sizeof(*n));n->guest_pid=1u;n->guest_tid=1u;n->guest_ppid=0u;for(i=0;i<64u;i++)n->hfile[i]=-1;
+    n->hfile[0]=0;n->hfile[1]=1;n->hfile[2]=2;n->file=file;n->file_size=file_size;n->ne=rd32(file+0x3c);if(n->ne+0x40u>file_size)return 0;
     n->flags=rd16(file+n->ne+0x0c);n->autodata=rd16(file+n->ne+0x0e);n->heap=rd16(file+n->ne+0x10);n->stack=rd16(file+n->ne+0x12);n->ip=rd16(file+n->ne+0x14);n->cs_seg=rd16(file+n->ne+0x16);n->sp=rd16(file+n->ne+0x18);n->ss_seg=rd16(file+n->ne+0x1a);n->cseg=rd16(file+n->ne+0x1c);n->cmod=rd16(file+n->ne+0x1e);n->segtab=rd16(file+n->ne+0x22);n->modtab=rd16(file+n->ne+0x28);n->imptab=rd16(file+n->ne+0x2a);n->align=rd16(file+n->ne+0x32);
     if(file[n->ne+0x36]!=1||!n->cseg||n->cseg>NE_MAX_SEGMENTS||!n->cs_seg||n->cs_seg>n->cseg||!n->ss_seg||n->ss_seg>n->cseg)return 0;
     /* NE relocation module indexes are 1-based, per image, never fixed DLL IDs.
@@ -3097,7 +3631,45 @@ static int parse_ne16(struct Runtime *rt,struct NeImage16 *n,uint8_t *file,uint3
         if(alloc>0x10000u||NE_SEG_BASE+i*0x10000u+alloc>RAM_SIZE||(fo&&fo+fs>file_size))return 0;
         n->seg[i].base=NE_SEG_BASE+i*0x10000u;n->seg[i].file_off=fo;n->seg[i].file_size=fs;n->seg[i].alloc_size=alloc;n->seg[i].flags=fl;n->seg[i].selector=ne_seg_sel(i+1u);memset(rt->ram+n->seg[i].base,0,alloc);if(fo)memcpy(rt->ram+n->seg[i].base,file+fo,fs<alloc?fs:alloc);put_desc16(rt->ram+GUEST_GDT+n->seg[i].selector,n->seg[i].base,(uint16_t)(alloc-1u),(fl&1u)?0x92:0x9a);
     }
-    for(i=0;i<n->cseg;i++)if(n->seg[i].flags&0x0100u){pos=n->seg[i].file_off+n->seg[i].file_size;if(pos+2u>file_size)return 0;count=rd16(file+pos);pos+=2;end=pos+(uint32_t)count*8u;if(end>file_size)return 0;for(j=0;j<count;j++,pos+=8){srctype=file[pos];tflags=file[pos+1];src=rd16(file+pos+2);t1=rd16(file+pos+4);t2=rd16(file+pos+6);if((uint32_t)src+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;if((tflags&3u)==0){uint16_t cur=src,next;if(!t1||t1>n->cseg)return 0;if(srctype!=2&&srctype!=3&&srctype!=5)return 0;for(;;){if((uint32_t)cur+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;next=rd16(rt->ram+n->seg[i].base+cur);if(srctype==2)wr16(rt->ram+n->seg[i].base+cur,ne_seg_sel(t1));else if(srctype==5)wr16(rt->ram+n->seg[i].base+cur,t2);else{wr16(rt->ram+n->seg[i].base+cur,t2);wr16(rt->ram+n->seg[i].base+cur+2,ne_seg_sel(t1));}if(next==0xffffu)break;cur=next;}}else if((tflags&3u)==1){uint16_t cur=src,next;if(!t1||t1>n->cmod)return 0;stub=ne_stub_for(rt,n,t1,t2);if(stub==0xffffu)return 0;if(srctype!=2&&srctype!=3&&srctype!=5)return 0;for(;;){if((uint32_t)cur+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;next=rd16(rt->ram+n->seg[i].base+cur);if(srctype==2)wr16(rt->ram+n->seg[i].base+cur,NE_STUB_SEL);else if(srctype==5)wr16(rt->ram+n->seg[i].base+cur,stub);else{wr16(rt->ram+n->seg[i].base+cur,stub);wr16(rt->ram+n->seg[i].base+cur+2,NE_STUB_SEL);}if(next==0xffffu)break;cur=next;}}else return 0;}}
+    for(i=0;i<n->cseg;i++)if(n->seg[i].flags&0x0100u){pos=n->seg[i].file_off+n->seg[i].file_size;if(pos+2u>file_size)return 0;count=rd16(file+pos);pos+=2;end=pos+(uint32_t)count*8u;if(end>file_size)return 0;for(j=0;j<count;j++,pos+=8){srctype=file[pos];tflags=file[pos+1];src=rd16(file+pos+2);t1=rd16(file+pos+4);t2=rd16(file+pos+6);if((uint32_t)src+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;if((tflags&3u)==0){uint16_t cur=src,next;if(!t1||t1>n->cseg)return 0;if(srctype!=2&&srctype!=3&&srctype!=5)return 0;for(;;){if((uint32_t)cur+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;next=rd16(rt->ram+n->seg[i].base+cur);if(srctype==2)wr16(rt->ram+n->seg[i].base+cur,ne_seg_sel(t1));else if(srctype==5)wr16(rt->ram+n->seg[i].base+cur,t2);else{wr16(rt->ram+n->seg[i].base+cur,t2);wr16(rt->ram+n->seg[i].base+cur+2,ne_seg_sel(t1));}if(next==0xffffu)break;cur=next;}}else if((tflags&3u)==1){uint16_t cur=src,next;if(!t1||t1>n->cmod)return 0;stub=ne_stub_for(rt,n,t1,t2);if(stub==0xffffu)return 0;if(srctype!=2&&srctype!=3&&srctype!=5)return 0;for(;;){if((uint32_t)cur+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;next=rd16(rt->ram+n->seg[i].base+cur);if(srctype==2)wr16(rt->ram+n->seg[i].base+cur,NE_STUB_SEL);else if(srctype==5)wr16(rt->ram+n->seg[i].base+cur,stub);else{wr16(rt->ram+n->seg[i].base+cur,stub);wr16(rt->ram+n->seg[i].base+cur+2,NE_STUB_SEL);}if(next==0xffffu)break;cur=next;}}else if((tflags&3u)==2){
+        uint16_t cur=src,next,namedord;uint32_t no;unsigned namelen;
+        if(!t1||t1>n->cmod)return 0;
+        no=n->ne+(uint32_t)n->imptab+t2;
+        if(no>=file_size)return 0;
+        namelen=file[no++];
+        if(!namelen||namelen>file_size-no)return 0;
+        namedord=ne_named_import_ordinal(n,t1,file+no,namelen);
+        if(namedord==0xffffu){
+            fprintf(stderr,"soft386: NE unresolved named import %s.%.*s\n",
+                    n->module_name[t1],(int)namelen,(const char *)(file+no));
+            return 0;
+        }
+        stub=ne_stub_for(rt,n,t1,namedord);if(stub==0xffffu)return 0;
+        if(srctype!=2&&srctype!=3&&srctype!=5)return 0;
+        for(;;){
+            if((uint32_t)cur+(srctype==3?4u:2u)>n->seg[i].alloc_size)return 0;
+            next=rd16(rt->ram+n->seg[i].base+cur);
+            if(srctype==2)wr16(rt->ram+n->seg[i].base+cur,NE_STUB_SEL);
+            else if(srctype==5)wr16(rt->ram+n->seg[i].base+cur,stub);
+            else{wr16(rt->ram+n->seg[i].base+cur,stub);wr16(rt->ram+n->seg[i].base+cur+2,NE_STUB_SEL);}
+            if(next==0xffffu)break;cur=next;
+        }
+    }else if((tflags&3u)==3u){
+        /* NE OSFIXUP: six historical Microsoft floating-point fixup IDs.
+         * On our native/emulated x87 path the loader preserves the original
+         * bytes rather than installing software-8087 INT shims.
+         *
+         * A source fixup points at a 16-bit relocation operand, NOT
+         * necessarily at the first instruction byte. In particular C/386
+         * C3_386 has valid IDs 5/6 targeting 0000 immediate operands in
+         * MOV AX,imm16 sequences (segment 2 offsets 916e/9166); requiring
+         * 9B or 90 9B at every OSFIXUP source falsely rejects it.
+         * Keep strict record-type, ID, zero-reserved-word and source-range
+         * validation, but never inspect or mutate the referenced opcode. */
+        if(srctype!=5u || tflags!=7u || t1<1u || t1>6u || t2!=0u)
+            return 0;
+        /* No modification needed for x87-equipped guest execution. */
+    }else return 0;}}
     n->next_alloc_sel=NE_ALLOC_SEL_BASE;n->next_alloc_base=NE_ALLOC_BASE;return 1;
 }
 /* The OS/2 16-bit startup BX value addresses a pair of NUL-delimited
@@ -3142,9 +3714,9 @@ static int run_ne16_image(struct Runtime *rt,uint8_t *file,uint32_t file_size,in
     cs=ne_seg_sel(n.cs_seg);ss=ne_seg_sel(n.ss_seg);ds=n.autodata?ne_seg_sel(n.autodata):0;sp=n.sp;if(!sp&&n.ss_seg==n.autodata){uint32_t base=n.seg[n.autodata-1].alloc_size;if(base>0xffffu)base=0xffffu;sp=(uint16_t)base;}data_size=n.autodata?n.seg[n.autodata-1].alloc_size:0;
     cpui386_reset_pm16_tiny(rt->cpu,n.seg[n.cs_seg-1].base,n.ip,GUEST_GDT);cpui386_get_state(rt->cpu,&st);st.gdt_base=GUEST_GDT;st.gdt_limit=GUEST_GDT_BYTES-1;st.ip=n.ip;st.next_ip=n.ip;st.flags=2;st.seg[CPUI386_SEG_CS]=cs;st.seg[CPUI386_SEG_SS]=ss;st.seg[CPUI386_SEG_DS]=ds;st.seg[CPUI386_SEG_ES]=0;st.seg[CPUI386_SEG_FS]=0;st.seg[CPUI386_SEG_GS]=0;st.gpr[0]=NE_ENV_SEL;st.gpr[3]=cmd;st.gpr[1]=(uint16_t)data_size;st.gpr[2]=n.stack;st.gpr[6]=n.heap;st.gpr[7]=1;st.gpr[4]=sp;st.gpr[5]=0;if(!cpui386_set_state(rt->cpu,&st))fatal("cannot install NE protected-mode state");rt->ne16_active=1;rt->ne16_stub_sel=NE_STUB_SEL;rt->ne16_stub_base=NE_STUB_BASE;
     if(rt->trace_hc){unsigned mi;fprintf(stderr,"soft386: NE module-reference table:\n");for(mi=1;mi<=n.cmod;mi++)fprintf(stderr,"soft386:   [%u] %s\n",mi,n.module_name[mi]);}
-    if(!rt->quiet){fprintf(stderr,"Soft386 OS/2 NE-H3A - 16-bit segmented process vessel\n");fprintf(stderr,"soft386: input=%s type=NE entry=%04X:%04X stack=%04X:%04X DS=%04X env=%04X imports=%u\n",argv[1],cs,n.ip,ss,sp,ds,NE_ENV_SEL,n.nimport);fprintf(stderr,"---------------- guest begins ----------------\n");}
-    for(;;){long before=cpui386_get_cycle(rt->cpu);if(rt->process_exited){rc=(int)rt->process_rc;break;}if(rt->max_cycles&&before>=rt->max_cycles){force_process_termination(rt,124,"cycle-limit");rc=124;break;}rt->pending_hostcall=0;cpui386_step(rt->cpu,1);if(rt->pending_hostcall){uint32_t ord,hrc,mod;cpui386_get_state(rt->cpu,&st);if((rt->pending_api&0xff000000u)!=HC_DOS16){fprintf(stderr,"soft386: NE unexpected hypercall %08X\n",rt->pending_api);rc=1;break;}ord=rt->pending_api&0x00ffffffu;if(ord>=n.nimport){fprintf(stderr,"soft386: NE invalid import stub %u\n",(unsigned)ord);rc=1;break;}{mod=n.import_mod[ord];ord=n.import_ord[ord];if(strcmp(n.module_name[mod],"DOSCALLS")==0)hrc=dispatch_dos16(rt,&n,ord,&st);else if(strcmp(n.module_name[mod],"NLS")==0)hrc=dispatch_nls16(rt,ord,&st);else if(strcmp(n.module_name[mod],"MSG")==0&&ord==2u)hrc=dispatch_msg16(rt,ord,&st);else{if(strcmp(n.module_name[mod],"MSG")==0&&ord==2u)ne_trace_msg2_frame(rt,&st);fprintf(stderr,"soft386: NE unsupported %s.%u (module index %u)\n",n.module_name[mod],(unsigned)ord,(unsigned)mod);rc=1;break;}}if(rt->process_exited){rc=(int)rt->process_rc;break;}if(!ne_return_from_stub(rt,&n,ord,hrc,&st,mod)){fprintf(stderr,"soft386: NE far return failed\n");rc=1;break;}continue;}if(cpui386_get_excno(rt->cpu)){cpui386_get_state(rt->cpu,&st);fprintf(stderr,"soft386: NE exception %d at %04X:%04X\n",cpui386_get_excno(rt->cpu),(unsigned)st.seg[CPUI386_SEG_CS],(unsigned)((uint16_t)st.ip));rc=1;break;}{long after=cpui386_get_cycle(rt->cpu);if(after==before&&after==last){if(++stagnant>1){fprintf(stderr,"soft386: NE guest halted without process exit\n");rc=1;break;}}else stagnant=0;last=after;}}
-    for(h=3;h<64;h++)if(n.hfile[h]>=0)NE_HOST_CLOSE(n.hfile[h]);
+    if(!rt->quiet){fprintf(stderr,"Soft386 OS/2 NE-H4H-NLS - 16-bit segmented process vessel\n");fprintf(stderr,"soft386: input=%s type=NE entry=%04X:%04X stack=%04X:%04X DS=%04X env=%04X imports=%u\n",argv[1],cs,n.ip,ss,sp,ds,NE_ENV_SEL,n.nimport);fprintf(stderr,"---------------- guest begins ----------------\n");}
+    for(;;){long before=cpui386_get_cycle(rt->cpu);if(rt->process_exited){rc=(int)rt->process_rc;break;}if(rt->max_cycles&&before>=rt->max_cycles){force_process_termination(rt,124,"cycle-limit");rc=124;break;}rt->pending_hostcall=0;cpui386_step(rt->cpu,1);if(rt->pending_hostcall){uint32_t ord,hrc,mod;cpui386_get_state(rt->cpu,&st);if((rt->pending_api&0xff000000u)!=HC_DOS16){fprintf(stderr,"soft386: NE unexpected hypercall %08X\n",rt->pending_api);rc=1;break;}ord=rt->pending_api&0x00ffffffu;if(ord>=n.nimport){fprintf(stderr,"soft386: NE invalid import stub %u\n",(unsigned)ord);rc=1;break;}{mod=n.import_mod[ord];ord=n.import_ord[ord];if(strcmp(n.module_name[mod],"DOSCALLS")==0)hrc=dispatch_dos16(rt,&n,ord,&st);else if(strcmp(n.module_name[mod],"NLS")==0)hrc=dispatch_nls16(rt,ord,&st);else if(strcmp(n.module_name[mod],"KBDCALLS")==0)hrc=dispatch_kbd16(rt,ord,&st);else if(strcmp(n.module_name[mod],"MSG")==0&&ord==2u)hrc=dispatch_msg16(rt,ord,&st);else{if(strcmp(n.module_name[mod],"MSG")==0&&ord==2u)ne_trace_msg2_frame(rt,&st);fprintf(stderr,"soft386: NE unsupported %s.%u (module index %u)\n",n.module_name[mod],(unsigned)ord,(unsigned)mod);rc=1;break;}}if(rt->process_exited){rc=(int)rt->process_rc;break;}if(!ne_return_from_stub(rt,&n,ord,hrc,&st,mod)){fprintf(stderr,"soft386: NE far return failed\n");rc=1;break;}continue;}if(cpui386_get_excno(rt->cpu)){cpui386_get_state(rt->cpu,&st);fprintf(stderr,"soft386: NE exception %d at %04X:%04X\n",cpui386_get_excno(rt->cpu),(unsigned)st.seg[CPUI386_SEG_CS],(unsigned)((uint16_t)st.ip));rc=1;break;}{long after=cpui386_get_cycle(rt->cpu);if(after==before&&after==last){if(++stagnant>1){fprintf(stderr,"soft386: NE guest halted without process exit\n");rc=1;break;}}else stagnant=0;last=after;}}
+    for(h=0;h<64;h++)ne_release_file(&n,(uint16_t)h);
     if(!rt->quiet){fprintf(stderr,"---------------- guest ended -----------------\n");fprintf(stderr,"soft386: termination=%s rc=%d cycles=%ld\n",rt->process_reason?rt->process_reason:(rc?"NE runtime failure":"guest runner returned"),rc,cpui386_get_cycle(rt->cpu));}return rc;
 }
 
@@ -3171,6 +3743,7 @@ static int check_image(const char *path)
 static void usage(const char *a0)
 {
     fprintf(stderr,"usage: %s [--check] [--trace-hc] [--trace-sched] [--trace-native] [DLL options] [--watch-mem ADDR:LEN] [--max-cycles N] program.exe [guest args...]\n",a0);
+    fprintf(stderr,"  --max-cycles N: execution limit; 0 = unlimited (default)\n");
     fprintf(stderr,"  diagnostic: --watch-mem ADDR:LEN (1..256 bytes of guest RAM)\n");
     fprintf(stderr,"  DLL options: --doscalls-dll P --viocalls-dll P --kbdcalls-dll P --sesmgr-dll P\n");
     fprintf(stderr,"               --pmwin-dll P --pmgpi-dll P --pmctls-dll P --msg-dll P\n");
@@ -3183,7 +3756,7 @@ static void usage(const char *a0)
 int main(int argc,char **argv)
 {
     struct Runtime rt; struct LeImage x; CPUI386_State st; uint32_t entry,stack_top,esp,env_va,arg_va,pgm_va; int rc,i,argi=1,check=0;
-    memset(&rt,0,sizeof(rt));memset(&x,0,sizeof(x));rt.current_thread=-1;rt.alloc_next=GUEST_ALLOC_BASE;rt.stub_next=GUEST_STUB_BASE;rt.module_next=GUEST_MODULE_BASE;rt.next_tid=2;rt.max_cycles=100000000;rt.main_image=&x;
+    memset(&rt,0,sizeof(rt));memset(&x,0,sizeof(x));rt.current_thread=-1;rt.alloc_next=GUEST_ALLOC_BASE;rt.stub_next=GUEST_STUB_BASE;rt.module_next=GUEST_MODULE_BASE;rt.next_tid=2;rt.max_cycles=0;rt.main_image=&x;
     soft386_pm_init(&rt.pm,&rt,pm_current_tid,invoke_guest);
     soft386_pm_set_scheduler_yield(&rt.pm,pm_modal_scheduler_yield);
     soft386_pm_set_thread_hostcall(&rt.pm,pm_thread_hostcall);
