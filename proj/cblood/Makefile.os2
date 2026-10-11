@@ -1,0 +1,77 @@
+# Captain Blood R32 OS/2 PM experimental build.
+#
+# This is a platform-port checkpoint.  The gameplay modules and PM shell have
+# had the mechanical C89 pass; remaining issues are expected to be SDK/link
+# details in the OS/2 PM platform layer.
+
+CC = cl386
+LINK = LINK386.EXE
+SCALE = 2
+
+DEFS = /D__32BIT__ /DM_I386 /D_MSC_VER=6 /DBLOOD_OS2PM=1 /DBLOODPM_SCALE=$(SCALE)
+INC = /u /w /I. /Ios2 /Isrc
+OPT = /G3 /Ox
+CFLAGS = $(INC) $(DEFS) $(OPT)
+
+OBJ = blood_pm.obj blood_os2_pm.obj blood_mouse.obj \
+ blood_ui.obj blood_globe.obj blood_effects.obj blood_conversation.obj \
+ blood_transition.obj \
+ blood_actions.obj blood_bootstrap.obj blood_flight.obj \
+ blood_planet_surface.obj blood_planet_ui.obj blood_terrain.obj \
+ blood_upcom.obj blood_world.obj
+
+bloodpm: $(OBJ)
+	$(LINK) @bloodpm.lnk
+
+blood_pm.obj: blood_pm.c
+	$(CC) $(CFLAGS) /c blood_pm.c
+
+blood_os2_pm.obj: os2\blood_os2_pm.c
+	$(CC) $(CFLAGS) /c os2\blood_os2_pm.c
+
+blood_mouse.obj: src\blood_mouse.c
+	$(CC) $(CFLAGS) /c src\blood_mouse.c
+
+blood_ui.obj: blood_ui.c
+	$(CC) $(CFLAGS) /c blood_ui.c
+
+blood_globe.obj: blood_globe.c
+	$(CC) $(CFLAGS) /c blood_globe.c
+
+blood_effects.obj: blood_effects.c
+	$(CC) $(CFLAGS) /c blood_effects.c
+
+blood_conversation.obj: blood_conversation.c
+	$(CC) $(CFLAGS) /c blood_conversation.c
+
+blood_transition.obj: blood_transition.c
+	$(CC) $(CFLAGS) /c blood_transition.c
+
+blood_actions.obj: src\blood_actions.c
+	$(CC) $(CFLAGS) /c src\blood_actions.c
+
+blood_bootstrap.obj: src\blood_bootstrap.c
+	$(CC) $(CFLAGS) /c src\blood_bootstrap.c
+
+blood_flight.obj: src\blood_flight.c
+	$(CC) $(CFLAGS) /c src\blood_flight.c
+
+blood_planet_surface.obj: src\blood_planet_surface.c
+	$(CC) $(CFLAGS) /c src\blood_planet_surface.c
+
+blood_planet_ui.obj: src\blood_planet_ui.c
+	$(CC) $(CFLAGS) /c src\blood_planet_ui.c
+
+blood_terrain.obj: src\blood_terrain.c
+	$(CC) $(CFLAGS) /c src\blood_terrain.c
+
+blood_upcom.obj: src\blood_upcom.c
+	$(CC) $(CFLAGS) /c src\blood_upcom.c
+
+blood_world.obj: src\blood_world.c
+	$(CC) $(CFLAGS) /c src\blood_world.c
+
+clean:
+	@del *.obj
+	@del bloodpm.exe
+	@del bloodpm.map

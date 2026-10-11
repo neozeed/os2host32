@@ -1,0 +1,6 @@
+build/
+*.obj
+*.res
+*.exe
+*.map
+*.log

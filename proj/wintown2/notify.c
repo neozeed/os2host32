@@ -1,0 +1,528 @@
+/* notify.c - Original WiNTown message system for WiNTown
+ * Based on s_msg.c from original WiNTown
+ */
+
+#include "notify.h"
+#include "sim.h"
+#include <stdio.h>
+#include <string.h>
+#ifdef OS2_PM
+#include "os2pm/mp_port.h"
+#else
+#include <windows.h>
+#endif
+
+/* External functions */
+extern HWND hwndMain;
+extern void addGameLog(const char *format, ...);
+extern void addDebugLog(const char *format, ...);
+
+/* Message system variables - like original WiNTown */
+int MessagePort = 0;
+int MesX = 0, MesY = 0;
+int MesNum = 0;
+int LastPicNum = 0;
+DWORD LastMesTime = 0;
+
+/* External simulation variables - declared in sim.h */
+extern int TotalZPop;
+
+/* Forward declarations */
+int SendMes(int Mnum);
+void SendMesAt(int Mnum, int x, int y);
+void CheckGrowth(void);
+int DoScenarioScore(int scoreType);
+void ClearMes(void);
+
+/* Original SendMessages function - called every simulation cycle */
+SendMessages() {
+    int z;
+    int PowerPop;
+    float TM;
+
+    if (ScenarioID && ScoreType && ScoreWait) {
+        ScoreWait--;
+        if (!ScoreWait)
+            DoScenarioScore(ScoreType);
+    }
+
+    CheckGrowth();
+
+    /* Sync message system variables with simulation variables */
+    TotalZPop = ResZPop + ComZPop + IndZPop;
+    PowerPop = NuclearPop + CoalPop;
+    /* CityTax variable eliminated - using CityTax directly */
+
+    z = CityTime & 63;
+
+    switch(z) {
+        case 1:
+            if ((TotalZPop >> 2) >= ResZPop)
+                SendMes(1); /* need Res */
+            break;
+        case 5:
+            if ((TotalZPop >> 3) >= ComZPop)
+                SendMes(2); /* need Com */
+            break;
+        case 10:
+            if ((TotalZPop >> 3) >= IndZPop)
+                SendMes(3); /* need Ind */
+            break;
+        case 14:
+            if ((TotalZPop > 10) && ((TotalZPop << 1) > RoadTotal))
+                SendMes(4);
+            break;
+        case 18:
+            if ((TotalZPop > 50) && (TotalZPop > RailTotal))
+                SendMes(5);
+            break;
+        case 22:
+            if ((TotalZPop > 10) && (PowerPop == 0))
+                SendMes(6); /* need Power */
+            break;
+        case 26:
+            if ((ResPop > 500) && (StadiumPop == 0)) {
+                SendMes(7); /* need Stad */
+                ResCap = 1;
+            } else
+                ResCap = 0;
+            break;
+        case 28:
+            if ((IndPop > 70) && (PortPop == 0)) {
+                SendMes(8);
+                IndCap = 1;
+            } else
+                IndCap = 0;
+            break;
+        case 30:
+            if ((ComPop > 100) && (APortPop == 0)) {
+                SendMes(9);
+                ComCap = 1;
+            } else
+                ComCap = 0;
+            break;
+        case 32:
+            TM = (float)(unPwrdZCnt + PwrdZCnt);
+            if (TM)
+                if ((PwrdZCnt / TM) < 0.7)
+                    SendMes(15);
+            break;
+        case 35:
+            if (PolluteAverage > 60)
+                SendMes(-10);
+            break;
+        case 42:
+            if (CrimeAverage > 100)
+                SendMes(-11);
+            break;
+        case 45:
+            if ((TotalPop > 60) && (FireStPop == 0))
+                SendMes(13);
+            break;
+        case 48:
+            if ((TotalPop > 60) && (PolicePop == 0))
+                SendMes(14);
+            break;
+        case 51:
+            if (CityTax > 12)
+                SendMes(16);
+            break;
+        case 54:
+            if ((RoadEffect < 20) && (RoadTotal > 30))
+                SendMes(17);
+            break;
+        case 57:
+            if ((FireEffect < 700) && (TotalPop > 20))
+                SendMes(18);
+            break;
+        case 60:
+            if ((PoliceEffect < 700) && (TotalPop > 20))
+                SendMes(19);
+            break;
+        case 63:
+            if (TrafficAverage > 60)
+                SendMes(-12);
+            break;
+    }
+    return 0;
+}
+
+/* Original CheckGrowth function */
+void CheckGrowth(void) {
+    static QUAD LastCityPop = 0;
+    static int LastCategory = 0;
+    QUAD ThisCityPop;
+    int z;
+
+    if (!(CityTime & 3)) {
+        z = 0;
+        ThisCityPop = CalculateCityPopulation(ResPop, ComPop, IndPop);
+        if (LastCityPop) {
+            if ((LastCityPop < 2000) && (ThisCityPop >= 2000)) z = 35;
+            if ((LastCityPop < 10000) && (ThisCityPop >= 10000)) z = 36;
+            if ((LastCityPop < 50000L) && (ThisCityPop >= 50000L)) z = 37;
+            if ((LastCityPop < 100000L) && (ThisCityPop >= 100000L)) z = 38;
+            if ((LastCityPop < 500000L) && (ThisCityPop >= 500000L)) z = 39;
+        }
+        if (z)
+            if (z != LastCategory) {
+                SendMes(-z);
+                LastCategory = z;
+            }
+        LastCityPop = ThisCityPop;
+    }
+}
+
+/* Original SendMes function - CRITICAL anti-spam logic */
+int SendMes(int Mnum) {
+    if (Mnum < 0) {
+        /* Picture message (disaster) - only if different from last */
+        if (Mnum != LastPicNum || (!MessagePort && (DWORD)(GetTickCount() - LastMesTime) > 30000UL)) {
+            MessagePort = Mnum;
+            MesX = 0;
+            MesY = 0;
+            LastPicNum = Mnum;
+            addDebugLog("SendMes: Picture message %d allowed (different from last %d)", Mnum, LastPicNum);
+            return 1;
+        } else {
+            addDebugLog("SendMes: Picture message %d BLOCKED - same as last", Mnum);
+            return 0;
+        }
+    } else {
+        /* Text message - only if no active message */
+        if (!MessagePort) {
+            MessagePort = Mnum;
+            MesX = 0;
+            MesY = 0;
+            addDebugLog("SendMes: Text message %d allowed", Mnum);
+            return 1;
+        } else {
+            addDebugLog("SendMes: Text message %d BLOCKED - active message %d", Mnum, MessagePort);
+            return 0;
+        }
+    }
+}
+
+/* Original SendMesAt function - for disaster locations */
+void SendMesAt(int Mnum, int x, int y) {
+    if (SendMes(Mnum)) {
+        MesX = x;
+        MesY = y;
+        addDebugLog("SendMesAt: Message %d at (%d,%d)", Mnum, x, y);
+    }
+}
+
+/* Clear message system */
+void ClearMes(void) {
+    MessagePort = 0;
+    MesNum = 0;
+    LastMesTime = 0;
+    MesX = 0;
+    MesY = 0;
+    LastPicNum = 0;
+    addDebugLog("ClearMes: Message system cleared");
+}
+
+/* Process active message */
+void doMessage(void) {
+    char messageStr[256];
+    int firstTime;
+
+    messageStr[0] = 0;
+
+    if (MessagePort) {
+        MesNum = MessagePort;
+        MessagePort = 0;
+        LastMesTime = GetTickCount();
+        firstTime = 1;
+        addDebugLog("doMessage: Processing message %d", MesNum);
+    } else {
+        firstTime = 0;
+        if (MesNum == 0) return;
+        if (MesNum < 0) {
+            MesNum = -MesNum;
+            LastMesTime = GetTickCount();
+        } else if ((GetTickCount() - LastMesTime) > (30 * 1000)) {
+            MesNum = 0;
+            addDebugLog("doMessage: Message timed out");
+            return;
+        }
+    }
+
+    /* An active message may remain visible for 30 seconds. It is not a
+     * fresh event on every simulation tick. Log and present only arrivals. */
+    if (!firstTime) return;
+
+    if (MesNum >= 0) {
+        if (MesNum == 0) return;
+        if (MesNum > 60) {
+            MesNum = 0;
+            return;
+        }
+
+        /* Get message text */
+        switch(MesNum) {
+            case 1: strcpy(messageStr, "More residential zones needed."); break;
+            case 2: strcpy(messageStr, "More commercial zones needed."); break;
+            case 3: strcpy(messageStr, "More industrial zones needed."); break;
+            case 4: strcpy(messageStr, "More roads required."); break;
+            case 5: strcpy(messageStr, "Inadequate rail system."); break;
+            case 6: strcpy(messageStr, "Build a Power Plant."); break;
+            case 7: strcpy(messageStr, "Residents demand a Stadium."); break;
+            case 8: strcpy(messageStr, "Industry requires a Sea Port."); break;
+            case 9: strcpy(messageStr, "Commerce requires an Airport."); break;
+            case 10: strcpy(messageStr, "Pollution very high."); break;
+            case 11: strcpy(messageStr, "Crime very high."); break;
+            case 12: strcpy(messageStr, "Frequent traffic jams reported."); break;
+            case 13: strcpy(messageStr, "Citizens demand a Fire Department."); break;
+            case 14: strcpy(messageStr, "Citizens demand a Police Department."); break;
+            case 15: strcpy(messageStr, "Blackouts reported. Check power map."); break;
+            case 16: strcpy(messageStr, "Citizens upset. The tax rate is too high."); break;
+            case 17: strcpy(messageStr, "Roads deteriorating, due to lack of funds."); break;
+            case 18: strcpy(messageStr, "Fire departments need funding."); break;
+            case 19: strcpy(messageStr, "Police departments need funding."); break;
+            case 20: strcpy(messageStr, "Fire reported !"); break;
+            case 21: strcpy(messageStr, "A Monster has been sighted !!"); break;
+            case 22: strcpy(messageStr, "Tornado reported !!"); break;
+            case 23: strcpy(messageStr, "Major earthquake reported !!!"); break;
+            case 24: strcpy(messageStr, "A plane has crashed !"); break;
+            case 25: strcpy(messageStr, "Shipwreck reported !"); break;
+            case 26: strcpy(messageStr, "A train crashed !"); break;
+            case 27: strcpy(messageStr, "A helicopter crashed !"); break;
+            case 28: strcpy(messageStr, "Unemployment rate is high."); break;
+            case 29: strcpy(messageStr, "YOUR CITY HAS GONE BROKE!"); break;
+            case 30: strcpy(messageStr, "Firebombing reported !"); break;
+            case 31: strcpy(messageStr, "Need more parks."); break;
+            case 32: strcpy(messageStr, "Explosion detected !"); break;
+            case 33: strcpy(messageStr, "Insufficient funds to build that."); break;
+            case 34: strcpy(messageStr, "Area must be bulldozed first."); break;
+            case 35: strcpy(messageStr, "Population has reached 2,000."); break;
+            case 36: strcpy(messageStr, "Population has reached 10,000."); break;
+            case 37: strcpy(messageStr, "Population has reached 50,000."); break;
+            case 38: strcpy(messageStr, "Population has reached 100,000."); break;
+            case 39: strcpy(messageStr, "Population has reached 500,000."); break;
+            case 40: strcpy(messageStr, "Brownouts, build another Power Plant."); break;
+            case 41: strcpy(messageStr, "Heavy Traffic reported."); break;
+            case 42: strcpy(messageStr, "Flooding reported !!"); break;
+            case 43: strcpy(messageStr, "A Nuclear Meltdown has occurred !!!"); break;
+            case 44: strcpy(messageStr, "They're rioting in the streets !!"); break;
+            default: sprintf(messageStr, "City Message %d", MesNum); break;
+        }
+
+        addGameLog("CITY: %s", messageStr);
+
+    } else {
+        /* Picture message (disaster) */
+        int pictId = -(MesNum);
+        
+        switch(pictId) {
+            case 10: strcpy(messageStr, "Pollution very high!"); break;
+            case 11: strcpy(messageStr, "Crime wave spreading!"); break;
+            case 12: strcpy(messageStr, "Traffic jams everywhere!"); break;
+            case 20: strcpy(messageStr, "FIRE REPORTED!"); break;
+            case 21: strcpy(messageStr, "MONSTER ATTACK!"); break;
+            case 22: strcpy(messageStr, "TORNADO!"); break;
+            case 23: strcpy(messageStr, "EARTHQUAKE!"); break;
+            case 24: strcpy(messageStr, "PLANE CRASH!"); break;
+            case 25: strcpy(messageStr, "SHIPWRECK!"); break;
+            case 30: strcpy(messageStr, "FIREBOMBING!"); break;
+            case 35: strcpy(messageStr, "Population reached 2,000!"); break;
+            case 36: strcpy(messageStr, "Population reached 10,000!"); break;
+            case 37: strcpy(messageStr, "Population reached 50,000!"); break;
+            case 38: strcpy(messageStr, "Population reached 100,000!"); break;
+            case 39: strcpy(messageStr, "Population reached 500,000!"); break;
+            case 41: strcpy(messageStr, "Heavy traffic reported!"); break;
+            case 42: strcpy(messageStr, "FLOODING!"); break;
+            case 43: strcpy(messageStr, "NUCLEAR MELTDOWN!"); break;
+            default: sprintf(messageStr, "Event %d", pictId); break;
+        }
+
+        if (MesX > 0 && MesY > 0) {
+            char locStr[64];
+            sprintf(locStr, " at (%d,%d)", MesX, MesY);
+            strcat(messageStr, locStr);
+        }
+
+        addGameLog("ALERT: %s", messageStr);
+
+        /* AutoGo: auto-scroll to event location */
+        {
+            extern int AutoGo;
+            if (AutoGo && MesX > 0 && MesY > 0) {
+                CenterMapOnLocation(MesX, MesY);
+            }
+        }
+
+        /* Show dialog for disasters only */
+        if ((pictId >= 20 && pictId <= 25) || pictId == 30 || pictId == 42 || pictId == 43) {
+            Notification notif;
+            memset(&notif, 0, sizeof(notif));
+            strcpy(notif.title, "City emergency");
+            notif.type = NOTIF_EMERGENCY;
+            notif.id = pictId;
+            notif.locationX = MesX;
+            notif.locationY = MesY;
+            notif.hasLocation = (MesX > 0 && MesY > 0) ? 1 : 0;
+            strcpy(notif.message, messageStr);
+            notif.timestamp = GetTickCount();
+            notif.priority = 3;
+            CreateNotificationDialog(&notif);
+        }
+
+        MesNum = pictId; /* Retain the active message without queuing a duplicate. */
+    }
+}
+
+/* Replace old notification functions with new SendMes equivalents */
+void ShowNotification(int notificationId, ...) {
+    switch(notificationId) {
+        case NOTIF_EARTHQUAKE:      SendMes(-23); break;
+        case NOTIF_FIRE_REPORTED:   SendMes(-20); break;
+        case NOTIF_MONSTER_SIGHTED: SendMes(-21); break;
+        case NOTIF_TORNADO:         SendMes(-22); break;
+        case NOTIF_FLOODING:        SendMes(-42); break;
+        case NOTIF_NUCLEAR_MELTDOWN:SendMes(-43); break;
+        default:
+            addDebugLog("ShowNotification: Unknown ID %d", notificationId);
+            break;
+    }
+}
+
+void ShowNotificationAt(int notificationId, int x, int y, ...) {
+    switch(notificationId) {
+        case NOTIF_EARTHQUAKE:      SendMesAt(-23, x, y); break;
+        case NOTIF_FIRE_REPORTED:   SendMesAt(-20, x, y); break;
+        case NOTIF_MONSTER_SIGHTED: SendMesAt(-21, x, y); break;
+        case NOTIF_TORNADO:         SendMesAt(-22, x, y); break;
+        case NOTIF_FLOODING:        SendMesAt(-42, x, y); break;
+        case NOTIF_NUCLEAR_MELTDOWN:SendMesAt(-43, x, y); break;
+        default:
+            addDebugLog("ShowNotificationAt: Unknown ID %d", notificationId);
+            break;
+    }
+}
+
+/* DoScenarioScore is defined in scenario.c */
+
+/* Notification dialog - keep existing implementation */
+static Notification* currentNotification = NULL;
+
+#ifndef OS2_PM
+void CreateNotificationDialog(Notification* notif) {
+    if (!notif) return;
+    
+    currentNotification = notif;
+    addDebugLog("Creating notification dialog for ID %d", notif->id);
+    
+    DialogBoxParam(GetModuleHandle(NULL), 
+                   MAKEINTRESOURCE(IDD_NOTIFICATION_DIALOG),
+                   hwndMain,
+                   (DLGPROC)NotificationDialogProc,
+                   (LPARAM)notif);
+}
+
+#endif
+#ifndef OS2_PM
+BOOL CALLBACK NotificationDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    Notification* notif = currentNotification;
+    char titleText[256];
+    char explanationText[512];
+    char adviceText[512];
+    char locationText[128];
+    
+    switch (msg) {
+        case WM_INITDIALOG:
+            if (!notif) return FALSE;
+            
+            switch (notif->id) {
+                case 20:
+                    strcpy(titleText, "FIRE EMERGENCY");
+                    strcpy(explanationText, "A serious fire has broken out in your city!");
+                    strcpy(adviceText, "Ensure adequate fire station coverage.");
+                    break;
+                case 21:
+                    strcpy(titleText, "MONSTER ATTACK");
+                    strcpy(explanationText, "A giant monster is destroying buildings!");
+                    strcpy(adviceText, "The monster will eventually leave. Rebuild afterward.");
+                    break;
+                case 22:
+                    strcpy(titleText, "TORNADO WARNING");
+                    strcpy(explanationText, "A tornado is tearing through the city!");
+                    strcpy(adviceText, "Rebuild damaged areas after the tornado passes.");
+                    break;
+                case 23:
+                    strcpy(titleText, "EARTHQUAKE DISASTER");
+                    strcpy(explanationText, "A major earthquake has struck your city!");
+                    strcpy(adviceText, "Rebuild damaged areas and restore infrastructure.");
+                    break;
+                case 30:
+                    strcpy(titleText, "FIREBOMBING");
+                    strcpy(explanationText, "Firebombing reported in the city!");
+                    strcpy(adviceText, "Deploy fire departments to contain the fires.");
+                    break;
+                case 42:
+                    strcpy(titleText, "FLOODING");
+                    strcpy(explanationText, "Flooding is spreading through the city!");
+                    strcpy(adviceText, "Avoid building in low-lying areas near water.");
+                    break;
+                case 43:
+                    strcpy(titleText, "NUCLEAR MELTDOWN");
+                    strcpy(explanationText, "A nuclear power plant has suffered a catastrophic failure!");
+                    strcpy(adviceText, "Evacuate the area. Radiation will persist for years.");
+                    break;
+                default:
+                    strcpy(titleText, "CITY ALERT");
+                    strcpy(explanationText, "An important event has occurred in your city.");
+                    strcpy(adviceText, "Review the situation and take appropriate action.");
+                    break;
+            }
+            
+            SetDlgItemText(hwnd, IDC_NOTIF_TITLE, titleText);
+            SetDlgItemText(hwnd, IDC_NOTIF_MESSAGE, notif->message);
+            SetDlgItemText(hwnd, IDC_NOTIF_EXPLANATION, explanationText);
+            SetDlgItemText(hwnd, IDC_NOTIF_ADVICE, adviceText);
+            
+            if (notif->hasLocation && notif->locationX >= 0 && notif->locationY >= 0) {
+                sprintf(locationText, "Location: Sector %d, %d", notif->locationX, notif->locationY);
+                SetDlgItemText(hwnd, IDC_NOTIF_LOCATION, locationText);
+                EnableWindow(GetDlgItem(hwnd, IDC_GOTO_LOCATION), TRUE);
+            } else {
+                SetDlgItemText(hwnd, IDC_NOTIF_LOCATION, "Location: Unknown");
+                EnableWindow(GetDlgItem(hwnd, IDC_GOTO_LOCATION), FALSE);
+            }
+            
+            return TRUE;
+            
+        case WM_COMMAND:
+            switch (LOWORD(wParam)) {
+                case IDOK:
+                case IDCANCEL:
+                    EndDialog(hwnd, LOWORD(wParam));
+                    return TRUE;
+                    
+                case IDC_GOTO_LOCATION:
+                    if (notif && notif->hasLocation && notif->locationX >= 0 && notif->locationY >= 0) {
+                        CenterMapOnLocation(notif->locationX, notif->locationY);
+                        addGameLog("Centered map on disaster location (%d, %d)", notif->locationX, notif->locationY);
+                    }
+                    return TRUE;
+            }
+            break;
+    }
+    
+    return FALSE;
+}
+
+extern void CenterMapOnTile(int tileX, int tileY);
+
+void CenterMapOnLocation(int x, int y) {
+    CenterMapOnTile(x, y);
+}
+
+/* Initialize notification system */
+void InitNotificationSystem(void) {
+    ClearMes();
+    addDebugLog("Notification system initialized with original WiNTown logic");
+}
+
+#endif

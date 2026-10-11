@@ -1,0 +1,21 @@
+blood_pm.obj +
+blood_os2_pm.obj +
+blood_mouse.obj +
+blood_ui.obj +
+blood_globe.obj +
+blood_effects.obj +
+blood_conversation.obj +
+blood_transition.obj +
+blood_actions.obj +
+blood_bootstrap.obj +
+blood_flight.obj +
+blood_planet_surface.obj +
+blood_planet_ui.obj +
+blood_terrain.obj +
+blood_upcom.obj +
+blood_world.obj
+bloodpm /NOE /NOI /NOD:OLDNAMES /NOD:LIBCRT /STACK:384000
+bloodpm.map
+libc.lib +
+os2386.lib
+bloodpm.def;

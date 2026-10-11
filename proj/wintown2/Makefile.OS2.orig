@@ -1,0 +1,61 @@
+# WinTown/2: Microsoft C386 + matching OS/2 beta LINK386 and RC.
+CC=cl386
+LINK=link386
+RC=rc
+OS2INC=include\os2h
+CFLAGS=/c /G3 /W3 /I. /I$(OS2INC) /Ios2pm /DOS2_PM /D_CDECL /D__32BIT__
+OBJS=sim.obj anim.obj animtab.obj budget.obj eval.obj disastr.obj tiles.obj sprite.obj tools.obj notify.obj charts.obj scenario.obj s_disast.obj s_eval.obj s_gen.obj s_power.obj s_scan.obj s_sim.obj s_traf.obj s_zone.obj os2pm\os2pm_main.obj os2pm\os2bmp.obj os2pm\pm_bridge.obj os2pm\cityio.obj
+
+all: wintown2.exe
+
+# A .res is NOT a LINK386 object. Bind with the matching RC after linking.
+wintown2.exe: $(OBJS) wintown2.lnk wintown2.def
+	$(LINK) @wintown2.lnk
+#	\OS2\soft386_os2.exe --max-cycles 0 RC.EXE -i include\os2h wintownpm.rc wintown2.exe
+#	$(RC) wintownpm.res wintown2.exe
+
+# Use `nmake /f Makefile.OS2 code` when RC runs separately in the OS/2 VM.
+code: $(OBJS)
+	$(LINK) @wintown2.lnk
+
+wintownpm.res: wintownpm.rc os2pm\pm_ids.h
+	$(RC) -r -i $(OS2INC) wintownpm.rc
+
+.c.obj:
+	$(CC) $(CFLAGS) $< /Fo$@
+
+{os2pm}.c{os2pm}.obj:
+	$(CC) $(CFLAGS) $< /Fo$@
+
+s_disast.obj: micropolis\src\sim\s_disast.c sim.h w_sim.h
+	$(CC) $(CFLAGS) micropolis\src\sim\s_disast.c /Fo$@
+
+s_eval.obj: micropolis\src\sim\s_eval.c sim.h w_sim.h
+	$(CC) $(CFLAGS) micropolis\src\sim\s_eval.c /Fo$@
+
+s_gen.obj: micropolis\src\sim\s_gen.c sim.h w_sim.h
+	$(CC) $(CFLAGS) micropolis\src\sim\s_gen.c /Fo$@
+
+s_power.obj: micropolis\src\sim\s_power.c sim.h w_sim.h
+	$(CC) $(CFLAGS) micropolis\src\sim\s_power.c /Fo$@
+
+s_scan.obj: micropolis\src\sim\s_scan.c sim.h w_sim.h
+	$(CC) $(CFLAGS) micropolis\src\sim\s_scan.c /Fo$@
+
+s_sim.obj: os2pm\s_sim_pm.c sim.h w_sim.h
+	$(CC) $(CFLAGS) os2pm\s_sim_pm.c /Fo$@
+
+s_traf.obj: micropolis\src\sim\s_traf.c sim.h w_sim.h
+	$(CC) $(CFLAGS) micropolis\src\sim\s_traf.c /Fo$@
+
+s_zone.obj: micropolis\src\sim\s_zone.c sim.h w_sim.h
+	$(CC) $(CFLAGS) micropolis\src\sim\s_zone.c /Fo$@
+
+$(OBJS): sim.h os2pm\mp_port.h os2pm\mp_ui.h
+os2pm\os2pm_main.obj: os2pm\pm_ids.h
+
+clean:
+	del *.obj
+	del os2pm\*.obj
+	del wintown2.exe
+	del wintownpm.res

@@ -1,0 +1,730 @@
+/* sim.h - Core simulation structures and functions for WiNTown
+ * Based on original WiNTown code from WiNTownLegacy project
+ */
+
+#ifndef _SIM_H
+#define _SIM_H
+
+#ifdef OS2_PM
+#include "os2pm/mp_port.h"
+#else
+#include <windows.h>
+#endif
+#include "sprite.h"
+
+/* External declaration for UpdateToolbar function */
+extern void UpdateToolbar(void);
+
+/* Message system variables - like original WiNTown */
+extern int MessagePort;
+extern int MesX, MesY;
+extern int MesNum;
+extern int LastPicNum;
+extern DWORD LastMesTime;
+
+/* Message system functions */
+int SendMessages();
+void doMessage(void);
+int SendMes(int Mnum);
+void SendMesAt(int Mnum, int x, int y);
+void ClearMes(void);
+
+/* Basic type definitions */
+typedef unsigned char Byte;
+typedef long QUAD;
+
+/* Constants */
+#define WORLD_X         120
+#define WORLD_Y         100
+#define WORLD_W         WORLD_X
+#define WORLD_H         WORLD_Y
+
+#define HWLDX           (WORLD_X >> 1)
+#define HWLDY           (WORLD_Y >> 1)
+#define QWX             (WORLD_X >> 2)
+#define QWY             (WORLD_Y >> 2)
+#define SmX             (WORLD_X >> 3)
+#define SmY             ((WORLD_Y + 7) >> 3)
+
+/* Bounds checking macro for world coordinates */
+#define BOUNDS_CHECK(x,y) ((x) >= 0 && (x) < WORLD_X && (y) >= 0 && (y) < WORLD_Y)
+
+/* Game levels */
+#define LEVEL_EASY      0
+#define LEVEL_MEDIUM    1
+#define LEVEL_HARD      2
+
+/* Maximum size for arrays */
+#define HISTLEN         480
+#define MISCHISTLEN     240
+
+/* Masks for the various tile properties */
+#define LOMASK          0x03ff  /* Mask for the low 10 bits = 1023 decimal */
+#define ANIMBIT         0x0800  /* bit 11, tile is animated */
+#define BURNBIT         0x2000  /* bit 13, tile can be lit */
+#define BULLBIT         0x1000  /* bit 12, tile is bulldozable */
+#define CONDBIT         0x4000  /* bit 14, tile can conduct electricity */
+#define ZONEBIT         0x0400  /* bit 10, tile is the center of a zone */
+#define POWERBIT        0x8000  /* bit 15, tile has power */
+#define MASKBITS        (~LOMASK)  /* Mask for just the bits */
+#define BNCNBIT         (BURNBIT+CONDBIT)  /* 0x6000 */
+#define COP             SPRITE_HELICOPTER
+#define BLBNCNBIT       (BULLBIT+BURNBIT+CONDBIT)
+#define ALLBITS         (~LOMASK)  /* All status bits (same as MASKBITS) */
+
+/*
+ * MICROPOLIS TILESET LAYOUT - 16x16 PIXEL TILES IN A GRID
+ * --------------------------------------------------------
+ * Tile numbers are arranged in a 32x30 grid (32 columns, 30 rows)
+ * The tileset BMP files are 512x480 pixels.
+ *
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ * |  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | Row 0: Dirt, River, River edges, Trees
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ * | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55 | 56 | 57 | 58 | 59 | 60 | 61 | 62 | 63 | Row 1: Trees, Woods, Rubble, Flood, Radiation, Fire
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ * | 64 | 65 | 66 | 67 | 68 | 69 | 70 | 71 | 72 | 73 | 74 | 75 | 76 | 77 | 78 | 79 | 80 | 81 | 82 | 83 | 84 | 85 | 86 | 87 | 88 | 89 | 90 | 91 | 92 | 93 | 94 | 95 | Row 2: Roads, Bridges, Crossings, Traffic
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ * | 96 | 97 | 98 | 99 |100 |101 |102 |103 |104 |105 |106 |107 |108 |109 |110 |111 |112 |113 |114 |115 |116 |117 |118 |119 |120 |121 |122 |123 |124 |125 |126 |127 | Row 3: Traffic (continued)
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ * |128 |129 |130 |131 |132 |133 |134 |135 |136 |137 |138 |139 |140 |141 |142 |143 |144 |145 |146 |147 |148 |149 |150 |151 |152 |153 |154 |155 |156 |157 |158 |159 | Row 4: Traffic (continued)
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ * |160 |161 |162 |163 |164 |165 |166 |167 |168 |169 |170 |171 |172 |173 |174 |175 |176 |177 |178 |179 |180 |181 |182 |183 |184 |185 |186 |187 |188 |189 |190 |191 | Row 5: Traffic (continued)
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ * |192 |193 |194 |195 |196 |197 |198 |199 |200 |201 |202 |203 |204 |205 |206 |207 |208 |209 |210 |211 |212 |213 |214 |215 |216 |217 |218 |219 |220 |221 |222 |223 | Row 6: Traffic, Power Lines
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ * |224 |225 |226 |227 |228 |229 |230 |231 |232 |233 |234 |235 |236 |237 |238 |239 |240 |241 |242 |243 |244 |245 |246 |247 |248 |249 |250 |251 |252 |253 |254 |255 | Row 7: Rail, Rail crossings, Residential zones
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ * |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... |... | Rows 8-29: Residential, Commercial, Industrial zones
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ * |928 |929 |930 |931 |932 |933 |934 |935 |936 |937 |938 |939 |940 |941 |942 |943 |944 |945 |946 |947 |948 |949 |950 |951 |952 |953 |954 |955 |956 |957 |958 |959 | Row 29: Stadium games, Bridge parts
+ * +----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
+ *
+ * Special crossing tiles:
+ * - HROADPOWER (77): Horizontal road with vertical power line (crossing)
+ * - VROADPOWER (78): Vertical road with horizontal power line (crossing)
+ * - RAILHPOWERV (221): Horizontal rail with vertical power line
+ * - RAILVPOWERH (222): Vertical rail with horizontal power line
+ * - HRAILROAD (237): Horizontal rail with vertical road
+ * - VRAILROAD (238): Vertical rail with horizontal road
+ */
+
+ #define DIRT		0
+ #define RIVER		2
+ #define REDGE		3
+ #define CHANNEL		4
+ #define FIRSTRIVEDGE	5
+ #define LASTRIVEDGE	20
+ #define TREEBASE	21
+ #define LASTTREE	36
+ #define WOODS		37
+ #define UNUSED_TRASH1	38
+ #define UNUSED_TRASH2	39
+ #define WOODS2		40
+ #define WOODS3		41
+ #define WOODS4		42
+ #define WOODS5		43
+ #define RUBBLE		44
+ #define LASTRUBBLE	47
+ #define FLOOD		48
+ #define LASTFLOOD	51
+ #define RADTILE		52
+ #define UNUSED_TRASH3	53
+ #define UNUSED_TRASH4	54
+ #define UNUSED_TRASH5	55
+ #define FIRE		56
+ #define FIREBASE	56
+ #define LASTFIRE	63
+ #define ROADBASE	64
+ #define HBRIDGE		64
+ #define VBRIDGE		65
+ /* Road tiles - positioned according to RoadTable[16] index 0-15 */
+ #define ROADS		66  /* East-West road (no connections) - RoadTable[0] */
+ #define ROADS2		67  /* North-South road (no connections) - RoadTable[1] */
+ #define ROADS3		68  /* East-West road with West connection - RoadTable[2] */
+ #define ROADS4		69  /* North-South road with South connection - RoadTable[3] */
+ #define ROADS5		70  /* East-West road with East connection - RoadTable[4] */
+ #define ROADS6		71  /* North-West corner - RoadTable[5] */
+ #define ROADS7		72  /* North-East corner - RoadTable[6] */
+ #define ROADS8		73  /* South-East corner - RoadTable[7] */
+ #define ROADS9		74  /* South-West corner - RoadTable[8] */
+ #define ROADS10		75  /* T-junction - RoadTable[9] */
+ #define ROADS11		76  /* 4-way intersection - RoadTable[15] */
+ #define HROADPOWER	77  /* Horizontal road with vertical power line */
+ #define VROADPOWER	78  /* Vertical road with horizontal power line */
+ #define INTERSECTION	76  /* All connections (same as ROADS11) */
+ #define BRWH		79
+ #define LTRFBASE	80
+ #define BRWV		95
+ #define HTRFBASE	144
+ #define LASTROAD	206
+ #define POWERBASE	208
+ #define HPOWER		208
+ #define VPOWER		209
+ /* Power line tiles - positioned according to WireTable[16] index 0-15 */
+ #define LHPOWER		210  /* Horizontal power line (no connections) - WireTable[0] */
+ #define LVPOWER		211  /* Vertical power line (no connections) - WireTable[1] */
+ #define LVPOWER2	212  /* Horizontal power line with West connection - WireTable[2] */
+ #define LVPOWER3	213  /* Vertical power line with South connection - WireTable[3] */
+ #define LVPOWER4	214  /* Horizontal power line with East connection - WireTable[4] */
+ #define LVPOWER5	215  /* North-West corner power line - WireTable[5] */
+ #define LVPOWER6	216  /* North-East corner power line - WireTable[6] */
+ #define LVPOWER7	217  /* South-East corner power line - WireTable[7] */
+ #define LVPOWER8	218  /* South-West corner power line - WireTable[8] */
+ #define LVPOWER9	219  /* T-junction E-S-W power line - WireTable[9] */
+ #define LVPOWER10	220  /* T-junction N-S-W power line - WireTable[10] */
+ #define RAILHPOWERV	221  /* Horizontal rail with vertical power line */
+ #define RAILVPOWERH	222  /* Vertical rail with horizontal power line */
+ #define LASTPOWER	222
+ #define UNUSED_TRASH6	223
+ #define RAILBASE	224
+ #define HRAIL		224  /* Horizontal rail (no connections) - RailTable[0] */
+ #define VRAIL		225  /* Vertical rail (no connections) - RailTable[1] */
+ /* Rail tiles - positioned according to RailTable[16] index 0-15 */
+ #define LHRAIL		226  /* Horizontal rail (no connections) - RailTable[0] */
+ #define LVRAIL		227  /* Vertical rail (no connections) - RailTable[1] */
+ #define LVRAIL2		228  /* Horizontal rail with West connection - RailTable[2] */
+ #define LVRAIL3		229  /* Vertical rail with South connection - RailTable[3] */
+ #define LVRAIL4		230  /* Horizontal rail with East connection - RailTable[4] */
+ #define LVRAIL5		231  /* North-West corner rail - RailTable[5] */
+ #define LVRAIL6		232  /* North-East corner rail - RailTable[6] */
+ #define LVRAIL7		233  /* South-East corner rail - RailTable[7] */
+ #define LVRAIL8		234  /* South-West corner rail - RailTable[8] */
+ #define LVRAIL9		235  /* T-junction E-S-W rail - RailTable[9] */
+ #define LVRAIL10	236  /* T-junction N-S-W rail - RailTable[10] */
+ #define HRAILROAD	237  /* Horizontal rail with vertical road */
+ #define VRAILROAD	238  /* Vertical rail with horizontal road */
+ #define LASTRAIL	238
+ #define ROADVPOWERH	239 /* bogus? */
+ #define RESBASE		240
+ #define FREEZ		244
+ #define HOUSE		249
+ #define LHTHR		249
+ #define HHTHR		260
+ #define RZB		265
+ #define HOSPITAL	409
+ #define CHURCH		418
+ #define COMBASE		423
+ #define COMCLR		427
+ #define CZB		436
+ #define INDBASE		612
+ #define INDCLR		616
+ #define LASTIND		620
+ #define IND1		621
+ #define IZB		625
+ #define IND2		641
+ #define IND3		644
+ #define IND4		649
+ #define IND5		650
+ #define IND6		676
+ #define IND7		677
+ #define IND8		686
+ #define IND9		689
+ #define PORTBASE	693
+ #define PORT		698
+ #define LASTPORT	708
+ #define AIRPORTBASE	709
+ #define RADAR		711
+ #define AIRPORT		716
+ #define COALBASE	745
+ #define POWERPLANT	750
+ #define LASTPOWERPLANT	760
+ #define FIRESTBASE	761
+ #define FIRESTATION	765
+ #define POLICESTBASE	770
+ #define POLICESTATION	774
+ #define STADIUMBASE	779
+ #define STADIUM		784
+ #define FULLSTADIUM	800
+ #define NUCLEARBASE	811
+ #define NUCLEAR		816
+ #define LASTZONE	826
+ #define LIGHTNINGBOLT	827
+ #define HBRDG0		828
+ #define HBRDG1		829
+ #define HBRDG2		830
+ #define HBRDG3		831
+ #define RADAR0		832
+ #define RADAR1		833
+ #define RADAR2		834
+ #define RADAR3		835
+ #define RADAR4		836
+ #define RADAR5		837
+ #define RADAR6		838
+ #define RADAR7		839
+ #define FOUNTAIN	840
+ #define INDBASE2	844
+ #define TELEBASE	844
+ #define TELELAST	851
+ #define SMOKEBASE	852
+ #define TINYEXP		860
+ #define SOMETINYEXP	864
+ #define LASTTINYEXP	867
+ #define COALSMOKE1	916
+ #define COALSMOKE2	920
+ #define COALSMOKE3	924
+ #define COALSMOKE4	928
+ #define FOOTBALLGAME1	932
+ #define FOOTBALLGAME2	940
+ #define VBRDG0		948
+ #define VBRDG1		949
+ #define VBRDG2		950
+ #define VBRDG3		951
+
+ #define TILE_COUNT	960
+
+/* Other constants */
+#define BSIZE           8       /* Building size? */
+#define TILE_DIRT       0       /* Dirt tile (same as DIRT) */
+#define PWRBIT          0x8000  /* Power bit (same as POWERBIT) */
+
+/* Zone base and limit values */
+#define RESBASE         240     /* Start of residential zones */
+#define LASTRES         420     /* End of residential zones */
+#define COMBASE         423     /* Start of commercial zones */
+#define LASTCOM         611     /* End of commercial zones */
+#define INDBASE         612     /* Start of industrial zones */
+#define LIGHTNINGBOLT   827     /* No-power indicator */
+
+/* Game simulation rate constants */
+#define SPEEDCYCLE      1024  /* The number of cycles before the speed counter loops from 0-1023 */
+#define CENSUSRATE      4     /* Census update rate (once per 4 passes) */
+#define TAXFREQ         48    /* Tax assessment frequency (once per 48 passes) - yearly collection */
+#define VALVEFREQ       16    /* Valve adjustment frequency (once every 16 passes) */
+
+/* Tool states */
+#define residentialState    0
+#define commercialState     1
+#define industrialState     2
+#define fireState           3
+#define policeState         4
+#define wireState           5
+#define roadState           6
+#define railState           7
+#define parkState           8
+#define stadiumState        9
+#define seaportState       10
+#define powerState         11
+#define nuclearState       12
+#define airportState       13
+#define networkState       14
+#define bulldozerState     15
+#define queryState         16
+#define windowState        17
+#define noToolState        18
+
+/* Simulation speed settings */
+#define SPEED_PAUSED     0
+#define SPEED_SLOW       1
+#define SPEED_MEDIUM     2
+#define SPEED_FAST       3
+
+/* Structures */
+extern short Map[WORLD_X][WORLD_Y];      /* The main map */
+extern Byte PopDensity[WORLD_X/2][WORLD_Y/2]; /* Population density map (half size) */
+extern Byte TrfDensity[WORLD_X/2][WORLD_Y/2]; /* Traffic density map (half size) */
+extern Byte PollutionMem[WORLD_X/2][WORLD_Y/2]; /* Pollution density map (half size) */
+extern Byte LandValueMem[WORLD_X/2][WORLD_Y/2]; /* Land value map (half size) */
+extern Byte CrimeMem[WORLD_X/2][WORLD_Y/2];   /* Crime map (half size) */
+
+/* Quarter-sized maps */
+extern Byte TerrainMem[WORLD_X/4][WORLD_Y/4];
+
+/* Eighth-sized maps (SmX x SmY) - matches original Micropolis resolution */
+extern short FireStMap[SmX][SmY];
+extern short FireRate[SmX][SmY];
+extern short PoliceMap[SmX][SmY];
+extern short PoliceMapEffect[SmX][SmY];
+extern short ComRate[SmX][SmY];
+
+/* Rate of growth memory (1/8th size) */
+#define ROGMEM_X (WORLD_X/8)
+#define ROGMEM_Y (WORLD_Y/8+1)
+extern short RateOGMem[ROGMEM_X][ROGMEM_Y];
+
+/* Historical data for graphs */
+extern short ResHis[HISTLEN/2];      /* Residential history */
+extern short ComHis[HISTLEN/2];      /* Commercial history */
+extern short IndHis[HISTLEN/2];      /* Industrial history */
+extern short CrimeHis[HISTLEN/2];    /* Crime history */
+extern short PollutionHis[HISTLEN/2]; /* Pollution history */
+extern short MoneyHis[HISTLEN/2];    /* Cash flow history */
+extern short MiscHis[MISCHISTLEN/2]; /* Miscellaneous history */
+
+/* Runtime simulation state */
+extern int SimSpeed;     /* 0=pause, 1=slow, 2=med, 3=fast */
+extern int SimSpeedMeta; /* Counter for adjusting sim speed, 0-3 */
+extern int SimPaused;    /* 1 if paused, 0 otherwise */
+extern int SimTimerDelay; /* Timer delay in milliseconds based on speed */
+extern int CityTime;     /* City time from 0 to ~32 depending on scenario */
+extern int CityYear;     /* City year from 1900 onwards */
+extern int CityMonth;    /* City month from Jan to Dec */
+extern QUAD TotalFunds;  /* City operating funds */
+extern int CityTax;      /* City tax rate 0-20 */
+
+/* Counters */
+extern short DoInitialEval; /* Run CityEvaluation on first pass */
+extern short Scycle;     /* Simulation cycle counter (0-1023) */
+extern short Fcycle;     /* Frame counter (0-1023) */
+extern short Spdcycle;   /* Speed cycle counter (0-1023) */
+
+/* Game evaluation - defined in s_eval.c */
+extern short CityYes;
+extern short CityNo;
+extern QUAD CityPop;
+extern QUAD deltaCityPop;
+extern QUAD CityAssValue;
+extern short CityScore;
+extern short deltaCityScore;
+extern short AverageCityScore;
+extern short CityClass;
+extern short EvalValid;
+extern short ProblemVotes[];
+extern short ProblemOrder[];
+extern int CityLevel;      /* Mayor level (0-5, 0 is worst) */
+extern int CityLevelPop;   /* Population threshold for level */
+extern int GameLevel;      /* Game level (0=easy, 1=medium, 2=hard) */
+extern short ResCap;       /* Residential capacity reached */
+extern short ComCap;       /* Commercial capacity reached */
+extern short IndCap;       /* Industrial capacity reached */
+
+/* City statistics */
+extern int ResPop;       /* Residential population */
+extern int ComPop;       /* Commercial population */
+extern int IndPop;       /* Industrial population */
+extern int TotalPop;     /* Total population */
+extern int LastTotalPop; /* Previous total population */
+extern float Delta;      /* Population change coefficient */
+
+/* Temporary census accumulation variables removed - Issue #17 fixed
+ * Population counters are now updated directly during map scanning
+ * Modern systems are fast enough that this doesn't cause display flicker
+ */
+
+/* Zone census counts */
+extern int ResZPop;
+extern int ComZPop;
+extern int IndZPop;
+
+/* Infrastructure counts */
+extern short PwrdZCnt;   /* Number of powered zones */
+extern short unPwrdZCnt; /* Number of unpowered zones */
+extern int RoadTotal;    /* Number of road tiles */
+extern int RailTotal;    /* Number of rail tiles */
+extern int FirePop;      /* Number of burning fire tiles */
+extern int FireStPop;    /* Number of fire station zones */
+extern int PolicePop;    /* Number of police station zones */
+extern int StadiumPop;   /* Number of stadium tiles */
+extern int PortPop;      /* Number of seaport tiles */
+extern int APortPop;     /* Number of airport tiles */
+extern int NuclearPop;   /* Number of nuclear plant tiles */
+extern int CoalPop;      /* Number of coal plant tiles */
+
+/* External effects */
+extern int RoadEffect;   /* Road maintenance effectiveness (a function of funding) */
+extern int PoliceEffect; /* Police effectiveness */
+extern int FireEffect;   /* Fire department effectiveness */
+extern short TrafficAverage;
+extern int PolluteAverage; /* Average pollution */
+extern int CrimeAverage; /* Average crime */
+extern int LVAverage;    /* Average land value */
+
+/* Growth rates */
+extern short RValve;     /* Residential development rate */
+extern short CValve;     /* Commercial development rate */
+extern short IValve;     /* Industrial development rate */
+extern short ValveFlag;  /* Set to 1 when valves change */
+
+/* Economic model (from original Micropolis) */
+extern float EMarket;
+extern short CrimeRamp;
+extern short PolluteRamp;
+extern short CashFlow;
+extern short AvCityTax;
+
+/* Disasters */
+extern short DisasterEvent; /* Current disaster type (0=none) - defined in scenarios.c */
+extern short DisasterWait;  /* Countdown to next disaster - defined in scenarios.c */
+extern short ScenarioID;
+extern short ScoreType;
+extern short ScoreWait;
+extern int DisasterLevel;   /* Disaster level */
+extern int DisastersEnabled; /* Enable/disable disasters (0=disabled, 1=enabled) */
+extern short FloodCnt;
+extern short ShakeNow;
+extern short FloodX, FloodY;
+extern short NewPower;
+int DoDisasters();
+int DoFlood();
+extern int NeedHosp;        /* Hospital need: 1=need, 0=ok, -1=excess */
+extern int NeedChurch;      /* Church need: 1=need, 0=ok, -1=excess */
+extern int HospPop;         /* Hospital population count */
+extern int ChurchPop;       /* Church population count */
+
+/* Difficulty level multiplier tables - based on original WiNTown */
+extern float DifficultyTaxEfficiency[3];     /* Tax revenue multipliers [Easy, Medium, Hard] */
+extern float DifficultyMaintenanceCost[3];   /* Road/rail maintenance cost multipliers */
+extern float DifficultyIndustrialGrowth[3];  /* Industrial growth rate multipliers */
+extern short DifficultyDisasterChance[3];    /* Disaster frequency (lower = more frequent) */
+extern short DifficultyMeltdownRisk[3];      /* Nuclear meltdown risk (lower = more dangerous) */
+
+#ifndef _W_SIM_H
+void DoSimInit(void);
+void SimFrame(void);
+void Simulate(int mod16);
+void MapScan(int x1, int x2, int y1, int y2);
+int GetBoatDis(void);
+int SimRandom(int range);
+int Rand(int range);
+short Rand16();
+short Rand16Signed();
+void RandomlySeedRand(void);
+#endif
+void DoTimeStuff(void);
+
+/* Census/valve functions - sim/s_simscan.c (original Micropolis from s_sim.c) */
+int SetValves();
+int ClearCensus();
+int TakeCensus();
+int Take2Census();
+extern short TaxFlag;
+extern short InitSimLoad;
+extern short ResHisMax, ComHisMax, IndHisMax;
+extern short Res2HisMax, Com2HisMax, Ind2HisMax;
+extern short Graph10Max, Graph120Max;
+
+/* Init functions - sim/s_simscan.c (original Micropolis from s_sim.c) */
+int DoNilPower();
+int InitSimMemory();
+int SimLoadInit();
+int TestBounds(int x, int y);
+
+QUAD CalculateCityPopulation(int resPop, int comPop, int indPop);
+int CalculateTotalPopulation(int resPop, int comPop, int indPop);
+void SetTileZone(int x, int y, int tile, int isZone);
+
+#define BUDGET_TYPE_ROAD        0
+#define BUDGET_TYPE_POLICE      1
+#define BUDGET_TYPE_FIRE        2
+void SetSimulationSpeed(HWND hwnd, int speed);
+void CleanupSimTimer(HWND hwnd);
+void SetGameSpeed(int speed);
+void SetGameLevel(int level);
+void PauseSimulation(void);
+void ResumeSimulation(void);
+void TogglePause(void);
+
+/* Functions implemented in sim/s_zone.c (original Micropolis) */
+int DoZone();
+int SetZPower();
+int RZPop(int Ch9);
+int CZPop(int Ch9);
+int IZPop(int Ch9);
+
+/* Functions implemented in sim/s_sim.c (original Micropolis) */
+int DoSPZone(short PwrOn);
+
+/* Functions implemented in sim/s_zone.c (population calculations) */
+int RZPop(int Ch9);
+int CZPop(int Ch9);
+int IZPop(int Ch9);
+
+/* Power stack - sim/s_power.c (original Micropolis) */
+int PushPowerStack();
+int DoPowerScan();
+extern int PowerStackNum;
+
+/* Power-related variables and functions */
+extern int SMapX;
+extern int SMapY;
+extern short CChr;
+extern short CChr9;
+
+/* Traffic-related functions - s_traf.c / traffic.c */
+int MakeTraf();
+int FindPRoad();
+int MoveMapSim(short MDir);
+
+/* Scanning functions - sim/s_simscan.c (original Micropolis from s_sim.c) */
+int DecTrafficMem();
+int DecROGMem();
+int DoRoad();
+int DoRail();
+int DoRadTile();
+int DoBridge();
+int DoFire();
+int FireZone(int Xloc, int Yloc, int ch);
+int RepairZone(short ZCent, short zsize);
+/* GetBoatDis, RandomlySeedRand, SimRandom declared above */
+
+/* Scanner-related variables and functions - s_scan.c */
+extern short CCx, CCy, CCx2, CCy2;
+extern short PolMaxX, PolMaxY;
+extern short CrimeMaxX, CrimeMaxY;
+int FireAnalysis();
+int PopDenScan();
+int PTLScan();
+int CrimeScan();
+
+/* Evaluation-related functions - s_eval.c / eval.c */
+int WinEvalInit();
+int WinCityEvaluation();
+int CountSpecialTiles();
+const char* GetProblemText();
+const char* GetCityClassName();
+int GetTopProblems();
+int GetProblemVotes();
+QUAD GetCityAssessedValue();
+int IsEvaluationValid();
+int GetAverageCityScore();
+
+/* Budget-related variables and functions - budget.c */
+extern float RoadPercent;      /* Road funding percentage (0.0-1.0) */
+extern float PolicePercent;    /* Police funding percentage (0.0-1.0) */
+extern float FirePercent;      /* Fire funding percentage (0.0-1.0) */
+extern QUAD RoadFund;          /* Required road funding amount */
+extern QUAD PoliceFund;        /* Required police funding amount */
+extern QUAD FireFund;          /* Required fire funding amount */
+extern QUAD RoadSpend;         /* Actual road spending */
+extern QUAD PoliceSpend;       /* Actual police spending */
+extern QUAD FireSpend;         /* Actual fire spending */
+extern QUAD TaxFund;           /* Tax income for current year */
+extern int AutoBudget;         /* Auto-budget enabled flag */
+extern int AutoBulldoze;       /* Auto-bulldoze enabled flag */
+extern int AutoGo;             /* Auto-scroll to event locations */
+
+void InitBudget(void);         /* Initialize budget system */
+int CollectTax();
+int UpdateFundEffects();
+int SetCommonInits();
+void Spend(QUAD amount);       /* Spend funds (negative = income) */
+void DoBudget(void);           /* Process budget allocation */
+QUAD GetTaxIncome(void);       /* Get current tax income */
+QUAD GetBudgetBalance(void);   /* Get current budget balance */
+int GetRoadEffect(void);       /* Get road effectiveness */
+int GetPoliceEffect(void);     /* Get police effectiveness */
+int GetFireEffect(void);       /* Get fire department effectiveness */
+void SetRoadPercent(float percent);      /* Set road funding percentage */
+void SetPolicePercent(float percent);    /* Set police funding percentage */
+void SetFirePercent(float percent);      /* Set fire department funding percentage */
+void SetBudgetPercent(int budgetType, float percent);  /* Unified budget percentage setter */
+
+/* Scenario functions (scenarios.c) */
+int loadScenario(int scenarioId);        /* Load a scenario by ID */
+void scenarioDisaster(void);             /* Process scenario disasters */
+int DoScenarioScore(int scoreType);          /* Evaluate scenario victory conditions */
+
+/* Disaster functions - s_disast.c (originals) / disastr.c (wrappers) */
+int MakeEarthquake();
+int MakeFlood();
+int MakeFire();
+int MakeMeltdown();
+int SetFire();
+int Vunerable();
+int MakeMonster();
+int MakeTornado();
+int MakeExplosion();
+int DoMeltdown();
+int DropFireBombs();
+extern short CrashX, CrashY;
+
+/* Earthquake screen shake effects (main.c) */
+void DoEarthQuake(void);              /* Start earthquake screen shake */
+void stopEarthquake(void);               /* Stop earthquake screen shake */
+
+/* File I/O functions (main.c) */
+int loadFile(char *filename);    /* Load city file data */
+
+/* Budget window functions (main.c) */
+void ShowBudgetWindow(HWND parent);  /* Display budget management window */
+int ShowBudgetWindowAndWait(HWND parent);  /* Show budget window during budget cycle */
+
+/* Animation functions (animation.c) */
+void AnimateTiles(void);            /* Process animations for the entire map */
+void SetAnimationEnabled(int enabled);  /* Enable or disable animations */
+int GetAnimationEnabled(void);      /* Get animation enabled status */
+void DoSetSmoke(int x, int y);        /* Set smoke animation for coal plants */
+void UpdateFire(int x, int y);      /* Update fire animations */
+void UpdateNuclearPower(int x, int y);  /* Update nuclear power plant animations */
+void UpdateAirportRadar(int x, int y);  /* Update airport radar animation */
+void UpdateSpecialAnimations(void); /* Update all special animations */
+
+#ifndef TRUE
+#define TRUE 1
+#endif
+#ifndef FALSE
+#define FALSE 0
+#endif
+
+#define BLBNBIT (BULLBIT|BURNBIT)
+#define PROBNUM 10
+#define SHI 4
+
+#define POWERMAPROW ((WORLD_X + 15) / 16)
+#define PWRMAPSIZE (POWERMAPROW * WORLD_Y)
+#define POWERWORD(x, y) (((x) >>4) + ((y) <<3))
+#define SETPOWERBIT(x, y) (PowerMap[POWERWORD(x, y)] |= (1 << ((x) & 0xf)))
+#define PWRSTKSIZE ((WORLD_X * WORLD_Y) / 4)
+
+#define ALMAP 0
+#define REMAP 1
+#define COMAP 2
+#define INMAP 3
+#define PRMAP 4
+#define RDMAP 5
+#define PDMAP 6
+#define RGMAP 7
+#define TDMAP 8
+#define PLMAP 9
+#define CRMAP 10
+#define LVMAP 11
+#define FIMAP 12
+#define POMAP 13
+#define DYMAP 14
+#define NMAPS 15
+
+extern short PowerMap[];
+/* Rand16, Rand16Signed, Rand declared above */
+extern FireBomb();
+
+extern Byte tem[HWLDX][HWLDY];
+extern Byte tem2[HWLDX][HWLDY];
+extern short STem[SmX][SmY];
+extern Byte Qtem[QWX][QWY];
+
+#define NoDisasters (!DisastersEnabled)
+#define MakeExplosionAt(px, py) MakeExplosion((px) >> 4, (py) >> 4)
+#ifndef _W_SIM_H
+#define SeedRand(s) srand((unsigned int)(s))
+#endif
+#define GenerateNewCity _orig_GenerateNewCity
+#define GenerateSomeCity _orig_GenerateSomeCity
+
+#define ChangeEval()
+#define ChangeCensus()
+#define drawCurrPercents()
+#define ckfree(p)
+#define gettimeofday(a,b) 0
+#define InitWillStuff()
+#define ResetMapState()
+#define ResetEditorState()
+#define InvalidateEditors()
+#define InvalidateMaps()
+#define UpdateFunds()
+#define Eval(x)
+#define Kick()
+
+static char *_bridgeCityFileName;
+#define CityFileName _bridgeCityFileName
+static struct { long tv_usec; long tv_sec; } start_time;
+
+#ifdef _W_SIM_H
+static struct { SimSprite *sprite; } _sim_stub;
+#define sim (&_sim_stub)
+short _orig_Rand(short range);
+int _orig_Rand16();
+int _orig_Rand16Signed();
+#endif
+
+#endif /* _SIM_H */
+

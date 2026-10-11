@@ -2830,39 +2830,57 @@ O2USHORT __cdecl WinMessageBox(O2HWND parent, O2HWND owner,
     HWND wh;
     UINT flags;
     int rc;
+    MEMORY_BASIC_INFORMATION mbi;
+    char modulePath[MAX_PATH];
     (void)parent; (void)id;
+    strcpy(modulePath, "(unknown DLL)");
+    if (VirtualQuery((const void *)WinMessageBox, &mbi, sizeof(mbi))) {
+        if (!GetModuleFileNameA((HMODULE)mbi.AllocationBase, modulePath, sizeof(modulePath)))
+            strcpy(modulePath, "(path unavailable)");
+        modulePath[sizeof(modulePath)-1] = 0;
+    }
+    fprintf(stderr, "PMWIN-MB-R12 dll=%s style=%08lx buttons=%lu\n",
+            modulePath, (unsigned long)style, (unsigned long)(style & 15UL));
+    fflush(stderr);
     wh = native_hwnd(owner);
     if (!wh || wh == GetDesktopWindow())
         wh = NULL;
-    flags = MB_OK;
-    if (style & O2_MB_ICONEXCLAMATION)
-    /* OS/2 and Win32 use different button/icon encodings. In particular
+/*    flags = MB_OK;
+    if (style & O2_MB_ICONEXCLAMATION)*/
+    /* Native values below are deliberately independent of MB_* macros.
+     * OS/2 and Win32 use different button/icon encodings. In particular
      * OS/2 YESNO=4 must return MBID_YES=6, not DID_OK=1. */
     switch (style & 0x000fUL) {
-    case 0: flags = MB_OK; break;
-    case 1: flags = MB_OKCANCEL; break;
-    case 2: flags = MB_RETRYCANCEL; break;
-    case 3: flags = MB_ABORTRETRYIGNORE; break;
-    case 4: flags = MB_YESNO; break;
-    case 5: flags = MB_YESNOCANCEL; break;
+    case 0: flags = 0x00000000U; /* Win32 MB_OK */ break;
+    case 1: flags = 0x00000001U; /* Win32 MB_OKCANCEL */ break;
+    case 2: flags = 0x00000005U; /* Win32 MB_RETRYCANCEL */ break;
+    case 3: flags = 0x00000002U; /* Win32 MB_ABORTRETRYIGNORE */ break;
+    case 4: flags = 0x00000004U; /* Win32 MB_YESNO */ break;
+    case 5: flags = 0x00000003U; /* Win32 MB_YESNOCANCEL */ break;
     default:
         /* Do not turn an unsupported choice into an affirmative result. */
+        fprintf(stderr, "PMWIN-MB-R12 unsupported button layout\n");
+        fflush(stderr);
         return (O2USHORT)0xffffU;
     }
     switch (style & 0x00f0UL) {
-    case 0x10: flags |= MB_ICONQUESTION; break;
-    case 0x20: flags |= MB_ICONEXCLAMATION; break;
-    case 0x30: flags |= MB_ICONASTERISK; break;
-    case 0x40: flags |= MB_ICONHAND; break;
+    case 0x10: flags |= 0x00000020U; /* Win32 MB_ICONQUESTION */ break;
+    case 0x20: flags |= 0x00000030U; /* Win32 MB_ICONEXCLAMATION */ break;
+    case 0x30: flags |= 0x00000040U; /* Win32 MB_ICONASTERISK */ break;
+    case 0x40: flags |= 0x00000010U; /* Win32 MB_ICONHAND */ break;
     }
     switch (style & 0x0300UL) {
-    case 0x0100: flags |= MB_DEFBUTTON2; break;
-    case 0x0200: flags |= MB_DEFBUTTON3; break;
+    case 0x0100: flags |= 0x00000100U; /* Win32 MB_DEFBUTTON2 */ break;
+    case 0x0200: flags |= 0x00000200U; /* Win32 MB_DEFBUTTON3 */ break;
     }
-    if (style & 0x1000UL) flags |= MB_SYSTEMMODAL;
+    if (style & 0x1000UL) flags |= 0x00001000U; /* Win32 MB_SYSTEMMODAL */
+    fprintf(stderr, "PMWIN-MB-R12 native flags=%08lx\n", (unsigned long)flags);
+    fflush(stderr);
     rc = MessageBoxA(wh, text ? text : "", caption ? caption : "", flags);
+    fprintf(stderr, "PMWIN-MB-R12 native result=%d\n", rc);
+    fflush(stderr);
     /* Standard OK/Cancel/Abort/Retry/Ignore/Yes/No IDs agree (1..7). */
-    if (rc >= IDOK && rc <= IDNO) return (O2USHORT)rc;
+    if (rc >= 1 && rc <= 7) return (O2USHORT)rc;
     return (O2USHORT)0xffffU;
 }
 

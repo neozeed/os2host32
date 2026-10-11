@@ -1,0 +1,11 @@
+sim.obj anim.obj animtab.obj budget.obj +
+eval.obj disastr.obj tiles.obj sprite.obj +
+tools.obj notify.obj charts.obj scenario.obj +
+s_disast.obj s_eval.obj s_gen.obj s_power.obj +
+s_scan.obj s_sim_pm.obj s_traf.obj s_zone.obj +
+os2pm_main.obj os2bmp.obj pm_bridge.obj cityio.obj
+wintown2 /NOE /NOI /NOD:OLDNAMES /NOD:LIBCRT /NOD:LIBGCC /STACK:384000
+nul.map
+libc.lib +
+os2386.lib
+wintown2.def;

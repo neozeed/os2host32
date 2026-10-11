@@ -1,0 +1,144 @@
+#include <os2.h>
+#include "os2pm/pm_ids.h"
+
+MENU ID_PM_RESOURCES
+BEGIN
+    SUBMENU "~City", 10
+    BEGIN
+        MENUITEM "~New city\tCtrl+N", IDM_NEW
+        MENUITEM "~Open city...\tCtrl+O", IDM_OPEN
+        MENUITEM "~Save city as...\tCtrl+S", IDM_SAVE
+        MENUITEM SEPARATOR
+        MENUITEM "E~xit\tCtrl+Q", IDM_EXIT
+    END
+    SUBMENU "~Simulation", 11
+    BEGIN
+        MENUITEM "~Pause\tCtrl+P", IDM_PAUSE
+        MENUITEM "~Slow\tCtrl+L", IDM_SLOW
+        MENUITEM "~Normal\tCtrl+M", IDM_MEDIUM
+        MENUITEM "~Fast\tCtrl+F", IDM_FAST
+    END
+    SUBMENU "~Tools", 12
+    BEGIN
+        MENUITEM "~Residential\t5", 200
+        MENUITEM "~Commercial\t6", 201
+        MENUITEM "~Industrial\t7", 202
+        MENUITEM "~Fire station", 203
+        MENUITEM "~Police station", 204
+        MENUITEM "~Wire\t4", 205
+        MENUITEM "R~oad\t2", 206
+        MENUITEM "R~ail\t3", 207
+        MENUITEM "Par~k\t8", 208
+        MENUITEM "~Stadium", 209
+        MENUITEM "S~eaport", 210
+        MENUITEM "Coa~l power", 211
+        MENUITEM "N~uclear power", 212
+        MENUITEM "Airpor~t", 213
+        MENUITEM "~Bulldozer\t1", 214
+        MENUITEM "~Query", 215
+        MENUITEM "~No tool", 216
+    END
+    SUBMENU "~Windows", 13
+    BEGIN
+        MENUITEM "~Log", IDM_LOG
+        MENUITEM "~Info", IDM_INFO
+        MENUITEM "~Charts", IDM_CHART
+        MENUITEM "~Minimap", IDM_MINIMAP
+    END
+    SUBMENU "~Budget", 15
+    BEGIN
+        MENUITEM "~Summary", IDM_BUDGET
+        MENUITEM "Tax +1%", IDM_TAX_UP
+        MENUITEM "Tax -1%", IDM_TAX_DOWN
+        MENUITEM "Road funding +25% (wrap)", IDM_ROAD_FUND
+        MENUITEM "Fire funding +25% (wrap)", IDM_FIRE_FUND
+        MENUITEM "Police funding +25% (wrap)", IDM_POLICE_FUND
+        MENUITEM "Toggle auto budget", IDM_AUTOBUDGET
+    END
+    SUBMENU "S~cenarios", 16
+    BEGIN
+        MENUITEM "Dullsville", 300
+        MENUITEM "San Francisco", 301
+        MENUITEM "Hamburg", 302
+        MENUITEM "Bern", 303
+        MENUITEM "Tokyo", 304
+        MENUITEM "Detroit", 305
+        MENUITEM "Boston", 306
+        MENUITEM "Rio de Janeiro", 307
+    END
+    SUBMENU "~Help", 14
+    BEGIN
+        MENUITEM "~About / keys", IDM_ABOUT
+    END
+END
+
+ACCELTABLE ID_PM_RESOURCES
+BEGIN
+    "^n", IDM_NEW
+    "^o", IDM_OPEN
+    "^s", IDM_SAVE
+    "^q", IDM_EXIT
+    "^p", IDM_PAUSE
+    "^l", IDM_SLOW
+    "^m", IDM_MEDIUM
+    "^f", IDM_FAST
+    "1", 214
+    "2", 206
+    "3", 207
+    "4", 205
+    "5", 200
+    "6", 201
+    "7", 202
+    "8", 208
+END
+
+DLGTEMPLATE ID_PATH_DIALOG
+BEGIN
+    DIALOG "City file", ID_PATH_DIALOG, 20, 20, 240, 65,
+           WS_VISIBLE, FCF_TITLEBAR | FCF_SYSMENU
+    BEGIN
+        LTEXT "File path (relative to the game directory):", -1, 8, 46, 224, 10
+        ENTRYFIELD "", ID_PATH_TEXT, 8, 30, 224, 12, ES_AUTOSCROLL
+        DEFPUSHBUTTON "OK", DID_OK, 110, 7, 55, 14
+        PUSHBUTTON "Cancel", DID_CANCEL, 175, 7, 55, 14
+    END
+END
+
+MENU ID_MINIMAP_RESOURCES
+BEGIN
+    SUBMENU "~View", 20
+    BEGIN
+        MENUITEM "All zones", IDM_MINIMAP_FIRST+0
+        MENUITEM "Residential", IDM_MINIMAP_FIRST+1
+        MENUITEM "Commercial", IDM_MINIMAP_FIRST+2
+        MENUITEM "Industrial", IDM_MINIMAP_FIRST+3
+        MENUITEM "Power", IDM_MINIMAP_FIRST+4
+        MENUITEM "Transport", IDM_MINIMAP_FIRST+5
+        MENUITEM "Population", IDM_MINIMAP_FIRST+6
+        MENUITEM "Traffic", IDM_MINIMAP_FIRST+7
+        MENUITEM "Pollution", IDM_MINIMAP_FIRST+8
+        MENUITEM "Crime", IDM_MINIMAP_FIRST+9
+        MENUITEM "Land value", IDM_MINIMAP_FIRST+10
+        MENUITEM "Fire coverage", IDM_MINIMAP_FIRST+11
+        MENUITEM "Police coverage", IDM_MINIMAP_FIRST+12
+    END
+END
+
+DLGTEMPLATE ID_NEW_DIALOG
+BEGIN
+    DIALOG "New city", ID_NEW_DIALOG, 20, 20, 280, 160,
+           WS_VISIBLE, FCF_TITLEBAR | FCF_SYSMENU
+    BEGIN
+        LTEXT "City ~name:", -1, 8, 138, 55, 10
+        ENTRYFIELD "", ID_NEW_NAME, 68, 136, 202, 12, ES_AUTOSCROLL
+        LTEXT "~Difficulty:", -1, 8, 114, 55, 10
+        PUSHBUTTON "Easy ($50,000)", ID_NEW_DIFFICULTY, 68, 110, 140, 18
+        LTEXT "~Terrain:", -1, 8, 90, 55, 10
+        PUSHBUTTON "Random", ID_NEW_TERRAIN, 68, 86, 140, 18
+        LTEXT "", ID_NEW_DESCRIPTION, 8, 65, 264, 12
+        LTEXT "Click difficulty or terrain to cycle choices.", -1, 8, 48, 264, 10
+        LTEXT "Create replaces the current unsaved city.", -1, 8, 32, 264, 10
+        DEFPUSHBUTTON "Create", DID_OK, 145, 7, 58, 16
+        PUSHBUTTON "Cancel", DID_CANCEL, 212, 7, 58, 16
+    END
+END

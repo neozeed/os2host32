@@ -1,0 +1,9 @@
+WinTown/2 initial PM source port, 2026-09-30
+Upstream: https://github.com/tenox7/wintown
+WinTown commit: e5dd8978b0cd38a1f051a4d00381c9542c9e7f6e
+Micropolis submodule commit: 0f1b7240695ae29075f2a6e03ec4609829c7577f
+
+Local changes are described in README.OS2.md. The archive includes the
+submodule sources; no recursive clone is needed to build this package.
+The submodule has one local fix: s_eval.c VoteProblems bounds check.
+attic/hello-simcity is the previous Micropolis PM reference, not a dependency.
